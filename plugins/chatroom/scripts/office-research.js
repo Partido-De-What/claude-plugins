@@ -449,10 +449,10 @@ export function createResearch(ctx) {
   })();
   const tapeGeo = new THREE.PlaneGeometry(1.25, 0.14), tapeMat = new THREE.MeshBasicMaterial({map: hazard, side: THREE.DoubleSide, toneMapped: false});
   // on the top edge of the worker's monitor, flat and facing up (seen from above, away from the call-budget bar on the desk's front edge, office-viz.js)
-  const lightGeo = new THREE.BoxGeometry(0.9, 0.05, 0.05), trackGeo = new THREE.PlaneGeometry(0.9, 0.03), fillGeo = new THREE.PlaneGeometry(0.9, 0.03).translate(0.45, 0, 0);
+  const lightGeo = new THREE.BoxGeometry(0.9, 0.09, 0.07), trackGeo = new THREE.PlaneGeometry(0.9, 0.03), fillGeo = new THREE.PlaneGeometry(0.9, 0.03).translate(0.45, 0, 0);
   const trackMat = new THREE.MeshBasicMaterial({color: '#27414c', toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2});
   const hitGeo = new THREE.BoxGeometry(1.3, 1.2, 1.1), hitMat = new THREE.MeshBasicMaterial();
-  const puffGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1), puffMat = new THREE.MeshBasicMaterial({color: '#56626a', transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false});
+  const puffGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14), puffMat = new THREE.MeshBasicMaterial({color: '#56626a', transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false});
   const benchState = (d, name) => {
     const w = d.workers[name], run = d.pending && d.pending.worker === name ? d.pending : null;
     const mine = d.attempts.filter(a => a.worker === name && a.kind === 'attempt'), last = mine[mine.length - 1];
@@ -463,7 +463,7 @@ export function createResearch(ctx) {
     const mat = () => new THREE.MeshBasicMaterial({color: PAL.run, toneMapped: false, transparent: true});
     const light = new THREE.Mesh(lightGeo, mat()), track = new THREE.Mesh(trackGeo, trackMat), fill = new THREE.Mesh(fillGeo, mat());
     track.rotation.x = fill.rotation.x = -Math.PI / 2;                                                 // the light is a thin box standing on the monitor: seen from any side
-    light.position.set(0, 1.515, -0.33); track.position.set(0, 1.488, -0.285); fill.position.set(-0.45, 1.49, -0.285);
+    light.position.set(0, 1.53, -0.33); track.position.set(0, 1.488, -0.285); fill.position.set(-0.45, 1.49, -0.285);
     const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false;
     const hit = new THREE.Mesh(hitGeo, hitMat); hit.visible = false; hit.position.set(0, 0.85, 0.1); hit.userData.worker = name;       // raycast ignores `visible`: the box is found, never drawn
     desk.g.add(light, track, fill, tape, hit); benchHits.push(hit);
@@ -491,15 +491,15 @@ export function createResearch(ctx) {
         b.light.material.color.set(col); b.fill.material.color.set(st.run && Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts) > data.contract.budget_s ? PAL.warn : PAL.run);
         b.fill.visible = b.track.visible = !!st.run; b.tape.visible = st.paused;
         if (st.run) b.fill.scale.x = Math.max(0.001, Math.min(1, (Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts)) / data.contract.budget_s));
-        if (st.crashed && !b.smoke) { b.smoke = new THREE.InstancedMesh(puffGeo, puffMat, 9); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke); }
+        if (st.crashed && !b.smoke) { b.smoke = new THREE.InstancedMesh(puffGeo, puffMat, 10); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke); }
         if (b.smoke) b.smoke.visible = st.crashed;
       }
       const st = b.st; if (!st) continue;
       b.light.material.opacity = st.run ? 0.55 + 0.45 * Math.sin(t * 5) : st.paused || st.crashed ? 1 : 0.35;
       if (b.smoke && st.crashed) {
-        for (let i = 0; i < 9; i++) {
-          const ph = (t * 0.45 + i / 9) % 1; _s3.setScalar(0.5 + ph * 1.6);
-          _m4.compose(_v3.set(Math.sin(i * 2.1 + t) * 0.06 * ph, 1.25 + ph * 0.85, -0.3 + Math.cos(i * 1.7) * 0.05), _q, _s3); b.smoke.setMatrixAt(i, _m4);
+        for (let i = 0; i < 10; i++) {
+          const ph = (t * 0.4 + i / 10) % 1; _s3.setScalar(0.6 + ph * 1.8);
+          _m4.compose(_v3.set(Math.sin(i * 2.1 + t) * 0.12 * ph, 1.6 + ph * 1.0, -0.3 + Math.cos(i * 1.7) * 0.08), _q, _s3); b.smoke.setMatrixAt(i, _m4);
         }
         b.smoke.instanceMatrix.needsUpdate = true;
       }
