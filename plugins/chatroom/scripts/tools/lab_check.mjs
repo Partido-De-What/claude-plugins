@@ -1,8 +1,10 @@
 // Self-check of office-lab.js without a browser: every picture draws inside its canvas, the hexagon lattice repeats every w x h pixels,
 // and the wall band covers the walls but not the doors. Run: node tools/lab_check.mjs (exit 0 = ok)
 import assert from 'node:assert/strict';
-import {FLOOR, THEME, PALETTE, MODELS, hexAt, install, item, withLab} from '../office-lab.js';
-import {CATALOG} from '../office-layout.js';
+globalThis.location = {search: ''};                      // office-research.js (imported by the lab) reads it
+const {FLOOR, THEME, PALETTE, MODELS, hexAt, install, item, withLab} = await import('../office-lab.js');
+const {CATALOG} = await import('../office-layout.js');
+const {CLEAR} = await import('../office-research.js');
 import {PX} from '../office-floor.js';
 
 for (const [name, K] of Object.entries(FLOOR.kinds)) {
@@ -45,5 +47,7 @@ assert(item({type: 'cabinet', pack: 'x', x: 1, z: 2}, V).b[3] === 15, 'cabinet a
 assert(item({type: 'cubicle', model: 'cubicle', args: []}, V).b[0] === -20, 'item() builds a lab model by name');
 assert.equal(item({type: 'plantTall', model: 'plantTall', args: []}, V), null, 'item() leaves the rest to the office');
 assert.equal(item({type: 'couch', pack: 'p'}, V), 'pack', 'couch tinted through packModel');
-const plan = withLab([{type: 'plantTall'}]); assert.equal(plan.length, 2); assert.equal(withLab(plan).length, 2, 'the hood is added once');
+const plan = withLab([{type: 'plantTall', x: 0, z: 0}, {type: 'rack', x: -7.5, z: -9.45}, {type: 'cabinet', x: 7.4, z: -9.55}]);
+assert.equal(plan.length, 2, 'the rack and the cabinet under the research panels go, the hood comes'); assert.equal(withLab(plan).length, 2, 'the hood is added once');
+assert(CLEAR.length >= 2 && CLEAR.every(c => c.z1 <= -8), 'CLEAR spans on the north wall');
 console.log('lab_check: ok', Object.keys(FLOOR.kinds).length, 'kinds', THEME.wall, PALETTE.cyan);

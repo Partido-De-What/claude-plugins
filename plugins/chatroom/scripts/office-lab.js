@@ -9,6 +9,7 @@
 // for a placed item, or null), withLab() (the items the lab adds to the plan) and SIGNS (the look of the signs).
 import {PX, rnd, shade, dot, speckle, makeTexture} from './office-floor.js';
 import {CATALOG} from './office-layout.js';
+import {CLEAR} from './office-research.js';             // the wall spans the research panels use (office-research.js): the furniture stays out of them
 
 /** the colours of the lab, and the states: the same everywhere in the plugin (3D and 2D) */
 export const PALETTE = {
@@ -302,5 +303,9 @@ export function item(it, Vm) {
   if (TINT[it.type] && it.pack) return V.packModel(it.pack, {...it, tint: TINT[it.type]});
   return null;
 }
-/** the items of the plan plus what the lab adds: a fume hood against the south wall of the meeting room (once: a saved plan keeps its own) */
-export const withLab = items => items.some(it => it.type === 'fumeHood') ? items : [...items, {type: 'fumeHood', x: 12, z: 9.5, rot: Math.PI}];
+/** the items of the plan for the lab: without the pieces standing where the research panels hang (no mesh, no collision box either), plus a fume hood against
+ *  the south wall of the meeting room (once: a saved plan keeps its own) */
+export function withLab(items) {
+  const kept = items.filter(it => !CLEAR.some(c => it.x >= c.x0 && it.x <= c.x1 && it.z >= c.z0 && it.z <= c.z1));
+  return kept.some(it => it.type === 'fumeHood') ? kept : [...kept, {type: 'fumeHood', x: 12, z: 9.5, rot: Math.PI}];
+}
