@@ -62,7 +62,7 @@ const fit = (g, text, w) => { let s = String(text); if (g.measureText(s).width <
 export function createResearch(ctx) {
   const {THREE, V, scene, renderer, camera, dom, lang = () => 'en', paused = () => false, pov = () => false, url = 'research.json', every = 2500} = ctx;
   const PAL = ctx.lab?.PALETTE || FALLBACK;
-  const root = new THREE.Group(); root.name = 'research'; scene.add(root);
+  const root = new THREE.Group(); root.name = 'research'; root.visible = false; scene.add(root);          // shown when the room has a research to show (a room in research mode may not have started one)
   const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2(), tmp = new THREE.Vector3();
   const aniso = renderer.capabilities.getMaxAnisotropy();
   let lastT = 0, armAngle = 0, ver = 0, refutedN = 0, data = null, key = '', skew = 0, drawnLang = '', busy = false, disposed = false;
