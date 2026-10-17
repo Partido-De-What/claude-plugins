@@ -9,7 +9,7 @@ import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as V from './office-voxel.js';
-import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, LEAD3_ITEMS} from './office-layout.js';
+import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, findWorkstation, LEAD3_ITEMS} from './office-layout.js';
 import {createEditor} from './office-edit.js';
 import {createTV, createRadio, createLofi, createMixer, mixLevel} from './office-tv.js';
 import {createArcade, ARCADE_AT} from './office-arcade.js';
@@ -502,16 +502,10 @@ function addPod() {
 let noRoom = false;                                                        // the last search found no free floor: not searched again until the floor changes
 function addWorkstation() {
   if (noRoom) return null;
-  const cx =DESKS.reduce((a, d) => a + d.g.position.x, 0) / Math.max(1, DESKS.length), cz = DESKS.reduce((a, d) => a + d.g.position.z, 0) / Math.max(1, DESKS.length);
-  const fits = (x, z) => { for (let dx = -1.0; dx <= 1.0; dx += 0.25) for (let dz = -0.6; dz <= 1.3; dz += 0.25) if (FLOOR.blocked(x + dx, z + dz, 0.05)) return false; return true; };
-  let best = null;
-  for (let x = -SIZE_X / 2 + 1.5; x < SIZE_X / 2 - 1.5; x += 0.5) for (let z = -SIZE_Z / 2 + 1; z < SIZE_Z / 2 - 1.5; z += 0.5)
-    if (fits(x, z) && (!best || Math.hypot(x - cx, z - cz) < best.d)) best = {x, z, d: Math.hypot(x - cx, z - cz)};
-  if (!best) { noRoom = true; return null; }
-  const out = {boxes: [], desks: []};
-  workstation(out, best.x, best.z, 0);
-  FLOOR.addBoxes(out.boxes); outCache.clear();
-  const d = buildDesk(out.desks[0], DESKS.length); DESKS.push(d); climb = null;
+  const found = findWorkstation(FLOOR, {size: LAYOUT.size, desks: DESKS, seats: DESKS.map(d => d.seat.pos)});       // a spot that shuts no passage to a seat
+  if (!found) { noRoom = true; return null; }
+  outCache.clear();
+  const d = buildDesk(found.out.desks[0], DESKS.length); DESKS.push(d); climb = null;
   return d;
 }
 function deskLayout(names) {

@@ -340,6 +340,28 @@ export function resolve(layout, {packSize = null} = {}) {
   return out;
 }
 
+/** Where one more single desk goes (for an agent when every desk is taken): the free spot nearest to the desks, kept only if every seat, the new one too,
+ *  can still be walked to from `from` (a fixed point of the plaza) as well as before: a desk that shuts a passage is taken back and the next spot is tried.
+ *  floor: floorPlan(); size: the office's [x, z]; desks: [{g: {position}}]; seats: [{x, z}] of the desks that stand. The boxes of the one kept are in
+ *  floor already; returns {x, z, out} (out: workstation()'s boxes and desks), or null when no spot is good. */
+export function findWorkstation(floor, {size: [sx, sz], desks, seats, from = {x: -1, z: 3}, tries = 12}) {
+  const n = Math.max(1, desks.length), cx = desks.reduce((a, d) => a + d.g.position.x, 0) / n, cz = desks.reduce((a, d) => a + d.g.position.z, 0) / n;
+  const fits = (x, z) => { for (let dx = -1.0; dx <= 1.0; dx += 0.25) for (let dz = -0.6; dz <= 1.3; dz += 0.25) if (floor.blocked(x + dx, z + dz, 0.05)) return false; return true; };
+  const spots = [];
+  for (let x = -sx / 2 + 1.5; x < sx / 2 - 1.5; x += 0.5) for (let z = -sz / 2 + 1; z < sz / 2 - 1.5; z += 0.5) if (fits(x, z)) spots.push({x, z, d: Math.hypot(x - cx, z - cz)});
+  spots.sort((a, b) => a.d - b.d);
+  const shut = list => floor.shutOff(from, list);                                          // seats nobody can walk to
+  const before = shut(seats);
+  for (const s of spots.slice(0, tries)) {
+    const out = {boxes: [], desks: []};
+    workstation(out, s.x, s.z, 0);
+    floor.addBoxes(out.boxes);
+    if (shut([...seats, {x: s.x, z: s.z + 0.78}]) <= before) return {x: s.x, z: s.z, out};
+    floor.dropBoxes(out.boxes);
+  }
+  return null;
+}
+
 // ------------------------------------------------------------------ walking: what blocks, and the way around it
 /** The floor for walking: the layout's boxes plus the desk pods as they get built (setPods). blocked() tests a body
  *  of radius r; route() is A* on a grid of `cell` metres, 8 neighbours without cutting corners, with the corners
@@ -432,13 +454,32 @@ export function floorPlan(layout, placed, {body = 0.2, cell = 0.25} = {}) {
     for (let i = 0; i < pts.length; i++) if (i === pts.length - 1 || !clear(a, pts[i + 1])) { out.push(pts[i]); a = pts[i]; }
     return out;
   }
+  /** how many of `points` cannot be walked to from `from`: one flood over the grid, the same cells route() walks (8 neighbours, no corners cut, the goal is the free cell nearest to the point) */
+  function shutOff(from, points) {
+    const g = free(), s = nearestCell(from);
+    if (s < 0) return points.length;
+    const seen = new Uint8Array(N), stack = [s];
+    seen[s] = 1;
+    while (stack.length) {
+      const k = stack.pop(), x = k % GW, y = (k - x) / GW;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const nx = x + dx, ny = y + dy, n = ny * GW + nx;
+        if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= GW || ny >= GH || !g[n] || seen[n]) continue;
+        if (dx && dy && (!g[y * GW + nx] || !g[ny * GW + x])) continue;
+        seen[n] = 1; stack.push(n);
+      }
+    }
+    return points.filter(p => { const k = nearestCell(p); return k < 0 || !seen[k]; }).length;
+  }
   return {
-    blocked, clear, route,
+    blocked, clear, route, shutOff,
     nearest(p) { const k = nearestCell(p); return k < 0 ? null : {x: cx(k), z: cz(k)}; },
     setPods(pods) { boxes = [...placed.boxes, ...pods.map(p => ({x: p.cx, z: p.z0, hw: 1.7, hd: 0.85, rot: 0}))]; all = extra.length ? [...boxes, ...extra] : boxes; grid = null; },
     /** walkable rectangles beyond the room ({x0, z0, x1, z1}) and extra obstacles (boxes); the grid is rebuilt */
     setExtra(walk = [], obstacles = []) { open = walk; extra = obstacles; all = extra.length ? [...boxes, ...extra] : boxes; grid = null; },
     /** furniture added while running (a workstation for an extra agent) */
     addBoxes(list) { boxes = [...boxes, ...list]; all = extra.length ? [...boxes, ...extra] : boxes; grid = null; },
+    /** takes back boxes given to addBoxes (the same objects): a desk tried and not kept */
+    dropBoxes(list) { boxes = boxes.filter(b => !list.includes(b)); all = extra.length ? [...boxes, ...extra] : boxes; grid = null; },
   };
 }

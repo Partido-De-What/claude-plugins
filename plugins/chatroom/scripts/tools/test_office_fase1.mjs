@@ -38,6 +38,48 @@ const {ARCADE_AT} = await import(url('office-arcade.js'));
   }
 }
 
+// ------------------------------------------------------------------ a new desk shuts no passage (the office grows with the agents)
+{
+  const {workstation, findWorkstation} = await import(url('office-layout.js'));
+  const grow = (target, rule) => {                                       // the pod blocks and single desks as office.js adds them, until `target` desks stand
+    const placed = resolve(DEFAULT_LAYOUT), floor = floorPlan(DEFAULT_LAYOUT, placed), at = (x, z, r = 0) => ({x: x + Math.sin(r) * 0.78, z: z + Math.cos(r) * 0.78});
+    const desks = placed.desks.map(d => ({g: {position: {x: d.x, z: d.z}}, seat: at(d.x, d.z, d.rot)}));
+    const addPod = () => {
+      for (const [x, z] of DEFAULT_LAYOUT.podSlots) {
+        let free = true;
+        for (let dx = -2; dx <= 2 && free; dx += 0.25) for (let dz = -2; dz <= 2; dz += 0.25) if (floor.blocked(x + dx, z + dz, 0.05)) { free = false; break; }
+        if (!free) continue;
+        const r = resolve({items: [{type: 'pod', x, z}], pods: DEFAULT_LAYOUT.pods}); floor.addBoxes(r.boxes);
+        for (const d of r.desks) desks.push({g: {position: {x: d.x, z: d.z}}, seat: at(d.x, d.z, d.rot)});
+        return true;
+      }
+      return false;
+    };
+    const greedy = () => {                                               // the rule of 0.11: the free spot nearest to the desks, whatever it shuts
+      const cx = desks.reduce((a, d) => a + d.g.position.x, 0) / desks.length, cz = desks.reduce((a, d) => a + d.g.position.z, 0) / desks.length;
+      const fits = (x, z) => { for (let dx = -1.0; dx <= 1.0; dx += 0.25) for (let dz = -0.6; dz <= 1.3; dz += 0.25) if (floor.blocked(x + dx, z + dz, 0.05)) return false; return true; };
+      let best = null;
+      for (let x = -DEFAULT_LAYOUT.size[0] / 2 + 1.5; x < DEFAULT_LAYOUT.size[0] / 2 - 1.5; x += 0.5) for (let z = -DEFAULT_LAYOUT.size[1] / 2 + 1; z < DEFAULT_LAYOUT.size[1] / 2 - 1.5; z += 0.5)
+        if (fits(x, z) && (!best || Math.hypot(x - cx, z - cz) < best.d)) best = {x, z, d: Math.hypot(x - cx, z - cz)};
+      if (!best) return false;
+      const out = {boxes: [], desks: []}; workstation(out, best.x, best.z, 0); floor.addBoxes(out.boxes); desks.push({g: {position: {x: best.x, z: best.z}}, seat: at(best.x, best.z)});
+      return true;
+    };
+    const careful = () => { const f = findWorkstation(floor, {size: DEFAULT_LAYOUT.size, desks, seats: desks.map(d => d.seat)}); if (!f) return false; desks.push({g: {position: {x: f.x, z: f.z}}, seat: at(f.x, f.z)}); return true; };
+    while (desks.length < target) if (!addPod() && !(rule === 'greedy' ? greedy() : careful())) break;
+    return {desks: desks.length, shut: floor.shutOff({x: -1, z: 3}, desks.map(d => d.seat))};
+  };
+  test('desks: the rule of 0.11 shuts seats off at 20 desks (the case the new rule is for)', () => { const r = grow(20, 'greedy'); return r.shut > 0 ? '' : `${r.shut} seats shut`; });
+  for (const n of [20, 26]) test(`desks: with ${n} desks every seat can still be walked to from the plaza`, () => { const r = grow(n, 'careful'); return r.desks === n && r.shut === 0 ? '' : `${r.desks} desks, ${r.shut} seats shut`; });
+  test('desks: shutOff counts what route() cannot reach', () => {
+    const placed = resolve(DEFAULT_LAYOUT), fp = floorPlan(DEFAULT_LAYOUT, placed), from = {x: -1, z: 3};
+    const pts = [{x: 4, z: 8}, {x: 12, z: -7.7}, {x: 0.4, z: 5.5}, {x: -12, z: 4}];
+    const byRoute = pts.filter(p => !fp.route(from, p)).length;
+    return fp.shutOff(from, pts) === byRoute ? '' : `flood ${fp.shutOff(from, pts)}, route ${byRoute}`;
+  });
+  test('desks: office.js puts a new desk only where findWorkstation keeps the seats reachable', () => (/findWorkstation\(FLOOR,/.test(src('office.js')) ? '' : 'addWorkstation does not use findWorkstation'));
+}
+
 // ------------------------------------------------------------------ the view turns round the eye (T2): the source guard
 test('first person: the eye is pinned on the body axis and eyeLead is gone', () => {
   const o = src('office.js');
