@@ -141,7 +141,9 @@ const VISIT = new URLSearchParams(location.search).has('visit');            // v
 const VISIT_URL = 'visit.json' + (new URLSearchParams(location.search).get('visit') ? '?who=' + encodeURIComponent(new URLSearchParams(location.search).get('visit')) : '');
 const getJson = url => fetch(url, {cache: 'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null);
 // the pack models (before the room is built), the user's own office if they furnished one, their look, a friend's office on a visit: together
-const [, saved, settingsJson, visitJson] = await Promise.all([V.loadPack('vendor/office-pack.json'), getJson('office.json'), getJson('settings.json'), VISIT ? getJson(VISIT_URL) : null]);
+const [, saved, settingsJson, visitJson, cfgJson] = await Promise.all([V.loadPack('vendor/office-pack.json'), getJson('office.json'), getJson('settings.json'), VISIT ? getJson(VISIT_URL) : null, getJson('config.json')]);
+// a research room (config mode 'research') is the laboratory: office-lab.js recolours the floor, the walls, the ceiling and the light; the normal office never loads it
+const LAB = !VISIT && cfgJson?.mode === 'research' ? await import('./office-lab.js') : null;
 let visit = visitJson, myLook = settingsJson?.avatar || null;
 // the console of the first default offices stood at the height of the TV's picture, in front of it, and an office saved then keeps it there:
 // it is set on the floor beside the TV when the layout loads (only the one that was never moved)
@@ -159,19 +161,20 @@ const FLOOR = floorPlan(LAYOUT, PLACED);
 const [SIZE_X, SIZE_Z] = LAYOUT.size;
 const add = (m, x, y, z, ry = 0) => { m.position.set(x, y, z); m.rotation.y = ry; scene.add(m); return m; };
 
-scene.add(buildFloor({THREE, renderer, size: LAYOUT.size, base: LAYOUT.floor.base, zones: LAYOUT.floor.zones}));   // pixel-art textures per zone
+scene.add(buildFloor({THREE, renderer, size: LAYOUT.size, base: LAYOUT.floor.base, zones: LAYOUT.floor.zones, theme: LAB?.FLOOR}));   // pixel-art textures per zone
 const cutaway = [];
 for (const w of PLACED.walls) {
   const cells = Math.round(w.len / 0.25), c = ([u, v]) => [Math.floor(u / 0.25 + 0.01), Math.ceil(v / 0.25 - 0.01) - 1];
   const holes = w.windows.map(c), doors = w.doors.map(c);
-  const full = add(V.blindWall(cells, 12, holes, '#ece8e1', doors), w.a[0], 0, w.a[1], w.rot);
-  const stub = add(V.blindWall(cells, 2, [], '#ece8e1', doors), w.a[0], 0, w.a[1], w.rot);
+  const full = add(V.blindWall(cells, 12, holes, LAB?.THEME.wall ?? '#ece8e1', doors, LAB?.THEME.wallPal), w.a[0], 0, w.a[1], w.rot);
+  const stub = add(V.blindWall(cells, 2, [], LAB?.THEME.wall ?? '#ece8e1', doors, LAB?.THEME.wallPal), w.a[0], 0, w.a[1], w.rot);
   cutaway.push({full, stub, mid: new THREE.Vector3(w.mid[0], 0, w.mid[1]), out: new THREE.Vector3(w.out[0], 0, w.out[1])});
   for (const [u, v] of w.windows) {                                        // the glass in each window
     const mid = (u + v) / 2, p = new THREE.Mesh(new THREE.PlaneGeometry(v - u, 1.75), V.WINDOW); p.renderOrder = 2;
     full.attach(add(p, w.a[0] + w.dx / w.len * mid, 1.62, w.a[1] + w.dz / w.len * mid, w.rot));
   }
 }
+LAB?.install({THREE, renderer, scene, PLACED});
 for (const g of PLACED.glass) {
   add(V.glassFrame(g.len, g.doors.length ? g.doors : null), g.a[0], 0, g.a[1], g.rot);
   let from = 0;
@@ -240,7 +243,7 @@ for (const [x, y, z] of [...(PLACED.fx.light || []), ...(LAYOUT.lights || [])]) 
 // ceiling and its light panels: first person only
 const ceiling = new THREE.Group();
 {
-  const p = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, SIZE_Z), new THREE.MeshStandardMaterial({color: '#e9e6df', roughness: 0.95}));
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, SIZE_Z), new THREE.MeshStandardMaterial({color: LAB?.THEME.ceiling ?? '#e9e6df', roughness: 0.95}));
   p.rotation.x = Math.PI / 2; p.position.y = 3; ceiling.add(p);
   for (let x = -SIZE_X / 2 + 3; x < SIZE_X / 2 - 1; x += 4) for (let z = -SIZE_Z / 2 + 2.5; z < SIZE_Z / 2 - 1; z += 4) {
     const l = V.ceilingLight(); l.position.set(x, 2.99, z); ceiling.add(l);
@@ -287,6 +290,7 @@ function drawSky(hour) {
   hemi.intensity = night ? 0.8 : 0.85;
   for (const l of lamps) l.intensity = night ? 4.5 : dusk ? 2.5 : 1.0;
   scene.background.set(night ? '#11131d' : '#1c1f2c');
+  LAB?.sky({sun, hemi, lamps, night, dusk});
 }
 
 // boards on the walls: TV with the live chat, whiteboard (kanban), clock, coffee sign, the boss's nameplate
