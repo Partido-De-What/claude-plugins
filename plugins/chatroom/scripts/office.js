@@ -1711,13 +1711,34 @@ new ResizeObserver(resize).observe(root);
 
 // ------------------------------------------------------------------ tags over the heads
 const _v = new THREE.Vector3();
+/** With many people the name tags pile up on each other and none can be read. The ones that matter come first (you, the selected one, those with a flag
+ *  or a bubble, the lead, then the nearer): each takes its place if it is free; else it shrinks to its name; else it hides (its figure still answers a click). */
+function declutter(items) {
+  items.sort((a, b) => b.prio - a.prio);
+  const placed = [], hits = r => placed.some(q => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0);
+  for (const it of items) {
+    it.lod = 0;
+    if (!it.vis) continue;
+    // sizes in CSS px at scale 1, measured on the tags of the dev preview (name 26 high, ring 29, line 20, flags 21)
+    const rect = compact => {
+      const wd = Math.max(30 + 7.6 * (compact ? it.titleChars : it.chars), compact ? 0 : Math.min(220, 14 + 6.2 * it.lineChars), compact || !it.nFlags ? 0 : 20 + 70 * it.nFlags);
+      const ht = 26 + it.ring + it.extra + (compact ? 0 : (it.lineChars ? 20 : 0) + (it.nFlags ? 21 : 0));
+      return {x0: it.x - wd * it.scale / 2, x1: it.x + wd * it.scale / 2, y0: it.y - ht * it.scale, y1: it.y};
+    };
+    let r = rect(false);
+    if (hits(r)) { it.lod = 1; r = rect(true); }
+    if (hits(r)) { it.lod = 2; continue; }
+    placed.push(r);
+  }
+}
 function placeTags() {
   const L = ui.t(), w = root.clientWidth, h = root.clientHeight, now = Date.now() / 1000;
-  const all = [...people.values(), ...remote.values(), boss, assistant, hostFigure, ...otherLeads.values()].filter(Boolean);
+  const all = [...people.values(), ...remote.values(), boss, assistant, hostFigure, ...otherLeads.values()].filter(Boolean), items = [];
   for (const p of all) {
     _v.copy(p.head()); _v.y += 0.25; const dist = camera.position.distanceTo(_v); _v.project(camera);
     const vis = _v.z < 1 && Math.abs(_v.x) < 1.2 && Math.abs(_v.y) < 1.2 && !(p === boss && !boss.parts.head.visible) && p.root.visible;
-    ui.place(p.name, (_v.x * 0.5 + 0.5) * w, (-_v.y * 0.5 + 0.5) * h, vis, Math.max(0.72, Math.min(1.12, 14 / dist)));
+    const it = {name: p.name, x: (_v.x * 0.5 + 0.5) * w, y: (-_v.y * 0.5 + 0.5) * h, vis, scale: Math.max(0.72, Math.min(1.12, 14 / dist)), prio: -dist, chars: 8, titleChars: 8, lineChars: 0, nFlags: 0, ring: 0, extra: 0, lod: 0};
+    items.push(it);
     const pr = DATA.profile(p.name), d = D.per[p.name], bubble = p.bubble && p.bubble.until > now ? p.bubble : null;
     const flags = [];
     let line = '', title = p.name, sub = pr.model, emoji = pr.emoji, pct = null;
@@ -1751,8 +1772,13 @@ function placeTags() {
       else line = `${EMOJI.think} ${L.think}`;
     }
     if (muted) { line = ''; }
+    it.prio += (p === boss ? 1000 : selected === p.name ? 900 : 0) + (flags.length ? 500 : 0) + (bubble && !muted ? 400 : 0) + (p === assistant ? 300 : 0);
+    it.titleChars = String(title).length; it.chars = it.titleChars + (sub ? String(sub).length + 1 : 0); it.extra = bubble && !muted ? 50 : 0;
+    it.lineChars = String(line).length; it.nFlags = flags.length; it.ring = pct != null ? 29 : 0;
     ui.tag(p.name, {title, sub, emoji, color: pr.color, pct, line, flags, bubble: bubble && !muted ? ({status: '📝 ', idle: '💤 ', vote: '🗳 '}[bubble.kind] || '') + String(bubble.text).replace(/\s+/g, ' ').slice(0, bubble.kind === 'status' || bubble.kind === 'idle' ? 90 : 150) : '', bubbleKind: bubble?.kind});
   }
+  declutter(items);
+  for (const it of items) ui.place(it.name, it.x, it.y, it.vis, it.scale, it.lod);
   const work = D.names.filter(n => !D.per[n].idle && !D.per[n].a?.waiting).length, idle = D.names.filter(n => D.per[n].idle).length;
   const pcts = D.names.map(n => D.per[n].pct).filter(x => x !== null);
   const yes = D.names.filter(n => D.per[n].vote === 'yes').length;

@@ -21,6 +21,7 @@ body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox) { displa
 #office .o-name b { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 #office .o-name small { font-weight: 500; opacity: .7; font-size: 10.5px; }
 #office .o-ring { width: 26px; height: 26px; }
+#office .o-compact .o-flags, #office .o-compact .o-line, #office .o-compact .o-tl, #office .o-compact .o-name small { display: none; }
 #office .o-line { font-size: 11px; padding: 1px 6px; background: #0d0e14b3; border-radius: 3px; max-width: 220px; overflow: hidden;
   text-overflow: ellipsis; }
 #office .o-bubble { max-width: 240px; white-space: normal; background: #fffdf6; color: #1b1b22; padding: 6px 9px; border-radius: 4px;
@@ -358,10 +359,11 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
     setLang(x) { lang = x === 'en' ? 'en' : 'it'; I18N.fetchLang(lang); },
     t,
     /** place a tag at screen x, y (CSS pixels); visible false hides it */
-    place(name, x, y, visible, scale = 1) {
-      const l = label(name), at = `${visible ? 1 : 0}|${x.toFixed(1)}|${y.toFixed(1)}|${scale.toFixed(3)}`;
+    place(name, x, y, visible, scale = 1, lod = 0) {                       // lod: 0 the whole tag, 1 only the name and the ring (others are in its way), 2 hidden
+      const l = label(name), at = `${visible ? 1 : 0}|${x.toFixed(1)}|${y.toFixed(1)}|${scale.toFixed(3)}|${lod}`;
       if (at === l.at) return;                                            // a still camera: the same place, nothing to write (16 times a second)
       l.at = at;
+      l.el.classList.toggle('o-compact', lod === 1); l.el.style.visibility = lod === 2 ? 'hidden' : '';
       l.el.style.opacity = visible ? '1' : '0';
       l.el.style.left = x + 'px'; l.el.style.top = y + 'px';
       l.el.style.transform = `translate(-50%, -100%) scale(${scale})`;
