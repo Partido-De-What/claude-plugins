@@ -36,6 +36,14 @@ Le funzioni della CLI senza niente di visivo (help, MCP, migrazioni, prestazioni
 | 0.11.0 | lingua della stanza (it/en) | solo nei testi | bandierina sull'insegna e clic per cambiare lingua (POST `config` come il viewer) | 0.12 |
 | 0.8.21 | scoperte (`--finding`) | solo viewer 2D (pillola gialla) | 💡 sull'etichetta per 60 s | 0.12, dati nel client |
 
+## Stato a fine batch 2 (commit nel log, prova in test_office_fase1.mjs e nell'anteprima dev)
+
+Costruiti in `office-viz.js`: pannello CHECK (`/check.json`, clic = apre il messaggio), badge `!!! #N` e 💡 sulle etichette, linea dei tag (una per
+coppia, ambra aperta, verde per 25 s dopo la risposta), lampada "tutti fermi", barre del budget di chiamate (una draw call per tutte), pacchi dei
+prestiti, bandierina della lingua con clic. Misura: draw call +5 (423 -> 428, +1.2%) con tutto acceso.
+Non costruito: i pacchi tra stanze diverse (soccorso fra due sedute: la bacheca è di una stanza sola) e il selettore it/en dentro il viewer 2D (c'è già
+nelle impostazioni, `fLang`; la bandierina nel 3D lo raggiunge con un clic).
+
 ## Candidati scartati o rimandati
 
 | Funzione | Perché no |
