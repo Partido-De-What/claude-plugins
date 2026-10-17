@@ -702,14 +702,19 @@ window.addEventListener('chatroom:neighbor', e => {
   }
   nLastN.set(title, top);
 });
-let neighborsText = '', neighborsBusy = false;
+let neighborsText = '', neighborsBusy = false, neighborsHeard = 0;
+// the viewer already asks for neighbors.json every 3 s and hands the text over: the office asks by itself only when that stops
+window.addEventListener('chatroom:neighbors', e => { if (VISIT) return; neighborsHeard = Date.now(); if (e.detail) applyNeighbors(e.detail); });
 async function pollNeighbors() {
-  if (VISIT || neighborsBusy) return;
+  if (VISIT || neighborsBusy || Date.now() - neighborsHeard < 6000) return;
   neighborsBusy = true;
   try {
     const r = await fetch('neighbors.json', {cache: 'no-store'});
-    if (!r.ok) return;
-    const text = await r.text();
+    if (r.ok) applyNeighbors(await r.text());
+  } catch (e) {} finally { neighborsBusy = false; }
+}
+function applyNeighbors(text) {
+  try {
     if (text === neighborsText) return;                                   // the same rooms doing the same: nothing to work out again
     neighborsText = text;
     const n = JSON.parse(text), list = n.rooms || (n.room ? [{...n.room, rank: n.rank ? 0 : 1}] : []);
@@ -718,16 +723,17 @@ async function pollNeighbors() {
     NEIGH.room = NEIGH.rooms[0] || null;
     NEIGH.profiles = Object.fromEntries(NEIGH.rooms.flatMap(room => room.agents.map(a => [a.key, {emoji: a.emoji, color: a.color, role: '🏢 ' + room.title}])));
     derive();
-  } catch (e) {} finally { neighborsBusy = false; }
+  } catch (e) {}
 }
 setInterval(pollNeighbors, 2500);
 let stateBusy = false;                                                      // a slow answer is never asked for twice at once
 async function pollState() {
-  if ((VISIT && visit) || stateBusy) return;
+  if ((VISIT && visit) || stateBusy || document.hidden || document.body.classList.contains('mode-chat')) return;   // nobody looks at the figures: nothing to ask
   stateBusy = true;
   try { const r = await fetch('state.json?t=' + Date.now(), {cache: 'no-store'}); if (r.ok) { DATA.state = await r.json(); derive(); } } catch (e) {} finally { stateBusy = false; }
 }
-setInterval(pollState, 1000);
+setInterval(pollState, 2500);
+window.addEventListener('chatroom:data', () => pollState());              // a new message: what the agents do has likely changed, ask now
 // the timeline of every agent (activity.py, through /timeline.json): a strip in each tag and a chart in the inspector
 let TL = null;
 async function pollTimeline() {

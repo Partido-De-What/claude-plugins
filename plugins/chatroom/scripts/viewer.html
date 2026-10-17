@@ -650,7 +650,9 @@ async function pollNeighbor() {
   nBusy = true;
   try {
     const rl = await fetch('neighbors.json', {cache: 'no-store'});
-    const list = rl.ok ? ((await rl.json()).rooms || []) : [];
+    const nText = rl.ok ? await rl.text() : '';
+    window.dispatchEvent(new CustomEvent('chatroom:neighbors', {detail: nText}));   // the office reads the same list from here: one request, not two
+    const list = nText ? (JSON.parse(nText).rooms || []) : [];
     const rooms = [];
     for (const it of list) {
       const rc = await fetch('neighbor/config.json?n=' + it.n + '&t=' + Date.now(), {cache: 'no-store'});
