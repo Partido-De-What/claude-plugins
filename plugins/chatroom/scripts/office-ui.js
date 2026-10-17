@@ -40,6 +40,7 @@ body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox) { displa
 #office .o-flag.o-tag { background: #ffca28; color: #222; } #office .o-flag.o-late { background: #ff7043; color: #fff; }
 #office .o-flag.o-idle { background: #455a64; color: #e0e0e0; } #office .o-flag.o-help { background: #26a69a; color: #fff; } #office .o-flag.o-vote-yes { background: #43a047; color: #fff; }
 #office .o-flag.o-vote-no { background: #c62828; color: #fff; }
+#office .o-flag.o-miss { background: #e53935; color: #fff; } #office .o-flag.o-find { background: #ffb74d; color: #222; }
 #office .o-hud { position: absolute; left: 12px; top: 10px; right: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
   pointer-events: none; }
 #office .o-hud > * { pointer-events: auto; }

@@ -15,6 +15,7 @@ import {createTV, createRadio, createLofi, createMixer, mixLevel} from './office
 import {createArcade, ARCADE_AT} from './office-arcade.js';
 import {createGithubWall} from './office-github.js';
 import {buildSigns} from './office-signs.js';
+import {createViz} from './office-viz.js';
 import {createRacks} from './office-rack.js';
 import {buildFloor} from './office-floor.js';
 import {createGames} from './office-games.js';
@@ -450,6 +451,7 @@ function stepPlanes(dt) {
 const SPOTS = new Map();                // name -> {g, scr, beacon, seat, stand, intern}
 const people = new Map();               // name -> Person
 const raycastables = [];
+let viz = null;                                                            // what the harness knows, made visible (office-viz.js)
 let racks = null;                                                          // the rack by each desk (office-rack.js), made once the clickable things exist
 // every cubicle desk is furnished from the start, so an office with few agents still looks lived in; an agent takes
 // the first free desk in the layout's order: its colour goes on the chair cushion and the mug, its screen comes alive
@@ -814,7 +816,7 @@ function derive() {
   }
   const waiting = new Set(names.filter(n => per[n].a?.waiting));
   D = {names, self: selfNames, lead, user, per, plan, closed, waiting, all, hb, now};
-  sync(); events();
+  sync(); events(); viz?.refresh();
 }
 
 // ------------------------------------------------------------------ cast: build and place the figures
@@ -1239,6 +1241,7 @@ async function pollBoard() {
     const r = await fetch('board.json', {cache: 'no-store'}); if (!r.ok) return;
     const text = await r.text(); if (text === boardSig) return;
     boardSig = text; boardData = JSON.parse(text); if (DATA.loaded) drawBoards();
+    viz?.refresh();
   } catch (e) {}
 }
 if (!VISIT) { pollBoard(); setInterval(pollBoard, 3000); }
@@ -1689,6 +1692,7 @@ renderer.domElement.addEventListener('click', e => {
   if (hit?.object.userData.lift) return liftMenu();                                  // the lift: up to the arena
   if (hit?.object.userData.rack) return racks?.open(hit.object.userData.rack);                // the rack by a desk: its processes
   if (hit?.object.userData.github) return github?.open();                          // the GitHub window on the wall: its panel
+  if (hit?.object.userData.viz) return viz.click(hit.object.userData.viz, hit);                 // the CHECK panel (a row opens its message), the language flag
   if (hit?.object.userData.arcade) return arcade?.open();                          // the arcade cabinet: play
   if (hit?.object.userData.lofi) return lofi.toggle();                           // the common room's speakers: music on or off
   if (hit?.object.userData.game) return openGame(hit.object.userData.game);       // a games table: play
@@ -1745,6 +1749,7 @@ function placeTags() {
       if (lent) flags.push(['help', '🤝 ' + lent.lender]);           // a piece lent by a teammate (task help)
       if (d.idle) flags.push(['idle', '💤 ' + L.idle]);
       if (d.vote) flags.push([d.vote === 'yes' ? 'vote-yes' : 'vote-no', `v${D.plan?.v} ${d.vote === 'yes' ? '✓' : '✗'}`]);
+      if (viz) flags.push(...viz.flagsFor(p.name));                                  // "!!! #N": it posted without reading a message for it; 💡: a finding
       if (c) line = `${EMOJI[c]} ${L[c]}${a.target && !a.target.startsWith('chat:') ? ': ' + a.target : ''}`;
       else if (d.idle) line = `${EMOJI.coffee} ${L.coffee}`;
       else line = `${EMOJI.think} ${L.think}`;
@@ -1891,7 +1896,7 @@ function frame(now) {
   if (now - shadowAt > (speed === 'use' ? 33 : speed === 'work' ? 66 : 600)) { shadowAt = now; renderer.shadowMap.needsUpdate = true; }   // figures move, the furniture does not: shadows keep up at 30 a second
   watchCinema();
   nearestLights(t);
-  camera.updateMatrixWorld(); loungeTv.update(t); radio?.update(t); lofi?.update(t); arcade?.update(t, boss?.pos); github?.update(); racks?.update(); lift?.update(dt, level === 'office' ? boss?.pos : null); paintball.update(dt);
+  camera.updateMatrixWorld(); loungeTv.update(t); radio?.update(t); lofi?.update(t); arcade?.update(t, boss?.pos); github?.update(); racks?.update(); viz?.update(dt, t); lift?.update(dt, level === 'office' ? boss?.pos : null); paintball.update(dt);
   const drawAt = performance.now();
   if (quality === 'bassa') renderer.render(scene, camera); else composer.render(dt);
   if (FORCE) window.__officeTimes = {logic: drawAt - startAt, draw: performance.now() - drawAt, scale: dynScale};   // measuring: where a frame's time goes
@@ -2043,6 +2048,20 @@ const arcade = ARC_ON ? createArcade({THREE, scene, camera, raycastables, root, 
 if (arcade) ui.addExtra('arcade', '🕹', 'Arcade', () => arcade.open());
 racks = visit ? null : createRacks({THREE, V, root, raycastables, lang: () => DATA.config.lang,
                                     tail: (name, id) => fetch(`procs.json?name=${encodeURIComponent(name)}&id=${encodeURIComponent(id)}&n=14`, {cache: 'no-store'}).then(r => r.json())});
+// the harness made visible (office-viz.js): the CHECK panel, the tag links, the lamp of the idle room, the budget bars, the parcels, the language flag
+const VD = {
+  get all() { return D.all; }, get tasks() { return boardData?.tasks; }, get per() { return D.per; },
+  get names() { return D.names.filter(n => !D.per[n]?.neighbor); },
+  get who() { if (VD._d !== D) { VD._d = D; VD._who = new Map([...D.names, D.lead, D.user].filter(Boolean).map(n => [n.toLowerCase(), n])); } return VD._who; },
+  get desks() { return [...SPOTS].map(([name, d]) => ({name, g: d.g})); },
+  where: n => (people.get(n) || (n === D.lead ? assistant : n === D.user ? boss : null))?.pos || SPOTS.get(n)?.g.position || null,
+};
+{
+  const sign = (LAYOUT.signs || []).find(s => s.text?.en === 'CONTROL ROOM') || {x: 0.9, y: 2.72, z: -4.7, w: 1.9}, table = LAYOUT.items.find(it => it.type === 'confTable' && it.z < 0);
+  viz = visit || LAB ? null : createViz({THREE, scene, V, raycastables, data: VD, lang: () => DATA.config.lang, say: t => ui.placeName(t), setLang: lg => post('config', {lang: lg}),
+    jump: n => { if (n && window.chatroom) { if (mode === 'office') { mode = 'split'; applyMode(); } window.chatroom.jumpTo(n); } },
+    active: () => mode !== 'chat' && !document.hidden, check: {x: -3.83, y: 1.75, z: -9.85}, lamp: {x: table?.x ?? 1, y: 0.9, z: table?.z ?? -6.6}, flag: {x: sign.x + (sign.w || 1.9) / 2 + 0.3, y: sign.y, z: sign.z}});
+}
 if (!visit) github = createGithubWall({board: ghBoard, frame: ghFrame, raycastables, root, lang: () => DATA.config.lang, paused: officeUnseen, onEnabled: () => ui.addExtra('github', '🐙', 'GitHub', () => github.open())});
 const GAME_TABLES = ITEM_MESHES.filter(m => CATALOG[itemOf(m)?.type]?.game).map(m => {
   const type = itemOf(m).type, [w, d] = CATALOG[type].foot, c = Math.cos(m.rotation.y), s = Math.sin(m.rotation.y);
