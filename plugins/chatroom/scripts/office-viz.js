@@ -213,7 +213,7 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
   const flagMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.24), flagMat);
   flagMesh.position.set(flag.x, flag.y, flag.z); flagMesh.userData.viz = {kind: 'lang'}; group.add(flagMesh); raycastables.push(flagMesh);
   const rod = new THREE.Mesh(new THREE.BoxGeometry(0.02, 3.0 - flag.y - 0.12, 0.02), basic('#8a929e')); rod.position.set(flag.x, (3.0 + flag.y + 0.12) / 2, flag.z); group.add(rod);
-  let flagLang = '';
+  let flagLang = '', wantLang = '';                                       // wantLang: the language asked for, until the viewer has read it back (a second click in between goes on from it)
   const NAMES = {it: 'Italiano', en: 'English'};
 
   // --- what the heads show
@@ -241,6 +241,7 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
   // --- once a frame (nothing allocated here)
   function update(dt, t) {
     const lg = lang() === 'it' ? 'it' : 'en';
+    if (wantLang && lg === wantLang) wantLang = '';
     if (lg !== flagLang) { flagLang = lg; flagMat.map = flagTex[lg]; flagMat.needsUpdate = true; drawPanel(true); }
     if (lampOn) { const k = 0.65 + 0.35 * Math.sin(t * 2); lampMat.color.setRGB(1 * k, 0.72 * k, 0.28 * k); }
     const d = data(), now = Date.now() / 1000;
@@ -267,7 +268,7 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
 
   /** a click on a piece of the panel or on the flag */
   function click(ud, hit) {
-    if (ud.kind === 'lang') { const next = lang() === 'it' ? 'en' : 'it'; setLang(next); say(I18N.text('office.viz.lang.set', {lang: NAMES[next]}, next)); return; }
+    if (ud.kind === 'lang') { const next = (wantLang || lang()) === 'it' ? 'en' : 'it'; wantLang = next; setLang(next); say(I18N.text('office.viz.lang.set', {lang: NAMES[next]}, next)); return; }
     if (ud.kind === 'check' && hit?.uv) {
       const row = Math.floor(((1 - hit.uv.y) * PANEL.h - PANEL.head) / PANEL.row), k = shown[row];
       if (k?.ref) jump(k.ref);
