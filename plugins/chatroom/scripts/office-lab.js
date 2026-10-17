@@ -4,8 +4,11 @@
 // normal office pays nothing for it. Pixel art drawn in a canvas like office-floor.js (same density, same filters), no images.
 //
 // What office.js uses: THEME (colours), FLOOR (for buildFloor), sky() (the light), install() (the wall bands), labTexture() (the
-// same pictures for other modules: the research walls of office-research.js), PALETTE (the colours of the states, for every module).
+// same pictures for other modules: the research walls of office-research.js), PALETTE (the colours of the states, for every module);
+// for the furniture MODELS (the lab's builder for a model name of office-voxel.js, same size as the office's), item() (a lab piece
+// for a placed item, or null), withLab() (the items the lab adds to the plan) and SIGNS (the look of the signs).
 import {PX, rnd, shade, dot, speckle, makeTexture} from './office-floor.js';
+import {CATALOG} from './office-layout.js';
 
 /** the colours of the lab, and the states: the same everywhere in the plugin (3D and 2D) */
 export const PALETTE = {
@@ -144,6 +147,7 @@ export const FLOOR = {
   kinds: KINDS,
 };
 
+let V = null, CTX = null;                                           // office-voxel.js and the context, from install(): the models are built after it
 const made = new Map();
 /** a lab picture as a shared texture (one per name; do not dispose): `labTexture({THREE, renderer}, 'labCircuit')`. Names: the keys of KINDS except labPad */
 export function labTexture(ctx, name) {
@@ -163,7 +167,8 @@ export function sky({sun, hemi, lamps, night, dusk}) {
 
 // ------------------------------------------------------------------ the walls
 /** a band of printed circuit along the foot of every outer wall (one mesh, one draw call), but not across the doors: PLACED.walls from office-layout.js resolve() */
-export function install({THREE, renderer, scene, PLACED}) {
+export function install(ctx) {
+  const {THREE, renderer, scene, PLACED} = ctx; V = ctx.V; CTX = ctx;
   const map = labTexture({THREE, renderer}, 'labTrace'), H = KINDS.labTrace.h / PX, Y0 = 0.26, OUT = 0.13;   // 13 cm: the face of the wall (12.5) and 5 mm
   const pos = [], nor = [], uv = [], idx = [];
   for (const w of PLACED.walls) {
@@ -187,3 +192,113 @@ export function install({THREE, renderer, scene, PLACED}) {
   band.name = 'lab-band'; scene.add(band);
   return {band};
 }
+
+// ------------------------------------------------------------------ the furniture
+// The lab's builders carry the names of office-voxel.js and the same size and pivot: the plan (collision boxes, seats, desks) does not change.
+// Voxel meshes with vertex colours, like the office's: they bake together with the rest (no draw call more).
+const STEEL = '#aeb8c2', STEEL_L = '#c9d3da', STEEL_D = '#6c7781', ESD = '#34444c';
+const vmesh = (v, opts) => V.mesh(v, {scale: 0.05, jitter: 0.03, ...opts});
+
+function workDesk() {                    // 1.6 x 0.8 m, top at 0.7 m: ESD bench top on a steel frame, a perforated panel with a cyan line, a steel pedestal
+  const v = new V.Vox();
+  v.box(0, 13, 0, 31, 13, 15, ESD).box(0, 13, 15, 31, 13, 15, STEEL_L).box(0, 12, 15, 31, 12, 15, STEEL_L).box(0, 13, 0, 0, 13, 15, STEEL_L).box(31, 13, 0, 31, 13, 15, STEEL_L);
+  for (const x of [1, 29]) v.box(x, 1, 7, x + 1, 12, 8, STEEL).box(x, 0, 1, x + 1, 0, 14, STEEL_L);
+  v.box(1, 3, 7, 30, 3, 8, STEEL);                                            // the stretcher between the legs
+  v.box(3, 6, 1, 28, 11, 1, STEEL_L).box(3, 11, 1, 28, 11, 1, PALETTE.cyan);   // panel with a cyan line
+  v.box(5, 11, 3, 18, 11, 5, '#2b3a42');                                      // cable tray
+  v.box(21, 1, 3, 27, 11, 14, '#e3e9ed');
+  for (const y of [4, 8]) v.box(21, y, 14, 27, y, 14, STEEL_D);
+  for (const y of [2, 6, 10]) v.box(23, y, 15, 25, y, 15, PALETTE.cyan);      // handles, standing out
+  return vmesh(v, {pivot: [16, 0, 8], jitter: 0.06});
+}
+function cubicle() {                     // the screens of one cubicle: frosted glass in a steel edge, a cyan line under the frosted strip
+  const v = new V.Vox(), glass = '#b9d3dc';
+  const screen = (x0, x1, z0, z1, h) => {
+    v.box(x0, 0, z0, x1, 1, z1, STEEL_D).box(x0, 2, z0, x1, h - 1, z1, (x, y) => (x + y) % 9 === 0 ? '#cfe3ea' : glass).box(x0, h, z0, x1, h, z1, STEEL);
+  };
+  screen(-20, 20, -20, -19, 22);
+  v.box(-20, 17, -20, 20, 21, -19, '#e6f2f6').box(-20, 16, -20, 20, 16, -19, PALETTE.cyan);
+  screen(-20, -19, -18, 3, 19); screen(18, 19, -18, 3, 19);
+  for (const x of [-20, 20]) v.box(x, 0, -20, x, 22, -19, STEEL);
+  return vmesh(v, {pivot: [0.5, 0, 0.5]});
+}
+function smallDesk() {                   // 1.2 x 0.7 m: white resin top, steel legs, a tablet and a rack of sample tubes
+  const v = new V.Vox();
+  v.box(0, 6, 0, 11, 6, 6, '#e8eef1').box(0, 6, 6, 11, 6, 6, STEEL_L);
+  for (const [x, z] of [[0, 0], [11, 0], [0, 6], [11, 6]]) v.box(x, 0, z, x, 5, z, STEEL);
+  v.box(3, 7, 2, 6, 7, 4, '#202228').box(8, 7, 1, 10, 7, 3, STEEL_D);
+  v.box(8, 8, 1, 8, 8, 2, PALETTE.cyan).box(9, 8, 1, 9, 8, 2, PALETTE.amber).box(10, 8, 1, 10, 8, 2, PALETTE.cyan);
+  return V.mesh(v, {pivot: [6, 0, 3.5]});
+}
+function bossDesk() {                    // the director's desk: white resin, cyan trim, the name plate and a plant kept
+  const v = new V.Vox(), top = '#dfe6eb', side = '#c3ccd3', trim = PALETTE.cyan;
+  v.box(0, 6, 0, 23, 7, 9, top).box(0, 0, 0, 23, 5, 1, side).box(0, 0, 0, 1, 5, 9, side).box(22, 0, 0, 23, 5, 9, side);
+  v.box(0, 7, 0, 23, 7, 0, trim).box(4, 2, -1, 19, 2, -1, trim);
+  v.box(9, 8, 1, 14, 8, 1, '#2b2b2b').box(9, 9, 1, 14, 9, 1, trim);
+  v.box(19, 8, 6, 20, 9, 7, PALETTE.amber).box(19, 10, 6, 20, 10, 7, '#ffffff');
+  v.box(2, 8, 6, 3, 8, 7, '#2e7d32').box(2, 9, 6, 3, 11, 7, '#43a047').set(2, 12, 6, '#66bb6a');
+  return V.mesh(v, {pivot: [12, 0, 5]});
+}
+function confTable() {                   // a white resin table on steel legs
+  const v = new V.Vox(), top = '#dde5ea';
+  v.box(0, 7, 0, 27, 7, 11, top).box(1, 7, 0, 26, 7, 0, STEEL_L);
+  v.box(6, 0, 4, 7, 6, 7, STEEL).box(20, 0, 4, 21, 6, 7, STEEL).box(4, 0, 5, 9, 0, 6, STEEL).box(18, 0, 5, 23, 0, 6, STEEL);
+  v.box(12, 8, 5, 15, 8, 6, '#2b2f38');
+  return V.mesh(v, {pivot: [14, 0, 6]});
+}
+function fumeHood() {                    // 1.2 x 0.7 m: steel base cabinet, ESD work surface, an enclosure with glass sides and an open sash, a duct to the ceiling
+  const v = new V.Vox(), W = 24, D = 14;
+  v.box(0, 0, 0, W - 1, 17, D - 1, STEEL_L).box(0, 0, 0, W - 1, 1, D - 1, STEEL_D);
+  for (const x of [0, 8, 15, 23]) v.box(x, 2, D - 1, x, 16, D - 1, STEEL_D);
+  for (const x of [6, 9, 14, 17]) v.box(x, 11, D, x, 14, D, PALETTE.cyan);
+  v.box(0, 18, 0, W - 1, 18, D - 1, ESD).box(0, 18, D - 1, W - 1, 18, D - 1, STEEL);
+  v.box(0, 19, 0, W - 1, 43, 0, '#bcd6df').box(0, 19, 0, 0, 43, D - 1, '#bcd6df').box(W - 1, 19, 0, W - 1, 43, D - 1, '#bcd6df');
+  v.box(0, 44, 0, W - 1, 45, D - 1, STEEL).box(0, 40, D - 1, W - 1, 43, D - 1, STEEL_L);
+  v.box(2, 41, D - 1, 5, 42, D - 1, '#0f2c36').set(3, 41, D - 1, '#43a047').set(4, 41, D - 1, '#43a047');
+  v.box(0, 19, D - 1, 0, 39, D - 1, STEEL).box(W - 1, 19, D - 1, W - 1, 39, D - 1, STEEL);
+  v.box(9, 46, 4, 14, 59, 9, STEEL_L).box(9, 59, 4, 14, 59, 9, STEEL_D);
+  return vmesh(v, {pivot: [W / 2, 0, D / 2], jitter: 0.02});
+}
+/** the lab's builder for a model name of office-voxel.js (undefined: office.js uses the office's own) */
+export const MODELS = {workDesk, cubicle, smallDesk, bossDesk, confTable, fumeHood};
+CATALOG.fumeHood = {model: 'fumeHood', foot: [1.2, 0.7]};              // a new piece of the catalog: office-layout.js resolve() gives it its box
+
+function labCabinet(it) {                // a tall cabinet of the pack becomes a server rack or a sample fridge, as big as the pack's one
+  const [w, h, d] = V.packSize(it.pack, it.scale ?? 0.065) || [0.8, 1.8, 0.5], seed = V.hashName(it.x + ',' + it.z), r = V.rnd(seed), v = new V.Vox();
+  const W = Math.max(8, Math.round(w / 0.05)), H = Math.max(20, Math.round(h / 0.05)), D = Math.max(6, Math.round(d / 0.05));
+  if (seed % 2) {                        // sample fridge: steel body, dark glass door with cyan shelves, a handle, a status strip
+    v.box(0, 0, 0, W - 1, H - 1, D - 1, STEEL_L).box(0, 0, 0, W - 1, 1, D - 1, STEEL_D);
+    v.box(1, 4, D - 1, W - 2, H - 5, D - 1, '#0f2c36');
+    for (let y = 8; y < H - 5; y += 6) v.box(2, y, D - 1, W - 3, y, D - 1, PALETTE.cyan);
+    v.box(W - 3, 6, D, W - 3, H - 8, D, STEEL).box(2, H - 3, D - 1, W - 3, H - 3, D - 1, '#1f8a98');
+  } else {                               // server rack: dark case, units with vents and status lights
+    v.box(0, 0, 0, W - 1, H - 1, D - 1, '#161b22').box(0, H - 1, 0, W - 1, H - 1, D - 1, STEEL_D);
+    for (let y = 2; y < H - 3; y += 3) {
+      v.box(1, y, D - 1, W - 2, y + 1, D - 1, '#252d38').set(2, y, D - 1, [PALETTE.cyan, '#43a047', PALETTE.amber][Math.floor(r() * 3)]).set(3, y, D - 1, '#43a047');
+      for (let x = 5; x < W - 2; x += 2) v.set(x, y + 1, D - 1, '#161b22');
+    }
+  }
+  return vmesh(v, {pivot: [W / 2, 0, D / 2], jitter: 0.02});
+}
+function labBoard(it) {                  // a blueprint panel in a steel frame instead of the pack's corkboard and wall graph (same size, same place)
+  const {THREE} = CTX, [w, h, d] = V.packSize(it.pack, it.scale ?? 0.065) || [1, 0.8, 0.1], g = new THREE.Group();
+  const W = Math.max(6, Math.round(w / 0.05)), H = Math.max(6, Math.round(h / 0.05)), iw = (W - 2) * 0.05, ih = (H - 2) * 0.05;
+  const frame = vmesh(new V.Vox().box(0, 0, 0, W - 1, 0, 0, STEEL).box(0, H - 1, 0, W - 1, H - 1, 0, STEEL).box(0, 0, 0, 0, H - 1, 0, STEEL).box(W - 1, 0, 0, W - 1, H - 1, 0, STEEL), {pivot: [W / 2, 0, 0]});
+  frame.position.z = -d / 2;
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(iw, ih), new THREE.MeshStandardMaterial({map: labTexture(CTX, 'labBlueprint'), roughness: 0.8}));
+  const uv = plane.geometry.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * iw / KINDS.labBlueprint.m, uv.getY(i) * ih / KINDS.labBlueprint.m);
+  plane.position.set(0, h / 2, -d / 2 + 0.052); g.add(frame, plane);
+  return g;
+}
+const TINT = {couch: {hue: 0.55, sat: 0.5, light: 1.1}};              // the brown couches go blue-grey
+/** a lab piece for a placed item (office-layout.js resolve() item), or null: the office builds it as usual */
+export function item(it, Vm) {
+  V ??= Vm;
+  if (!it.pack && MODELS[it.model]) return MODELS[it.model](...(it.args || []));
+  if (it.type === 'cabinet') return labCabinet(it);
+  if (it.type === 'corkboard' || it.type === 'wallGraph') return labBoard(it);
+  if (TINT[it.type] && it.pack) return V.packModel(it.pack, {...it, tint: TINT[it.type]});
+  return null;
+}
+/** the items of the plan plus what the lab adds: a fume hood against the south wall of the meeting room (once: a saved plan keeps its own) */
+export const withLab = items => items.some(it => it.type === 'fumeHood') ? items : [...items, {type: 'fumeHood', x: 12, z: 9.5, rot: Math.PI}];
