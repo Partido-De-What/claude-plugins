@@ -112,7 +112,7 @@ export const DEFAULT_LAYOUT = {
     {a: [13, -4], b: [13, 1], doors: [[-3.3, -2.3], [-0.8, 0.2]], swing: 'out'},                  // phone booths: doors open outward
     {a: [13, -4], b: [15, -4]}, {a: [13, -1.5], b: [15, -1.5]}, {a: [13, 1], b: [15, 1]},
     {a: [9, 3.5], b: [9, 10]}, {a: [9, 3.5], b: [15, 3.5], doors: [[10, 11]]},                    // meeting room
-    {a: [0, 5], b: [0, 10], doors: [[6.6, 7.6]]}, {a: [0, 5], b: [8, 5], doors: [[3.4, 4.6]]}, {a: [8, 5], b: [8, 10]},  // common room
+    {a: [0, 5], b: [0, 10], doors: [[6.6, 7.6]], noLeaf: true}, {a: [0, 5], b: [8, 5], doors: [[3.4, 4.6]]}, {a: [8, 5], b: [8, 10]},  // common room: the west door has no leaf (it stood in front of the arcade)
   ],
   items: [
     // the boss's office
@@ -320,6 +320,7 @@ export function resolve(layout, {packSize = null} = {}) {
   const roomAt = (x, z) => (layout.rooms || []).find(r => !r.shared && r.it !== 'Open space' && x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1);
   const B = layout.bridge;
   for (const [kind, list] of [['glass', out.glass], ['wall', out.walls]]) for (const w of list) for (const [u, v] of w.doors) {
+    if (w.noLeaf) continue;                                   // a bare doorway: no leaf to draw, no box to bump into
     const ux = w.dx / w.len, uz = w.dz / w.len, at = t => [w.a[0] + ux * t, w.a[1] + uz * t];
     const [mx, mz] = at((u + v) / 2);
     if (kind === 'wall' && B && Math.hypot(mx - B.x, mz - B.z) < 1) { out.doors.push({kind: 'bridge', hinge: at(u), len: v - u, rot: w.rot, open: 0}); continue; }
