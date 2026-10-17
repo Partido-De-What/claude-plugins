@@ -49,7 +49,7 @@ function speaker(el) {
 for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => ac?.state === 'suspended' && ac.resume(), true);
 /** [gain, side] of a sound at `src` whose area is the rectangle `area`, heard by a figure at `me` looking through
  *  `camera`: inside the area 1 and 0; outside it fades with the distance and comes from where it is (right = +1).
- *  `reach` (metres): music stays in its room and is gone this far outside it; without it, the TV's long fade */
+ *  `reach` (metres): the sound stays in its room and is gone this far outside it; without it, a long fade (30 m) */
 export function hear(area, src, me, camera, reach = 0) {
   const d = Math.hypot(Math.max(area.x0 - me.x, 0, me.x - area.x1), Math.max(area.z0 - me.z, 0, me.z - area.z1));
   if (d < 0.05) return [1, 0];
@@ -59,9 +59,11 @@ export function hear(area, src, me, camera, reach = 0) {
   const g = reach ? Math.max(0, 1 - d / reach) ** 2 : Math.max(0, 1 - d / 30) / (1 + d / 3);
   return [g, Math.max(-0.85, Math.min(0.85, side * 0.85 * Math.min(1, d / 2)))];
 }
-// the mixer: a general level and one per source (tv, radio, lofi), each with its own mute, remembered
-const MIX = {master: 1, tv: 1, radio: 1, lofi: 1, mute: {}};
-try { Object.assign(MIX, JSON.parse(localStorage.getItem('chatroom.mix') || '{}')); } catch (e) {}
+// the mixer: a general level and one per source (tv, radio, lofi; the arcade has no slider, only its default), each with its own mute, remembered.
+// The key has a version: 0.12 lowered the defaults, and the levels saved under the old key 'chatroom.mix' are not read (a one-time reset)
+const MIX_KEY = 'chatroom.mix.v2';
+const MIX = {master: 0.3, tv: 0.5, arcade: 0.5, radio: 1, lofi: 1, mute: {}};
+try { Object.assign(MIX, JSON.parse(localStorage.getItem(MIX_KEY) || '{}')); } catch (e) {}
 export const mixLevel = kind => (MIX.mute.master ? 0 : MIX.master) * (MIX.mute[kind] ? 0 : MIX[kind] ?? 1);
 /** move a speaker's gain and side smoothly; the mixer's level for its kind applies on top */
 function steer(nodes, g, p, kind) {
@@ -229,7 +231,7 @@ export function createTV({THREE, scene, camera, renderer, root, tvMesh, table, r
     if (isLocal()) { video.muted = !canSound(); return; }
     if (now.direct) { video.muted = true; aud.muted = !canSound(); return; }          // the stream is picture only; its sound comes beside it, like the player's
     if (audOk) { yt('mute'); aud.muted = !canSound(); return; }
-    yt('setVolume', [Math.round(vol * heard)]);
+    yt('setVolume', [Math.round(vol * heard * mixLevel('tv'))]);
     yt(canSound() ? 'unMute' : 'mute');
   }
   for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => { if (sound) setTimeout(audio, 0); }, {capture: true, once: true});
@@ -523,7 +525,7 @@ export function createTV({THREE, scene, camera, renderer, root, tvMesh, table, r
       if (now.kind !== 'off' && time - heardAt > 0.1) {                         // where the user's figure is: how loud, which side
         heardAt = time;
         const me = ear?.();
-        let side; [heard, side] = me ? hear(area, at, me, camera) : [1, 0];
+        let side; [heard, side] = me ? hear(area, at, me, camera, 4) : [1, 0];     // the TV stays in its room like the radio: gone 4 m outside it
         const nodes = isLocal() ? vNodes : audOk ? aNodes : null;
         if (nodes) steer(nodes, heard * vol / 100, side, 'tv');
         else if (time - flatAt > 0.5) { flatAt = time; yt('setVolume', [Math.round(vol * heard * mixLevel('tv'))]); }
@@ -865,7 +867,7 @@ const MIX_CSS = `
 export function createMixer({root, t, onChange}) {
   const style = document.createElement('style'); style.textContent = MIX_CSS; document.head.appendChild(style);
   let el = null;
-  const save = () => { try { localStorage.setItem('chatroom.mix', JSON.stringify(MIX)); } catch (e) {} onChange?.(); };
+  const save = () => { try { localStorage.setItem(MIX_KEY, JSON.stringify(MIX)); } catch (e) {} onChange?.(); };
   function draw() {
     const L = t(), rows = [['master', L.mixAll], ['tv', 'TV'], ['radio', L.radio], ['lofi', 'Lofi']];
     el.innerHTML = `<b>🔊 ${esc(L.mixTitle)}</b>` + rows.map(([k, name]) => `<div class="o-mixrow"><button data-mute="${k}" title="${esc(name)}">${MIX.mute[k] ? '🔇' : '🔊'}</button>`
