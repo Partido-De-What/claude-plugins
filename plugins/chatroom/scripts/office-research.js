@@ -413,12 +413,100 @@ export function createResearch(ctx) {
   }
   const plaque = panel('plaque', {x: AT.trophy.x, y: 0.42, z: AT.trophy.z + 0.312, w: 0.5, h: 0.2}, 400, drawPlaque);
 
+  // ------------------------------------------------------------------ the benches: a card over the desk of each worker, a light, smoke when a run crashed, tape when it is paused
+  const desks = new Map();                                                                  // agent name -> its desk (office.js attach/detach)
+  const benches = new Map();                                                                // worker name -> {card, light, tape, smoke, key, ...}
+  const hazard = (() => {                                                                   // yellow and black tape: one picture for every bench
+    const c = document.createElement('canvas'); c.width = 128; c.height = 16; const g = c.getContext('2d');
+    g.fillStyle = '#ffd54f'; g.fillRect(0, 0, 128, 16); g.fillStyle = '#1a1a1a';
+    for (let x = -16; x < 144; x += 32) { g.beginPath(); g.moveTo(x, 16); g.lineTo(x + 16, 16); g.lineTo(x + 32, 0); g.lineTo(x + 16, 0); g.closePath(); g.fill(); }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; tex.repeat.set(5, 1); return tex;
+  })();
+  const tapeGeo = new THREE.PlaneGeometry(1.25, 0.14), tapeMat = new THREE.MeshBasicMaterial({map: hazard, side: THREE.DoubleSide, toneMapped: false});
+  const lightGeo = new THREE.PlaneGeometry(0.7, 0.035);
+  const puffGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07), puffMat = new THREE.MeshBasicMaterial({color: '#9aa5ab', transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false});
+  const CARD = {w: 0.8, h: 0.45, ppm: 450};
+  const benchState = (d, name) => {
+    const w = d.workers[name], run = d.pending && d.pending.worker === name ? d.pending : null;
+    const mine = d.attempts.filter(a => a.worker === name && a.kind === 'attempt'), last = mine[mine.length - 1];
+    const fresh = last && last.status === 'crash' && last.ts && (Date.now() / 1000 - skew - last.ts) < 120;       // a crash in the last two minutes smokes
+    return {w, run, paused: !!w.paused, crashed: !!fresh, crashes: w.crashes || 0};
+  };
+  function makeBench(name, desk) {
+    const lw = Math.round(CARD.w * CARD.ppm), lh = Math.round(CARD.h * CARD.ppm), c = document.createElement('canvas');
+    c.width = lw * SS; c.height = lh * SS; const g = c.getContext('2d'); g.scale(SS, SS);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = aniso;
+    const card = new THREE.Mesh(new THREE.PlaneGeometry(CARD.w, CARD.h), new THREE.MeshBasicMaterial({map: tex, toneMapped: false, transparent: true}));
+    card.renderOrder = 3; root.add(card);
+    const light = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({color: PAL.run, toneMapped: false, transparent: true}));
+    light.rotation.x = -Math.PI / 2; light.position.set(0, 0.725, 0.3); desk.g.add(light);
+    const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false; desk.g.add(tape);
+    const b = {name, desk, lw, lh, g, tex, card, light, tape, smoke: null, key: '', puffs: null};
+    benches.set(name, b); return b;
+  }
+  function drawBench(b, st, d) {
+    const {g, lw, lh} = b, col = st.paused ? PAL.warn : st.crashed ? PAL.crash : st.run ? PAL.run : PAL.discard;
+    g.clearRect(0, 0, lw, lh);
+    g.fillStyle = '#0b1318f2'; g.beginPath(); g.roundRect(2, 2, lw - 4, lh - 4, 14); g.fill();
+    g.strokeStyle = col; g.lineWidth = 5; g.stroke();
+    g.textBaseline = 'middle'; g.fillStyle = PAL.white; g.font = `800 26px ${FONT}`; g.fillText(fit(g, b.name, lw - 36), 18, 28);
+    g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(`work-${b.name}${st.w.idea ? ' · ' + st.w.idea : ''}`, 18, 54);
+    g.fillStyle = col; g.font = `700 20px ${FONT}`;
+    let line;
+    if (st.paused) line = I18N.text('office.research.wPaused', {}, lang());
+    else if (st.run) line = I18N.text('office.research.wRunning', {n: st.run.n}, lang());
+    else if (st.crashed) line = I18N.text('office.research.wCrashed', {}, lang());
+    else line = I18N.text('office.research.wIdle', {}, lang());
+    g.fillText(fit(g, line, lw - 36), 18, 86);
+    if (st.run) {                                                                              // the run's budget: a bar that fills, amber past the limit
+      const el = Math.max(0, Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts)), f = Math.min(1, el / d.contract.budget_s);
+      g.fillStyle = '#27414c'; g.fillRect(18, 100, lw - 36, 10); g.fillStyle = el > d.contract.budget_s ? PAL.warn : PAL.run; g.fillRect(18, 100, (lw - 36) * f, 10);
+      g.fillStyle = PAL.steel; g.font = `500 16px ${FONT}`; g.fillText(`${Math.round(el)} / ${d.contract.budget_s} s`, 18, 126);
+      g.fillText(fit(g, st.run.desc || '', lw - 36), 18, 148);
+    } else if (st.crashes) { g.fillStyle = PAL.crash; g.font = `600 18px ${FONT}`; g.fillText(I18N.text('office.research.wCrashes', {n: st.crashes}, lang()), 18, 112); }
+    g.fillStyle = PAL.steel; g.font = `500 17px ${FONT}`;
+    g.fillText(fit(g, st.w.best ? I18N.text('office.research.wBest', {n: st.w.best.n, v: num(st.w.best.metric)}, lang()) : I18N.text('office.research.wNone', {}, lang()), lw - 36), 18, lh - 22);
+    b.tex.needsUpdate = true;
+  }
+  function syncBenches() {
+    for (const [name, b] of benches) if (!data || !data.workers[name] || !desks.has(name) || desks.get(name) !== b.desk) {          // a worker that left, or moved to another desk
+      root.remove(b.card); b.desk.g.remove(b.light, b.tape); b.tex.dispose(); b.card.geometry.dispose(); b.card.material.dispose(); b.light.material.dispose();
+      if (b.smoke) { b.desk.g.remove(b.smoke); b.smoke.dispose(); }
+      benches.delete(name);
+    }
+    if (!data) return;
+    for (const [name, desk] of desks) if (data.workers[name] && !benches.has(name)) makeBench(name, desk);
+  }
+  const _wp = new THREE.Vector3();
+  function updateBenches(t) {
+    for (const b of benches.values()) {
+      const st = benchState(data, b.name), second = Math.floor(Date.now() / 1000);
+      const key = JSON.stringify([st.w, st.run && st.run.n, st.paused, st.crashed, st.crashes, lang(), st.run ? second : 0]);   // the bar moves once a second
+      if (key !== b.key) { b.key = key; drawBench(b, st, data); }
+      b.desk.g.getWorldPosition(_wp); b.card.position.set(_wp.x, 1.75, _wp.z); b.card.quaternion.copy(camera.quaternion);
+      const col = st.paused ? PAL.warn : st.crashed ? PAL.crash : PAL.run;
+      b.light.visible = !!(st.run || st.paused || st.crashed); b.light.material.color.set(col);
+      b.light.material.opacity = st.run ? 0.55 + 0.45 * Math.sin(t * 5) : 0.9;
+      b.tape.visible = st.paused;
+      if (st.crashed && !b.smoke) {
+        b.smoke = new THREE.InstancedMesh(puffGeo, puffMat, 9); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke);
+      }
+      if (b.smoke) {
+        b.smoke.visible = st.crashed;
+        if (st.crashed) { const m = _m4, q = _q, s = _wp; for (let i = 0; i < 9; i++) { const ph = (t * 0.45 + i / 9) % 1; s.setScalar(0.5 + ph * 1.6);
+          m.compose(_v3.set(Math.sin(i * 2.1 + t) * 0.06 * ph + 0.0, 0.85 + ph * 0.75, -0.25 + Math.cos(i * 1.7) * 0.05), q, s); b.smoke.setMatrixAt(i, m); } b.smoke.instanceMatrix.needsUpdate = true; }
+      }
+    }
+  }
+  const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v3 = new THREE.Vector3();
+
   // ------------------------------------------------------------------ the data
   function feed(d) {
     const k = JSON.stringify(d, (kk, v) => kk === 'now' ? undefined : v);
     if (d && d.now) skew = Date.now() / 1000 - d.now;
     if (k === key) return; key = k; data = d && d.enabled ? d : null;
     for (const p of Object.values(panels)) p.dirty = true;
+    syncBenches();
     if (hoverN != null) { const n = hoverN; hoverN = null; setHover(n); }
   }
   async function load() {
@@ -448,6 +536,7 @@ export function createResearch(ctx) {
     setPaper(data.ideas.filter(i => refuted(data, i)).length);
     trophy.cup.visible = plaque.mesh.visible = plaque.frame.visible = !!(data.final && data.final.metric != null);
     if (panels.verdicts.animating) panels.verdicts.dirty = true;                       // a new stamp comes in over half a second
+    updateBenches(t);
     const p = panels.results;
     if (p.next && !disposed) {
       toLocal(p, p.next.x, p.next.y, tmp); ring.position.set(p.at.x + tmp.x, p.at.y + tmp.y, p.at.z + 0.02);
@@ -456,9 +545,12 @@ export function createResearch(ctx) {
   }
   const api = {
     update, feed, data: () => data, panels, root, hover: setHover,
-    attach() {}, detach() {},
+    /** an agent took a desk (office.js deskLayout), or left it: a worker's desk gets its bench */
+    attach(name, desk) { desks.set(name, desk); syncBenches(); },
+    detach(name) { desks.delete(name); syncBenches(); },
     dispose() {
       disposed = true; clearInterval(timer); dom.removeEventListener('pointermove', onMove);
+      desks.clear(); data = null; syncBenches();
       for (const p of Object.values(panels)) { p.tex.dispose(); p.mesh.geometry.dispose(); p.mesh.material.dispose(); p.frame.geometry.dispose(); }
       tip.tex.dispose(); tip.mesh.geometry.dispose(); tip.mesh.material.dispose(); ring.geometry.dispose(); ring.material.dispose();
       scene.remove(root);
