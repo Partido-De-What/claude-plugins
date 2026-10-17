@@ -136,10 +136,10 @@ test('budget: green under 60%, amber up to the limit, red from it, grey without 
     const done = viz.tagLinks([m(1, 'LEAD', '@ALFA do it', 990), m(2, 'ALFA', 'ok', 995, 'status')], who, now);
     return open.length === 1 && open[0].answeredTs === 0 && done.length === 1 && done[0].answeredTs === 995 ? '' : JSON.stringify({open, done});
   });
-  test('tag links: an answer that tags the tagger back closes the link and opens none; a later ping opens a new one', () => {
+  test('tag links: an answer that tags the tagger back closes the link and opens none; a later ping from the same pair is the one line, open again', () => {
     const one = viz.tagLinks([m(1, 'ALFA', '@BETA question', 990), m(2, 'BETA', '@ALFA ok', 995)], who, now);
     const two = viz.tagLinks([m(1, 'ALFA', '@BETA question', 990), m(2, 'BETA', '@ALFA ok', 995), m(3, 'ALFA', '@BETA and one more', 997)], who, now);
-    return one.length === 1 && one[0].from === 'ALFA' && one[0].answeredTs === 995 && two.length === 2 && two[0].answeredTs === 0 && two[1].answeredTs === 995 ? '' : JSON.stringify({one, two});
+    return one.length === 1 && one[0].from === 'ALFA' && one[0].answeredTs === 995 && two.length === 1 && two[0].answeredTs === 0 && two[0].n === 3 ? '' : JSON.stringify({one, two});
   });
   test('tag links: @all, a self tag, a name nobody has and a quoted address are no link; two tags to one person are one link', () => {
     const l = viz.tagLinks([m(1, 'LEAD', '@all hello', 990), m(2, 'ALFA', '@ALFA me', 991), m(3, 'ALFA', '@nobody x', 992), m(4, 'ALFA', 'mail a@beta.org', 993), m(5, 'BETA', '@GAMMA and @gamma', 994)], who, now);
@@ -150,7 +150,7 @@ test('budget: green under 60%, amber up to the limit, red from it, grey without 
     const late = viz.tagLinks(all, who, 980), gone = viz.tagLinks(all, who, 990), old = viz.tagLinks([m(1, 'LEAD', '@BETA x', 100)], who, now);
     return late.length === 0 && gone.length === 0 && old.length === 0 ? '' : JSON.stringify({late, gone, old});
   });
-  test('tag links: a second tag from the same person to the same person is one line, the newest', () => {
+  test('tag links: two people who tag each other are one line, in the state of the latest tag', () => {
     const l = viz.tagLinks([m(1, 'LEAD', '@ALFA one', 980), m(2, 'LEAD', '@ALFA two', 990), m(3, 'BETA', '@ALFA three', 991)], who, now);
     return l.length === 2 && l[0].n === 2 && l[1].n === 3 ? '' : JSON.stringify(l);
   });

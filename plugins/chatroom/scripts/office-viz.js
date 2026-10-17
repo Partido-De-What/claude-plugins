@@ -48,9 +48,9 @@ export function tagLinks(all, who, now, {window = 600, max = 8, fade = 25} = {})
       links.push({from: m.from, to, n: m.n, answeredTs: 0});
     }
   }
-  const newest = new Map();                                              // one line for a pair and a state: a second tag to the same person draws nothing new
-  for (const l of links) if (!l.answeredTs || now - l.answeredTs < fade) newest.set(l.from + '>' + l.to + (l.answeredTs ? '!' : ''), l);
-  const kept = [...newest.values()];
+  const newest = new Map();                                              // one line for a pair of people, in the state of their latest tag (two lines on one segment hide each other)
+  for (const l of links) newest.set([l.from, l.to].sort().join('|'), l);
+  const kept = [...newest.values()].filter(l => !l.answeredTs || now - l.answeredTs < fade);
   return [...kept.filter(l => !l.answeredTs).slice(-max), ...kept.filter(l => l.answeredTs).slice(-max)].slice(-max);
 }
 /** the pieces lent and not yet given back: [{id, from, to, accepted}] (the board's tasks: `lender` is who lent, `owner` who works on it) */
