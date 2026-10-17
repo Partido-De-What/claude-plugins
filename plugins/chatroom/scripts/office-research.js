@@ -456,7 +456,7 @@ export function createResearch(ctx) {
   const benchState = (d, name) => {
     const w = d.workers[name], run = d.pending && d.pending.worker === name ? d.pending : null;
     const mine = d.attempts.filter(a => a.worker === name && a.kind === 'attempt'), last = mine[mine.length - 1];
-    const fresh = last && last.status === 'crash' && last.ts && (Date.now() / 1000 - skew - last.ts) < 120;       // a crash in the last two minutes smokes
+    const fresh = last && last.status === 'crash' && ((last.ts && (Date.now() / 1000 - skew - last.ts) < 120) || w.paused);       // a crash in the last two minutes smokes, and a paused worker keeps smoking until it is resumed
     return {w, run, paused: !!w.paused, crashed: !!fresh, crashes: w.crashes || 0};
   };
   function makeBench(name, desk) {
