@@ -2479,6 +2479,79 @@ def cmd_guide(room, a):
     sys.stdout.write(path.read_text(encoding='utf-8').replace('python CHAT ', f'python "{Path(__file__).resolve().as_posix()}" '))
 
 
+def research_json(room):
+    """GET /research.json: the research of this room for the viewer's Research tab and the laboratory's walls. Read only:
+    the contract, the state, results.tsv (seconds per run), the tail of the log, the lamps (GPU hold, eval.lock) and which
+    sections of the report are written. No research in the room: {'enabled': False}"""
+    import research
+    try:
+        c, st = research._state(room)
+    except (ValueError, OSError, KeyError):
+        return {'enabled': False}
+    d = room.dir / 'research'
+    secs = {}
+    try:
+        for line in (d / 'results.tsv').read_text(encoding='utf-8').splitlines()[1:]:
+            f = line.split('\t')
+            if len(f) > 4 and f[0].isdigit() and f[4]:
+                secs[int(f[0])] = float(f[4])
+    except (OSError, ValueError):
+        pass
+    cut = lambda x, n: str(x or '')[:n]
+    attempts = [{'n': a['n'], 'worker': a['worker'], 'commit': a['commit'], 'metric': a['metric'], 'status': a['status'],
+                 'kind': a['kind'], 'idea': a.get('idea'), 'state': a['state'], 'parent_n': a.get('parent_n'),
+                 'desc': cut(a['desc'], 140), 'lines': a.get('lines', ''), 'spread': a.get('spread', ''), 'of': a.get('of'),
+                 'built': a.get('built'), 'env': [cut(e, 100) for e in (a.get('env') or [])[:4]], 'secs': secs.get(a['n']),
+                 'revoked_why': cut(a.get('revoked_why'), 160), 'ts': a.get('ts')} for a in st['attempts']]
+    try:
+        log = [json.loads(l) for l in (d / 'log.jsonl').read_text(encoding='utf-8').splitlines()[-30:]]
+    except (OSError, ValueError):
+        log = []
+    log = [{'ts': l.get('ts'), 'by': l.get('by'), 'action': l.get('action'), 'ok': l.get('ok', True),
+            'detail': cut(json.dumps(l.get('detail'), ensure_ascii=False) if l.get('action') != 'init' else '', 160)} for l in log]
+    hold = research._gpu_hold(room)
+    lock = None
+    try:
+        pid, since, who = (((d / 'eval.lock').read_text(errors='replace')).split() + ['0', '0', '?'])[:3]
+        lock = {'who': who, 'since': float(since), 'alive': research._run_alive(room)}
+    except (OSError, ValueError):
+        pass
+    try:
+        text = (d / 'report.md').read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        text = None
+    # a section is written when none of the skeleton's placeholders of its own is left in the report
+    report = {'exists': text is not None, 'sections': [
+        {'name': name, 'ok': text is not None and not any(b in text for b in re.findall(r'<[^<>\n]+>', body))}
+        for name, body in re.findall(r'^## (.+)\n((?:(?!## ).*\n?)*)', research.CHECKLIST, re.MULTILINE)]}
+    try:
+        title = next((x.lstrip('# ').strip() for x in (d / 'task.md').read_text(encoding='utf-8', errors='replace').splitlines() if x.strip()), '')
+    except OSError:
+        title = ''
+    pend = st.get('pending')
+    return {
+        'enabled': True, 'now': time.time(), 'tag': c['tag'], 'title': cut(title, 120), 'phase': st['phase'], 'degraded': bool(st.get('degraded')),
+        'contract': {'program': c['program'], 'metric': c['metric'], 'direction': c['direction'], 'budget_s': c['budget_s'],
+                     'max_evals': c['max_evals'], 'repeats': c.get('repeats', 1), 'min_gain': c.get('min_gain') or '',
+                     'provenance': bool(c.get('provenance')), 'sealed': sorted(c.get('sealed', {})), 'guards': c.get('guards', []),
+                     'roles': c.get('roles', {}), 'final': bool(c.get('final')), 'created': c.get('created')},
+        'evals': st['evals'], 'best': st['best'], 'baseline': st.get('baseline'),
+        'pending': {k: pend.get(k) for k in ('n', 'worker', 'desc', 'ts', 'child_ts', 'kind')} if pend else None,
+        'workers': {k: {'best': w.get('best'), 'paused': bool(w.get('paused')), 'crashes': w.get('crashes', 0),
+                        'idea': w.get('idea'), 'type': w.get('type'), 'parent': w.get('parent')}
+                    for k, w in st['workers'].items() if k != '_main' or len(st['workers']) == 1},   # _main is a placeholder once workers have their own
+        'attempts': attempts,
+        'ideas': [{'id': i['id'], 'title': cut(i['title'], 100), 'status': i['status'], 'by': i['by'], 'changes': i['changes'],
+                   'mode': i['mode']} for i in st['ideas']],
+        'evidence': [{'id': e['id'], 'text': cut(e['text'], 200), 'source': e['source'], 'state': e['state'], 'by': e['by'],
+                      'revoked_why': cut(e.get('revoked_why'), 160)} for e in st['evidence']],
+        'verdicts': [{'phase': v['phase'], 'outcome': v['outcome'], 'by': v['by'], 'ts': v['ts'], 'notes': cut(v.get('notes'), 160),
+                      'score': sum(v.get('scores', {}).values()), 'of': 3 * len(v.get('scores', {}))} for v in st['verdicts']],
+        'amends': st.get('amends', []), 'final': st.get('final'),
+        'lamps': {'gpu': {k: hold.get(k) for k in ('by', 'reason', 'until', 'pid')} if hold else None, 'lock': lock},
+        'report': report, 'log': log}
+
+
 def cmd_research(room, a):
     """chat.py research init|evaluate|status: the research kernel (research.py), first step: an autoresearch loop"""
     import research
@@ -3177,6 +3250,8 @@ def cmd_serve(room, a):
                 return self.send(200, target.read_bytes(), kinds[target.suffix])
             if path == '/board.json':                 # the task board: facts and tasks (task add/take/done)
                 return self.send(200, json.dumps(Board(room).load(), ensure_ascii=False), 'application/json; charset=utf-8')
+            if path == '/research.json':              # the research of this room (read only; the viewer and the laboratory poll it every 2-3 s)
+                return self.send(200, json.dumps(research_json(room), ensure_ascii=False), 'application/json; charset=utf-8')
             if path.startswith('/arcade/'):           # the free games of the cabinet: their list, and each game of that list (no other file)
                 arcade, name = HERE.parent / 'arcade', path[len('/arcade/'):]
                 try:
