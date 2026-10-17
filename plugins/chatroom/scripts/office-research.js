@@ -13,6 +13,8 @@ export const CLEAR = [
 /** where the panels stand: x, y (centre), z (in front of the wall's face, 12.5 cm in), size in metres */
 export const AT = {
   results: {x: 6.675, y: 1.8, z: -9.845, w: 4.5, h: 2.2},
+  strip: {x0: -11.5, x1: 8.5, z: 1.55, w: 0.8},                  // the phases, on the floor of the aisle in front of the open space
+  tower: {x: 4.2, z: -9.5},                                       // the stack light: GPU held, evaluation running
 };
 const FONT = '"Segoe UI", sans-serif';
 const SS = 2;                                                    // canvases at twice their logical size: crisp text
@@ -59,7 +61,7 @@ export function createResearch(ctx) {
   const root = new THREE.Group(); root.name = 'research'; scene.add(root);
   const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2(), tmp = new THREE.Vector3();
   const aniso = renderer.capabilities.getMaxAnisotropy();
-  let data = null, key = '', skew = 0, drawnLang = '', hoverN = null, busy = false, disposed = false;
+  let lastT = 0, armAngle = 0, data = null, key = '', skew = 0, drawnLang = '', hoverN = null, busy = false, disposed = false;
   const panels = {};
 
   // ------------------------------------------------------------------ panels
@@ -70,10 +72,10 @@ export function createResearch(ctx) {
     const g = c.getContext('2d'); g.scale(SS, SS);
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = aniso;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(at.w, at.h), new THREE.MeshBasicMaterial({map: tex, toneMapped: false}));
-    mesh.position.set(at.x, at.y, at.z); mesh.rotation.y = at.rot || 0; root.add(mesh);
+    mesh.position.set(at.x, at.y, at.z); mesh.rotation.set(at.tilt || 0, at.rot || 0, 0, 'YXZ'); root.add(mesh);
     const nx = Math.round(at.w * 10) + 2, ny = Math.round(at.h * 10) + 2;             // the frame: a steel slab 10 cm deeper than the screen on every side
     const frame = V.mesh(new V.Vox().box(0, 0, 0, nx - 1, ny - 1, 0, PAL.resin), {pivot: [nx / 2, ny / 2, 1], scale: 0.1, jitter: 0.02});
-    frame.position.copy(mesh.position); frame.rotation.y = mesh.rotation.y; frame.translateZ(-0.02); root.add(frame);
+    frame.position.copy(mesh.position); frame.rotation.copy(mesh.rotation); frame.translateZ(-0.02); root.add(frame);
     const p = {name, at, lw, lh, g, tex, mesh, frame, draw, dirty: true, hit: []};
     mesh.userData.research = name;
     panels[name] = p; return p;
@@ -94,9 +96,13 @@ export function createResearch(ctx) {
     // header: what is measured, how it stands
     g.fillStyle = '#16303a'; g.fillRect(6, 6, lw - 12, 46);
     g.fillStyle = PAL.cyan; g.font = `800 28px ${FONT}`; g.fillText(I18N.text('office.research.results', {}, lang()), 22, 30);
-    g.fillStyle = PAL.white; g.font = `600 22px ${FONT}`;
+    g.fillStyle = PAL.white; g.font = `600 20px ${FONT}`;
     const head = `${c.metric} (${c.direction === 'max' ? I18N.text('office.research.higher', {}, lang()) : I18N.text('office.research.lower', {}, lang())}) · ${I18N.text('office.research.best', {}, lang())} ${d.best ? num(d.best.metric) : '—'} · ${I18N.text('office.research.baseline', {}, lang())} ${d.baseline ? num(d.baseline.metric) : '—'} · ${d.evals}/${c.max_evals}`;
-    g.fillText(fit(g, head, lw - 330), 232, 30);
+    g.fillText(fit(g, head, lw - 560), 232, 30);
+    const lamp = (xx, yy, on, col, text) => { g.fillStyle = on ? col : '#2b3a43'; g.beginPath(); g.arc(xx, yy, 7, 0, 7); g.fill(); g.fillStyle = on ? PAL.white : PAL.discard; g.font = `500 18px ${FONT}`; g.fillText(fit(g, text, 300), xx + 14, yy); };
+    const gpu = d.lamps.gpu, lock = d.lamps.lock;
+    lamp(lw - 560 + 232 + 6, 20, !!gpu, PAL.warn, gpu ? I18N.text('office.research.gpuHeld', {by: gpu.by}, lang()) : I18N.text('office.research.gpuFree', {}, lang()));
+    lamp(lw - 560 + 232 + 6, 42, !!(lock && lock.alive), PAL.run, lock && lock.alive ? I18N.text('office.research.lockBusy', {who: lock.who}, lang()) : I18N.text('office.research.lockFree', {}, lang()));
     // the chart
     const L = 74, R = 770, Tp = 78, B = 398, plotH = B - Tp, N = Math.max(4, ...runs.map(a => a.n), d.pending ? d.pending.n : 0);
     let lo = Math.min(...(vals.length ? vals : [0])), hi = Math.max(...(vals.length ? vals : [1]));
@@ -205,6 +211,70 @@ export function createResearch(ctx) {
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.07, 32), new THREE.MeshBasicMaterial({color: PAL.run, transparent: true, toneMapped: false, depthWrite: false}));
   ring.visible = false; ring.renderOrder = 4; root.add(ring);
 
+  // ------------------------------------------------------------------ the phases, on the floor
+  const PHASES = ['contract', 'drafting', 'investigation', 'evidence', 'final', 'report', 'closed'];
+  const stripLen = AT.strip.x1 - AT.strip.x0, segLen = stripLen / PHASES.length;
+  function drawStrip(p, d) {
+    const {g, lw, lh} = p, sw = lw / PHASES.length, cur = d ? d.phase : -1;
+    g.fillStyle = '#0a1217'; g.fillRect(0, 0, lw, lh);
+    PHASES.forEach((k, i) => {
+      const x0 = i * sw + 4, x1 = (i + 1) * sw - 4, done = i < cur, now = i === cur;
+      g.beginPath(); g.moveTo(x0, 5); g.lineTo(x1 - 26, 5); g.lineTo(x1, lh / 2); g.lineTo(x1 - 26, lh - 5); g.lineTo(x0, lh - 5); g.lineTo(x0 + 26, lh / 2); g.closePath();
+      g.fillStyle = done ? '#1c4a27' : now ? PAL.cyan : '#1b262d'; g.fill();
+      g.lineWidth = 3; g.strokeStyle = done ? PAL.keep : now ? '#e0f7fa' : '#33444d'; g.stroke();
+      g.fillStyle = done ? '#c8f0cd' : now ? PAL.ink : '#6f8591'; g.font = `800 34px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText((done ? '✓ ' : '') + I18N.text('kernel.phase.' + k, {}, lang()).toUpperCase(), (x0 + x1) / 2 + 8, lh / 2 + 2);
+    });
+    g.textAlign = 'left';
+  }
+  const stripPanel = (() => {                                                           // a flat strip on the floor: texture only, no frame
+    const lw = Math.round(stripLen * 100), lh = Math.round(AT.strip.w * 100), c = document.createElement('canvas');
+    c.width = lw * SS; c.height = lh * SS; const g = c.getContext('2d'); g.scale(SS, SS);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = aniso;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(stripLen, AT.strip.w), new THREE.MeshBasicMaterial({map: tex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4}));
+    mesh.rotation.x = -Math.PI / 2; mesh.position.set((AT.strip.x0 + AT.strip.x1) / 2, 0.012, AT.strip.z); root.add(mesh);
+    const p = {name: 'strip', lw, lh, g, tex, mesh, draw: drawStrip, dirty: true, at: {w: stripLen, h: AT.strip.w}};
+    panels.strip = p; return p;
+  })();
+  const glowMat = new THREE.MeshBasicMaterial({color: PAL.cyan, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8});
+  const pulse = new THREE.Mesh(new THREE.PlaneGeometry(segLen - 0.16, AT.strip.w - 0.1), glowMat);   // the current phase breathes
+  pulse.rotation.x = -Math.PI / 2; pulse.visible = false; pulse.renderOrder = 2; root.add(pulse);
+
+  // the gate: a barrier across the strip where the next phase starts, shut (red and white, a red light) or raised (a green light); beside it a sign with why
+  const gate = new THREE.Group(); gate.visible = false; root.add(gate);
+  {
+    const post = V.mesh(new V.Vox().box(0, 0, 0, 1, 11, 1, '#e8edf0').box(0, 8, 0, 1, 9, 1, PAL.crash), {pivot: [1, 0, 1], scale: 0.1, jitter: 0.02});
+    post.position.set(0, 0, -AT.strip.w / 2 - 0.45); gate.add(post);
+    const post2 = V.mesh(new V.Vox().box(0, 0, 0, 1, 7, 1, '#e8edf0'), {pivot: [1, 0, 1], scale: 0.1, jitter: 0.02});
+    post2.position.set(0, 0, AT.strip.w / 2 + 0.45 + 0.8); gate.add(post2);
+    gate.arm = new THREE.Group(); gate.arm.position.set(0, 0.8, -AT.strip.w / 2 - 0.45); gate.add(gate.arm);   // the hinge on the north post
+    const L = Math.round((AT.strip.w + 0.9 + 0.8) * 10), bar = V.mesh(new V.Vox().box(0, 0, 0, 1, 1, L, (x, y, z) => Math.floor(z / 3) % 2 ? '#f4f6f7' : PAL.crash), {pivot: [1, 1, 0], scale: 0.1, jitter: 0.01});
+    gate.arm.add(bar);
+    gate.lamp = V.mesh(new V.Vox().box(0, 0, 0, 1, 1, 1, '#ffffff'), {pivot: [1, 0, 1], scale: 0.1}, true);
+    gate.lamp.position.copy(post.position); gate.lamp.position.y = 1.12; gate.add(gate.lamp);
+    gate.lampMat = gate.lamp.material.clone(); gate.lamp.material = gate.lampMat;                   // MAT.glow is shared: this lamp gets its own colour
+  }
+  const signAt = {x: 0, y: 1.55, z: AT.strip.z - AT.strip.w / 2 - 0.45, w: 2.0, h: 0.8, tilt: -0.3};
+  function drawSign(p, d) {
+    const {g, lw, lh} = p; if (!d) return;
+    const open = d.gate.open, col = open ? PAL.keep : PAL.crash;
+    g.fillStyle = PAL.ink; g.fillRect(0, 0, lw, lh); g.strokeStyle = col; g.lineWidth = 6; g.strokeRect(3, 3, lw - 6, lh - 6);
+    g.textBaseline = 'middle'; g.fillStyle = col; g.font = `800 26px ${FONT}`;
+    g.fillText(open ? I18N.text('office.research.gateOpen', {}, lang()) : I18N.text('office.research.gateShut', {}, lang()), 16, 28);
+    g.fillStyle = PAL.white; g.font = `500 21px ${FONT}`;
+    if (d.phase < 6) wrap(g, open ? I18N.text('office.research.gateNext', {}, lang()) : I18N.text('kernel._phase_next.' + d.gate.why, d.gate.args || {}, lang()), 16, 66, lw - 32, 26, 4);
+  }
+  const sign = panel('sign', signAt, 220, drawSign);
+  sign.mesh.visible = sign.frame.visible = false;
+  const tower = new THREE.Group(); tower.position.set(AT.tower.x, 0, AT.tower.z); root.add(tower);       // the stack light by the results wall
+  {
+    tower.add(V.mesh(new V.Vox().box(0, 0, 0, 3, 1, 3, '#6c7680').box(1, 2, 1, 2, 15, 2, '#aeb8c2'), {pivot: [2, 0, 2], scale: 0.1, jitter: 0.02}));
+    tower.gpu = V.mesh(new V.Vox().box(0, 0, 0, 3, 2, 3, '#ffffff'), {pivot: [2, 0, 2], scale: 0.1}, true); tower.gpu.position.y = 1.0;
+    tower.run = V.mesh(new V.Vox().box(0, 0, 0, 3, 2, 3, '#ffffff'), {pivot: [2, 0, 2], scale: 0.1}, true); tower.run.position.y = 1.3;
+    for (const m of [tower.gpu, tower.run]) { m.material = m.material.clone(); tower.add(m); }
+    tower.gpu.material.color.set('#3b2f1a'); tower.run.material.color.set('#16303a');
+  }
+
   // ------------------------------------------------------------------ the data
   function feed(d) {
     const k = JSON.stringify(d, (kk, v) => kk === 'now' ? undefined : v);
@@ -224,6 +294,19 @@ export function createResearch(ctx) {
     if (!data || paused()) return;
     if (drawnLang !== lang()) { drawnLang = lang(); for (const p of Object.values(panels)) p.dirty = true; }
     for (const p of Object.values(panels)) if (p.dirty) { redraw(p); break; }                  // one panel a frame: a 4 MB upload each is enough work
+    const dt = Math.min(0.1, Math.max(0, t - lastT)); lastT = t;
+    // the phases: the current one breathes, the gate's barrier eases open or shut, its sign says why, the lamps follow the GPU and the evaluator
+    const cur = data.phase, atBoundary = cur < 6;
+    pulse.visible = true; pulse.position.set(AT.strip.x0 + segLen * (cur + 0.5), 0.016, AT.strip.z); glowMat.opacity = 0.12 + 0.2 * (0.5 + 0.5 * Math.sin(t * 1.8));
+    gate.visible = sign.mesh.visible = sign.frame.visible = atBoundary;
+    if (atBoundary) {
+      const gx = AT.strip.x0 + segLen * (cur + 1); gate.position.x = gx; sign.mesh.position.x = sign.frame.position.x = gx;
+      const target = data.gate.open ? -1.4 : 0; armAngle += (target - armAngle) * (1 - Math.exp(-dt * 3.5)); gate.arm.rotation.x = armAngle;
+      gate.lampMat.color.set(data.gate.open ? PAL.keep : PAL.crash);
+    }
+    tower.gpu.material.color.set(data.lamps.gpu ? PAL.warn : '#3b2f1a');
+    const busy = !!(data.lamps.lock && data.lamps.lock.alive);
+    tower.run.material.color.set(busy ? PAL.run : '#16303a'); if (busy) tower.run.material.color.multiplyScalar(0.7 + 0.3 * Math.sin(t * 5));
     const p = panels.results;
     if (p.next && !disposed) {
       toLocal(p, p.next.x, p.next.y, tmp); ring.position.set(p.at.x + tmp.x, p.at.y + tmp.y, p.at.z + 0.02);
