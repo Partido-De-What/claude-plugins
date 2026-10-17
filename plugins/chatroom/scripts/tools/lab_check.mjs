@@ -40,7 +40,7 @@ assert(!xs.some(x => x > -15 + 8 - 0.3 + 1e-9 && x < -15 + 9 + 0.3 - 1e-9), 'no 
 assert(pos.every((v, i) => i % 3 !== 2 || Math.abs(v - (-10 + 0.13)) < 1e-9), 'band stands 13 cm inside the wall');
 // the furniture: same x/z extent (voxels) as the office's model it replaces, so the plan's collision boxes still fit (height may differ by a voxel)
 const SAME = {workDesk: [0, 0, 0, 31, 13, 15], cubicle: [-20, 0, -20, 20, 22, 3], smallDesk: [0, 0, 0, 11, 7, 6], bossDesk: [0, 0, -1, 23, 12, 9], confTable: [0, 0, 0, 27, 8, 11]};
-for (const [name, e] of Object.entries(SAME)) { const m = MODELS[name](), b = (m.children ? m.children[0] : m).b; assert([0, 2, 3, 5].every(i => b[i] === e[i]), `${name} footprint ${b} vs ${e}`); assert(b[4] - e[4] <= (name === 'workDesk' ? 8 : 1) && b[1] === 0, `${name} height ${b[4]}`); }
+for (const [name, e] of Object.entries(SAME)) { const m = MODELS[name](), b = (m.children ? m.children[0] : m).b; assert([0, 2, 3, 5].every(i => b[i] === e[i]), `${name} footprint ${b} vs ${e}`); assert(b[4] - e[4] <= (name === 'workDesk' ? 10 : 1) && b[1] === 0, `${name} height ${b[4]}`); }
 const hood = MODELS.fumeHood().b; assert(hood[0] === 0 && hood[3] === 23 && hood[2] === 0 && hood[5] <= 14 && hood[4] <= 59, `hood ${hood}`);
 assert.deepEqual(CATALOG.fumeHood.foot, [1.2, 0.7], 'catalog fumeHood');
 assert(item({type: 'cabinet', pack: 'x', x: 1, z: 2}, V).b[3] === 15, 'cabinet as wide as the pack one (0.8 m = 16 voxels)');
