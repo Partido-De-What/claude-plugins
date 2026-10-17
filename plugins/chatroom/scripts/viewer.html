@@ -232,12 +232,13 @@
   @keyframes rs-pulse { 50% { box-shadow: 0 0 0 4px rgba(77,208,225,.35); } }
   @media (prefers-reduced-motion: reduce) { .rs-pipe li.cur, .rs-ring, .rs-lamp.run { animation: none !important; } }
   .rs-chart { width: 100%; height: auto; display: block; touch-action: manipulation; }
-  .rs-chart text { fill: var(--muted); font-size: 11px; }
+  .rs-chart text { fill: var(--muted); font-size: 12px; }
   .rs-chart .grid { stroke: var(--border); stroke-width: 1; }
   .rs-chart .pt { cursor: pointer; }
   .rs-ring { fill: none; stroke: var(--run); stroke-width: 2; animation: rs-pulse-svg 2s ease-in-out infinite; }
   @keyframes rs-pulse-svg { 50% { stroke-opacity: .25; } }
-  .rs-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .rs-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .rs-legend b { display: inline-block; width: 16px; height: 3px; margin-right: 4px; vertical-align: 3px; border-radius: 2px; }
   .rs-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
   .rs-detail { min-height: 20px; font-size: 13px; margin-top: 6px; }
   .rs-tablewrap { overflow-x: auto; }
@@ -981,7 +982,7 @@ function rsChart(d) {
   for (const v of rsTicks(lo, hi)) { const yy = T + (up ? hi - v : v - lo) / (hi - lo) * (H - T - B); out.push(`<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${esc(rsNum(v))}</text>`); }
   const step = Math.max(1, Math.ceil(N / 10));
   for (let n = 1; n <= N; n += step) out.push(`<text x="${x(n)}" y="${H - 4}" text-anchor="middle">${n}</text>`);
-  if (best !== null) { const gain = rsGain(d, best); if (gain) { const y0 = y(best), y1 = Math.max(T, y(up ? best + gain : best - gain)); out.push(`<rect x="${L}" y="${Math.min(y0, y1)}" width="${W - L - R}" height="${Math.abs(y0 - y1)}" fill="${RS_COLOR.warn}" opacity=".22"/>`); } }
+  if (best !== null) { const gain = rsGain(d, best); if (gain) { const y0 = y(best), y1 = Math.max(T, y(up ? best + gain : best - gain)); out.push(`<rect x="${L}" y="${Math.min(y0, y1)}" width="${W - L - R}" height="${Math.abs(y0 - y1)}" fill="${RS_COLOR.warn}" opacity=".45" stroke="#f57c00" stroke-width="1" stroke-opacity=".7"/>`); } }
   if (d.baseline) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(d.baseline.metric)}" y2="${y(d.baseline.metric)}" stroke="${RS_COLOR.discard}" stroke-width="1.5" stroke-dasharray="6 4"/><text x="${W - R}" y="${y(d.baseline.metric) - 4}" text-anchor="end">${esc(I18N.text('viewer.research.lgBase'))}</text>`);
   if (path) out.push(`<path d="${path} H${W - R}" fill="none" stroke="${RS_COLOR.keep}" stroke-width="2.5" stroke-linejoin="round" opacity=".85"/>`);
   for (const a of runs) {
@@ -1072,7 +1073,7 @@ function rsRender() {
     + `<section class="rs-card"><h3>${esc(X.text('viewer.research.phases'))}</h3>${rsPhases(d)}</section>`;
   const line = X.text('viewer.research.metricLine', {metric: c.metric, dir: c.direction === 'max' ? X.text('viewer.research.dirMax') : X.text('viewer.research.dirMin'), best: d.best ? rsNum(d.best.metric) : '—', base: d.baseline ? rsNum(d.baseline.metric) : '—', n: d.evals, max: c.max_evals});
   const results = `<div class="rs-row"><b>${esc(line)}</b>${c.min_gain ? `<small>${esc(X.text('viewer.research.minGain', {v: c.min_gain}))}</small>` : ''}</div>${rsChart(d)}`
-    + `<div class="rs-legend"><span><i style="background:${RS_COLOR.keep}"></i>${esc(rsStatus('keep'))}</span><span><i style="background:${RS_COLOR.discard}"></i>${esc(rsStatus('discard'))}</span><span><i style="background:${RS_COLOR.crash}"></i>${esc(rsStatus('crash'))}</span><span>${esc(X.text('viewer.research.lgBest'))}</span><span>${esc(X.text('viewer.research.lgBand'))}</span></div><div class="rs-detail">${rsDetail(d)}</div>`;
+    + `<div class="rs-legend"><span><i style="background:${RS_COLOR.keep}"></i>${esc(rsStatus('keep'))}</span><span><i style="background:${RS_COLOR.discard}"></i>${esc(rsStatus('discard'))}</span><span><i style="background:${RS_COLOR.crash}"></i>${esc(rsStatus('crash'))}</span><span><b style="background:${RS_COLOR.keep}"></b>${esc(X.text('viewer.research.lgBest'))}</span><span><b style="background:${RS_COLOR.warn};height:8px;vertical-align:0;border:1px solid #f57c00"></b>${esc(X.text('viewer.research.lgBand'))}</span></div><div class="rs-detail">${rsDetail(d)}</div>`;
   const html = `<div class="rs">${head}<div class="rs-grid">` + card(X.text('viewer.research.results'), results, true)
     + card(X.text('viewer.research.workers'), rsWorkers(d)) + card(X.text('viewer.research.lamps'), rsLamps(d))
     + card(X.text('viewer.research.ideas'), rsIdeas(d)) + card(X.text('viewer.research.verdicts'), rsVerdicts(d))

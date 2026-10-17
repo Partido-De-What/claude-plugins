@@ -1068,6 +1068,12 @@ def cmd_post(room, a, text=None):
             cur = room.cursor(a.name)
             if any(m['n'] <= cur and m['from'] != a.name and not m.get('kind') and m['from'] not in room.user_names() for m in items):
                 flags = {'after_read': True}  # it read the others' positions first: information for the lead, not a refusal
+    users = room.user_names()
+    missed = [m['n'] for m in room.messages() if room.cursor(a.name) < m['n'] and m['from'] != a.name and not m.get('kind')
+              and (tags(m.get('text', ''), a.name) or tags_everyone(m.get('text', ''))
+                   or (m['from'] in users and not re.search(r'(?<![\w.])@\w', m.get('text', ''))))]
+    if missed:                                        # the numbers it did not read go with the message: the office shows them over its figure
+        flags = {**(flags or {}), 'missed': missed[:8]}
     n = room.append(a.name, text, kind or False, images, state=state, flags=flags)
     if n is None:
         for rel in images:                    # nothing was posted: do not leave the copied pictures behind
@@ -1077,10 +1083,6 @@ def cmd_post(room, a, text=None):
                 pass
         sys.exit(say('chat.err.cmd_post.error_you_already_said2', name=a.name, IDLE_WAIT_MAX=IDLE_WAIT_MAX))
     print(say('chat.say.posted', n=n) + (say('chat.say.posted_images', images=len(images)) if images else ''))
-    users = room.user_names()
-    missed = [m['n'] for m in room.messages() if room.cursor(a.name) < m['n'] < n and m['from'] != a.name and not m.get('kind')
-              and (tags(m.get('text', ''), a.name) or tags_everyone(m.get('text', ''))
-                   or (m['from'] in users and not re.search(r'(?<![\w.])@\w', m.get('text', ''))))]
     if missed:
         print(say('chat.say.unread_for_you', ns=', '.join(f'#{x}' for x in missed[:8]), name=a.name))
     if kind == IDLE:
@@ -1690,6 +1692,16 @@ def cmd_notebook(room, a):
     print(path.read_text(encoding='utf-8') if path.exists() else say('chat.say.cmd_notebook.your_notebook_is_empty'))
 
 
+def call_budget(room, config=None):
+    """the chat calls (post, read, wait) one agent may make before the lead hears about it; a research room adds 20 for each run (the
+    registrar and the auditor work per run); 0 = no limit"""
+    budget = int((config or room.config()).get('budget_calls', BUDGET_CALLS))
+    if budget and (room.dir / 'research' / 'contract.json').is_file():
+        st_ = read_json(room.dir / 'research' / 'state.json', {})
+        budget += 20 * (int(st_.get('evals', 0)) + int(st_.get('aux', 0)))
+    return budget
+
+
 def failures(room, now=None):
     """the commonest ways a multi-agent chat goes wrong, seen in the room: [(key, text)]. Tasks closed without an artifact
     or with gaps, one file in two agents' statuses, tags left unanswered, stalls and loops, votes flipped without evidence,
@@ -1773,10 +1785,7 @@ def failures(room, now=None):
             mine = sum(1 for m in items if m['from'] == k and not m.get('kind'))
             if mine >= every:
                 out.append((f"checkpoint:{k}:{mine // every}", say('chat.check.reached_messages_it_asks', k=k, v2=mine // every * every)))
-    budget = int(config.get('budget_calls', BUDGET_CALLS))
-    if research_room and budget:                      # the registrar and the auditor work per run: 10 calls more for each
-        st_ = read_json(room.dir / 'research' / 'state.json', {})
-        budget += 20 * (int(st_.get('evals', 0)) + int(st_.get('aux', 0)))
+    budget = call_budget(room, config)
     for k, v in room.counters().items():
         used = sum(v.values())
         if budget and used >= budget:
@@ -3270,6 +3279,11 @@ def cmd_serve(room, a):
                 return self.send(200, target.read_bytes(), kinds[target.suffix])
             if path == '/board.json':                 # the task board: facts and tasks (task add/take/done)
                 return self.send(200, json.dumps(Board(room).load(), ensure_ascii=False), 'application/json; charset=utf-8')
+            if path == '/check.json':                 # the CHECKs the room would print now, and each agent's chat calls against its budget (the office shows both)
+                budget = call_budget(room)
+                body = {'checks': [{'key': k, 'text': t} for k, t in failures(room)],
+                        'calls': {n: {'used': sum(v.values()), 'budget': budget} for n, v in room.counters().items()}}
+                return self.send(200, json.dumps(body, ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/research.json':              # the research of this room (read only; the viewer and the laboratory poll it every 2-3 s)
                 return self.send(200, json.dumps(research_json(room), ensure_ascii=False), 'application/json; charset=utf-8')
             if path.startswith('/arcade/'):           # the free games of the cabinet: their list, and each game of that list (no other file)
