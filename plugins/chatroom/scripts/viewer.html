@@ -697,7 +697,14 @@ setInterval(pollNeighbor, 3000);
 // server sends only what came after them (206), and only whole lines are taken (the rest comes with the next answer)
 let chatTag = '', chatBytes = 0;
 const chatDecoder = new TextDecoder();
-async function poll() {
+// one poll at a time: two in flight read from the same byte (Range), both get the new message and both add it, and chatBytes moves twice;
+// a call while one runs (the box after a post, the timer) asks for one more right after it
+let pollRun = null, pollAgain = false;
+function poll() {
+  if (pollRun) { pollAgain = true; return pollRun; }
+  return pollRun = doPoll().finally(() => { pollRun = null; if (pollAgain) { pollAgain = false; poll(); } });
+}
+async function doPoll() {
   try {
     const headers = {}; if (chatTag) headers['If-None-Match'] = chatTag; if (chatBytes) headers.Range = `bytes=${chatBytes}-`;
     const r = await fetch((await FRIEND) + 'chat.jsonl?t=' + Date.now(), {cache: 'no-store', headers});
