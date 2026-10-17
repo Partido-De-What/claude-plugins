@@ -169,7 +169,7 @@ export function sky({sun, hemi, lamps, night, dusk}) {
 // ------------------------------------------------------------------ the walls
 /** a band of printed circuit along the foot of every outer wall (one mesh, one draw call), but not across the doors: PLACED.walls from office-layout.js resolve() */
 export function install(ctx) {
-  const {THREE, renderer, scene, PLACED} = ctx; V = ctx.V; CTX = ctx;
+  const {THREE, renderer, scene, PLACED} = ctx; V = ctx.V ?? V; CTX = ctx;
   const map = labTexture({THREE, renderer}, 'labTrace'), H = KINDS.labTrace.h / PX, Y0 = 0.26, OUT = 0.13;   // 13 cm: the face of the wall (12.5) and 5 mm
   const pos = [], nor = [], uv = [], idx = [];
   for (const w of PLACED.walls) {
@@ -297,6 +297,7 @@ const TINT = {couch: {hue: 0.55, sat: 0.5, light: 1.1}};              // the bro
 /** a lab piece for a placed item (office-layout.js resolve() item), or null: the office builds it as usual */
 export function item(it, Vm) {
   V ??= Vm;
+  if (!V) return null;                   // no voxel helpers yet: the office draws the piece
   if (!it.pack && MODELS[it.model]) return MODELS[it.model](...(it.args || []));
   if (it.type === 'cabinet') return labCabinet(it);
   if (it.type === 'corkboard' || it.type === 'wallGraph') return labBoard(it);
