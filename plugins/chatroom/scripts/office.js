@@ -314,7 +314,7 @@ let scoresKey = '';
 const ghBoard = board(2.2, 1.3, 768), ghAt = LAYOUT.boards.github || {x: 1.1, y: 1.6, z: -9.85, rot: 0};
 add(ghBoard.mesh, ghAt.x, ghAt.y, ghAt.z, ghAt.rot || 0);
 const ghFrame = V.mesh(new V.Vox().box(0, 0, 0, 23, 14, 0, '#2a2412'), {pivot: [12, 7.5, 1]}); ghFrame.position.copy(ghBoard.mesh.position); ghFrame.rotation.y = ghBoard.mesh.rotation.y; ghFrame.translateZ(-0.02); scene.add(ghFrame);
-const signs = visit ? null : buildSigns({THREE, scene, V, signs: LAYOUT.signs || [], lang: () => DATA.config.lang});          // the neon signs and the guide at the entrance
+const signs = visit ? null : buildSigns({THREE, scene, V, signs: LAYOUT.signs || [], lang: () => DATA.config.lang, lab: !!LAB});          // the neon signs and the guide at the entrance
 let github = null;                                                         // made below, once the clickable things exist
 ghBoard.mesh.visible = false; ghFrame.visible = false;
 
