@@ -1965,7 +1965,7 @@ if (FORCE) Object.assign(window, {                                        // tes
   __officeBrew: () => brew(),
   __officePoll: () => pollCommon(),
   __officeReport: r => reportResult(r),
-  __officeArcade: () => arcade, __officeGithub: () => github, __officeRacks: () => racks,
+  __officeViz: () => viz, __officeArcade: () => arcade, __officeGithub: () => github, __officeRacks: () => racks,
   __officeLevel: () => ({level, y: boss.pos.y, lvl: boss.lvl || 0, arena: !!arena, lift: !!lift}), __officeArena: () => arena,
   __officeAgents: () => [...people].map(([name, q]) => ({name, x: +q.pos.x.toFixed(2), z: +q.pos.z.toFixed(2), pose: q.pose, act: q.act, walking: q.path.length, visit: q.visit ? {until: q.visit.until, act: q.visit.act} : null})),
   __officeView: () => { const d = camera.getWorldDirection(new THREE.Vector3()); return {pov, locked: povLocked, rot: boss.rot, yaw: me.yaw, pitch: me.pitch, faceRot: boss.faceRot, pose: boss.pose, path: boss.path.length, seated: seated(boss), camYaw: Math.atan2(d.x, d.z), camPitch: Math.asin(d.y)}; },

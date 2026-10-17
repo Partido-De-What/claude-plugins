@@ -153,12 +153,14 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
     drawCheckPanel(panelCanvas, checks, texts(lg)); panelTex.needsUpdate = true;
   }
   let calls = {}, inflight = false, timer = 0;
+  /** what /check.json says ({checks: [{key, text}], calls: {name: {used, budget}}}); the dev preview feeds it by hand to see every state */
+  function feed(j) { checks = sortChecks(j.checks); calls = j.calls || {}; drawPanel(); budgetDirty = true; }
   async function poll() {
     if (inflight || !active()) return;
     inflight = true;
     try {
       const r = await fetch('check.json', {cache: 'no-store'});
-      if (r.ok) { const j = await r.json(); checks = sortChecks(j.checks); calls = j.calls || {}; drawPanel(); budgetDirty = true; }
+      if (r.ok) feed(await r.json());
       else if (r.status === 404) clearInterval(timer);           // an older server has no /check.json: the panel stays empty, and nobody asks again
     } catch (e) { /* the server is busy: the next round */ }
     inflight = false;
@@ -270,5 +272,5 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
     }
   }
   poll();
-  return {refresh, update, click, flagsFor, poll, group};
+  return {refresh, update, click, flagsFor, poll, feed, group};
 }
