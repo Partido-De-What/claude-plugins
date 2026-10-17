@@ -55,6 +55,21 @@ export function tagLinks(all, who, now, {window = 600, max = 8, fade = 25} = {})
 /** the pieces lent and not yet given back: [{id, from, to, accepted}] (the board's tasks: `lender` is who lent, `owner` who works on it) */
 export const loans = tasks => (tasks || []).filter(t => t.lender && t.state === 'taken' && t.owner && t.owner !== t.lender)
   .map(t => ({id: t.id, from: t.lender, to: t.owner, accepted: t.accepted !== false}));
+/** What crosses the bridge to the friends' building, from /common.json `share` (host side): [{dir: 'in' | 'out', accepted}]. A request of a guest for help comes in while
+ *  it waits and goes out (the helper is lent) once approved; an ask of ours for help goes out while it waits and comes in once the guest lends. An approved one flies
+ *  for `hold` seconds after it was first seen approved (`seen`: Map key -> that moment, kept by the caller): the list holds no end time. */
+export function bridgeFlights(share, now, seen, {hold = 20, max = 4} = {}) {
+  const out = [], one = (key, status, pending, approved) => {
+    if (status === 'pending') out.push({dir: pending, accepted: false});
+    else if (status === 'approved') {
+      if (!seen.has(key)) seen.set(key, now);
+      if (now - seen.get(key) < hold) out.push({dir: approved, accepted: true});
+    }
+  };
+  for (const r of share?.requests || []) one('r' + r.id, r.status, 'in', 'out');
+  for (const a of share?.asks || []) one('a' + a.id, a.status, 'out', 'in');
+  return out.slice(-max);
+}
 /** every agent of this room is on a break (and there is at least one) */
 export const allIdle = (names, per) => names.length > 0 && names.every(n => per[n]?.idle);
 /** the flags a head shows from its last message: it posted without reading a message for it ("!!! #12 +2"), or shared a finding less than a minute ago */
@@ -131,9 +146,10 @@ export function drawCheckPanel(c, checks, texts) {
  * THREE, scene, V (office-voxel.js), raycastables: as in office.js.
  * data(): {all, who (Map lower-case name -> name), names (this room's agents), per, tasks, desks: [{name, g}], where(name) -> Vector3|null}.
  * lang(): 'it' or 'en'; jump(n): open message n; setLang(lg): change the room's language; say(text): a line on the screen;
- * active(): the office is on screen; check, lamp, flag: where the panel, the lamp and the flag go ({x, y, z}).
+ * active(): the office is on screen; check, lamp, flag: where the panel, the lamp and the flag go ({x, y, z}); bridge: LAYOUT.bridge ({x, z, length}) or null.
+ * data().share: /common.json's `share` while the common room is shared, else null; where(name) also finds an agent of a neighbour room by its short name.
  */
-export function createViz({THREE, scene, V, raycastables, data, lang, jump, setLang, say, active, check, lamp, flag}) {
+export function createViz({THREE, scene, V, raycastables, data, lang, jump, setLang, say, active, check, lamp, flag, bridge = null}) {
   const group = new THREE.Group(); group.name = 'viz'; scene.add(group);
   const basic = (color, extra = {}) => new THREE.MeshBasicMaterial({color, toneMapped: false, ...extra});
   const tex = c => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; };
@@ -202,10 +218,13 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
   lampMesh.position.set(lamp.x, lamp.y + 0.06, lamp.z); lampMesh.userData.noShot = true; group.add(lampMesh);
   let lampOn = false;
 
-  // --- parcels: a piece of a task lent travels from who lent it to who works on it (amber until accepted, then green)
-  const PARCELS = 4, parcelMat = {open: basic(COL.warn), ok: basic(COL.ok)};
+  // --- parcels: a piece of a task lent travels from who lent it to who works on it, to a neighbour room's agent too (amber until accepted, then green);
+  //     what crosses the bridge to the friends flies along it
+  const PARCELS = 8, parcelMat = {open: basic(COL.warn), ok: basic(COL.ok)}, seenOk = new Map();
+  const nearEnd = bridge && new THREE.Vector3(bridge.x, 0, bridge.z + 0.8), farEnd = bridge && new THREE.Vector3(bridge.x, 0, bridge.z + bridge.length - 0.8);
   const parcels = Array.from({length: PARCELS}, () => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.14, 0.2), parcelMat.open); m.visible = false; m.frustumCulled = false; m.userData.noShot = true; group.add(m); return m; });
-  let lent = [];
+  let fakeShare = null;                                                     // the dev preview feeds a share by hand (feedShare), there being no friend to test with
+  let lent = [];                                                            // what flies now: loans {from, to, accepted} and bridge flights {dir, accepted}
 
   // --- the language flag, hung by the control room sign: a click changes the room's language
   const flagTex = {it: tex(drawFlag('it')), en: tex(drawFlag('en'))};
@@ -224,7 +243,7 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
     if (d.all === lastAll && d.tasks === lastTasks && now - lastAt < 2) return;
     lastAll = d.all; lastTasks = d.tasks; lastAt = now;
     links = tagLinks(d.all, d.who, now);
-    lent = loans(d.tasks).slice(0, PARCELS);
+    lent = [...loans(d.tasks).slice(0, 4), ...(bridge && (fakeShare ?? d.share) ? bridgeFlights(fakeShare ?? d.share, now, seenOk) : [])].slice(0, PARCELS);
     heads = new Map();
     const lastBy = new Map();
     for (const m of d.all) lastBy.set(m.from, m);
@@ -258,10 +277,10 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
     }
     for (let i = 0; i < PARCELS; i++) {
       const p = lent[i], m = parcels[i];
-      const from = p && d.where(p.from), to = p && d.where(p.to);
+      const from = p && (p.dir ? (p.dir === 'in' ? farEnd : nearEnd) : d.where(p.from)), to = p && (p.dir ? (p.dir === 'in' ? nearEnd : farEnd) : d.where(p.to));
       if (!p || !from || !to) { m.visible = false; continue; }
       const u = ((t * 0.22 + i * 0.37) % 1), e = u * u * (3 - 2 * u);                  // from the lender to the helper, slowly, easing at both ends
-      m.position.lerpVectors(from, to, e); m.position.y = 1.1 + 0.5 * Math.sin(Math.PI * e);
+      m.position.lerpVectors(from, to, e); m.position.y = (p.dir ? 0.9 : 1.1) + (p.dir ? 0.25 : 0.5) * Math.sin(Math.PI * e);
       m.rotation.y = t + i; m.material = p.accepted ? parcelMat.ok : parcelMat.open; m.visible = true;
     }
   }
@@ -275,5 +294,5 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
     }
   }
   poll();
-  return {refresh, update, click, flagsFor, poll, feed, group};
+  return {refresh, update, click, flagsFor, poll, feed, feedShare(s) { fakeShare = s; lastAll = null; refresh(); }, group};
 }

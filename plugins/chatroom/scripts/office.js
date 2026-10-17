@@ -2071,17 +2071,19 @@ if (arcade) ui.addExtra('arcade', '🕹', 'Arcade', () => arcade.open());
 racks = visit ? null : createRacks({THREE, V, root, raycastables, lang: () => DATA.config.lang,
                                     tail: (name, id) => fetch(`procs.json?name=${encodeURIComponent(name)}&id=${encodeURIComponent(id)}&n=14`, {cache: 'no-store'}).then(r => r.json())});
 // the harness made visible (office-viz.js): the CHECK panel, the tag links, the lamp of the idle room, the budget bars, the parcels, the language flag
+const neighbourNamed = n => { for (const [k, p] of people) if (k.startsWith(n + '@')) return p; return null; };       // a piece lent to an agent of another live room: it sits at its own desk here
 const VD = {
   get all() { return D.all; }, get tasks() { return boardData?.tasks; }, get per() { return D.per; },
   get names() { return D.names.filter(n => !D.per[n]?.neighbor); },
   get who() { if (VD._d !== D) { VD._d = D; VD._who = new Map([...D.names, D.lead, D.user].filter(Boolean).map(n => [n.toLowerCase(), n])); } return VD._who; },
   get desks() { return [...SPOTS].map(([name, d]) => ({name, g: d.g})); },
-  where: n => (people.get(n) || (n === D.lead ? assistant : n === D.user ? boss : null))?.pos || SPOTS.get(n)?.g.position || null,
+  get share() { return LAYOUT.bridge && commonState?.share?.sharing ? commonState.share : null; },
+  where: n => (people.get(n) || (n === D.lead ? assistant : n === D.user ? boss : null) || neighbourNamed(n))?.pos || SPOTS.get(n)?.g.position || null,
 };
 {
   const sign = (LAYOUT.signs || []).find(s => s.text?.en === 'CONTROL ROOM') || {x: 0.9, y: 2.72, z: -4.7, w: 1.9}, table = LAYOUT.items.find(it => it.type === 'confTable' && it.z < 0);
   viz = visit || LAB ? null : createViz({THREE, scene, V, raycastables, data: () => VD, lang: () => DATA.config.lang, say: t => ui.placeName(t), setLang: lg => post('config', {lang: lg}),
-    jump: n => { if (n && window.chatroom) { if (mode === 'office') { mode = 'split'; applyMode(); } window.chatroom.jumpTo(n); } },
+    jump: n => { if (n && window.chatroom) { if (mode === 'office') { mode = 'split'; applyMode(); } window.chatroom.jumpTo(n); } }, bridge: LAYOUT.bridge || null,
     active: () => mode !== 'chat' && !document.hidden, check: {x: -3.83, y: 1.75, z: -9.85}, lamp: {x: table?.x ?? 1, y: 0.9, z: table?.z ?? -6.6}, flag: {x: sign.x + (sign.w || 1.9) / 2 + 0.3, y: sign.y, z: sign.z}});
 }
 research = RES ? RES.createResearch({THREE, V, scene, renderer, camera, dom: renderer.domElement, raycastables, lang: () => DATA.config.lang, paused: officeUnseen, pov: () => pov && povLocked, lab: LAB}) : null;

@@ -161,6 +161,18 @@ test('loans: a piece lent and taken by someone else, not given back', () => {
                        {id: 'T4', state: 'taken', owner: 'B'}, {id: 'T5', state: 'taken', lender: 'A', owner: 'C', accepted: false}]);
   return l.length === 2 && l[0].id === 'T1' && l[0].accepted === true && l[1].id === 'T5' && l[1].accepted === false ? '' : JSON.stringify(l);
 });
+test('bridge: a request comes in while it waits and goes out once approved; an ask goes out while it waits and comes in once approved', () => {
+  const seen = new Map(), share = {requests: [{id: 1, status: 'pending'}, {id: 2, status: 'approved'}, {id: 3, status: 'denied'}], asks: [{id: 1, status: 'pending'}, {id: 2, status: 'approved'}]};
+  const f = viz.bridgeFlights(share, 100, seen).map(x => x.dir + (x.accepted ? '+' : '-')).join(' ');
+  return f === 'in- out+ out- in+' ? '' : f;
+});
+test('bridge: an approved flight lasts 20 s from the moment it was first seen; at most four fly', () => {
+  const seen = new Map(), share = {requests: [{id: 2, status: 'approved'}], asks: []};
+  const a = viz.bridgeFlights(share, 100, seen).length, b = viz.bridgeFlights(share, 119, seen).length, c = viz.bridgeFlights(share, 121, seen).length;
+  const many = viz.bridgeFlights({requests: Array.from({length: 9}, (_, i) => ({id: i, status: 'pending'})), asks: []}, 0, new Map()).length;
+  return a === 1 && b === 1 && c === 0 && many === 4 ? '' : `${a} ${b} ${c} ${many}`;
+});
+test('bridge: nothing flies when the common room is not shared or there is no bridge', () => (viz.bridgeFlights(null, 0, new Map()).length === 0 && viz.bridgeFlights({}, 0, new Map()).length === 0 ? '' : 'a flight with no share'));
 test('lamp: everyone idle, and at least one agent', () => (viz.allIdle(['A', 'B'], {A: {idle: true}, B: {idle: true}}) && !viz.allIdle(['A', 'B'], {A: {idle: true}, B: {idle: false}}) && !viz.allIdle([], {}) ? '' : 'wrong'));
 test('head flags: "!!! #N" for 3 minutes, a finding for one', () => {
   const f = viz.flagsOf({missed: [41, 42, 43], ts: 900, kind: 'status'}, 1000), g = viz.flagsOf({missed: [41], ts: 700}, 1000), h = viz.flagsOf({kind: 'finding', ts: 950}, 1000), k = viz.flagsOf({kind: 'finding', ts: 900}, 1000);
