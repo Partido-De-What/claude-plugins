@@ -298,8 +298,9 @@ export function createResearch(ctx) {
       g.fillStyle = col; g.beginPath(); g.roundRect(x, y, cw, 9, [8, 8, 0, 0]); g.fill();
       g.fillStyle = PAL.ink; g.font = `800 20px ${FONT}`; g.fillText(fit(g, `${i.id} · ${i.by}`, cw - 20), x + 12, y + 28);
       g.font = `600 20px ${FONT}`; wrap(g, i.title, x + 12, y + 54, cw - 24, 24, 2);
+      const n = ideaRuns(d, i.id).length;
       g.fillStyle = '#53656f'; g.font = `500 16px ${FONT}`;
-      g.fillText(fit(g, `${I18N.text('office.research.ideaRuns', {n: ideaRuns(d, i.id).length}, lang())} · ${I18N.text('office.research.idea.' + i.status, {}, lang())}`, cw - 20), x + 12, y + ch - 14);
+      g.fillText(fit(g, `${I18N.text('office.research.ideaRuns', {n}, lang())} · ${I18N.text('office.research.idea.' + i.status, {}, lang())}`, cw - 20), x + 12, y + ch - 14);
     });
     if (live.length > shown.length) { g.fillStyle = PAL.steel; g.font = `600 18px ${FONT}`; g.fillText('+' + (live.length - shown.length), lw - 60, 66 + 3 * 128 - 14); }
     g.fillStyle = '#16303a'; g.fillRect(6, 456, lw - 12, 30);
@@ -343,7 +344,8 @@ export function createResearch(ctx) {
       const y = 62 + k * 64, id = `${v.phase}:${v.outcome}:${v.ts}`; if (!seen.has(id)) seen.set(id, seenAll ? now : -1e9);
       const age = (now - seen.get(id)) / 1000, e = age >= 0.5 ? 1 : 1 - Math.pow(1 - age / 0.5, 3);   // ease out: 1.8 times too big and faint, then home
       if (age < 0.5) p.animating = true;
-      g.fillStyle = PAL.steel; g.font = `700 18px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.vPhase', {n: v.phase, name: I18N.text('kernel.phase.' + PHASES[v.phase], {}, lang())}, lang()), 250), 18, y + 14);
+      const phaseName = I18N.text('kernel.phase.' + PHASES[v.phase], {}, lang());
+      g.fillStyle = PAL.steel; g.font = `700 18px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.vPhase', {n: v.phase, name: phaseName}, lang()), 250), 18, y + 14);
       g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(fit(g, (v.of ? `${num(v.score)}/${v.of} · ` : '') + v.by, 250), 18, y + 40);
       const col = OUT[v.outcome] || PAL.discard, label = I18N.text('office.research.out.' + v.outcome, {}, lang()).toUpperCase();
       g.save(); g.translate(430, y + 26); g.rotate(-0.06); const s = 1.8 - 0.8 * e; g.scale(s, s); g.globalAlpha = 0.25 + 0.75 * e;
