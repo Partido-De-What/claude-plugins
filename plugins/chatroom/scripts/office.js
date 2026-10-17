@@ -1902,7 +1902,7 @@ function cutWalls() {
   ceiling.visible = inside;
 }
 
-// first person: the camera sits in front of the figure's face and looks where the figure faces (plus where the mouse
+// first person: the camera sits in the figure's head and looks where the figure faces (plus where the mouse
 // turned the head); it flies there first, then stays locked to the eyes. The figure's own head hides once inside it.
 const fpCup = V.mug('#f5f5f5');                                            // the cup as you see it in first person
 fpCup.position.set(0.2, -0.24, -0.5); fpCup.visible = false; camera.add(fpCup); scene.add(camera);
@@ -1912,22 +1912,11 @@ function tendCup(t) {
   const sip = Math.max(0, Math.sin(((t % 7) / 7) * Math.PI * 2 - 1.2)) ** 3;   // every 7 s, up to the lips
   fpCup.position.set(0.2 - sip * 0.12, -0.24 + sip * 0.16, -0.5 + sip * 0.18); fpCup.rotation.set(sip * 0.9, 0, -sip * 0.2);
 }
-/** the eye sits 0.32 m ahead of the middle of the head, but the body keeps only 0.2 m from walls and furniture: near a tall piece (a wall, a cabinet,
- *  a counter at eye height) the eye comes back, until it is 0.2 m clear, so the view never goes through it; it goes forward again at 0.8 m/s */
-let lead = 0.32;
-function eyeLead(dt) {
-  climbList();
-  const y = boss.pos.y + boss.jumpY + 1.16, fx = Math.sin(boss.rot), fz = Math.cos(boss.rot);
-  const hit = d => { const x = boss.pos.x + fx * d, z = boss.pos.z + fz * d; return fN().blocked(x, z, 0.2) || (level !== 'arena' && [climb, small].some(l => l.some(e => e.top > y - 0.2 && e.y0 < y + 0.2 && x > e.x0 - 0.2 && x < e.x1 + 0.2 && z > e.z0 - 0.2 && z < e.z1 + 0.2))); };
-  let want = 0.32;
-  while (want > 0 && hit(want)) want -= 0.04;
-  return lead = want < lead ? Math.max(want, 0) : Math.min(want, lead + dt * 0.8);
-}
 function flyCamera(dt) {
   let pos = HOME.pos, look = HOME.target, fov = 30;
   if (pov && boss) {
     boss.root.updateMatrixWorld(true);
-    pos = boss.parts.head.localToWorld(_eye.set(0, 0.26, eyeLead(dt)));
+    pos = boss.parts.head.localToWorld(_eye.set(0, 0.26, 0));                     // on the axis the body turns about: the view turns round the eye (an eye ahead of it swings on an arc, and a wall close by seemed to turn up to twice as fast)
     const dr = wrapAng(boss.rot - povRot); povRot = boss.rot;                    // the body turned by itself (walking to a seat, sitting): the view keeps pointing where it was
     if (dr) me.yaw = wrapAng(me.yaw - dr);
     const yaw = boss.rot + me.yaw, c = Math.cos(me.pitch);
@@ -2205,7 +2194,7 @@ function putBoss(x, z, rot, lvl) {
   boss.pos.set(x, 0, z); boss.pose = 'stand'; boss.rot = rot; povRot = rot; me.yaw = 0; me.act = 'idle'; boss.path = []; boss.jumpY = 0; boss.jumpV = 0; boss.jumps = 0; boss.vaulting = 0; boss.faceRot = null;
   boss.lvl = lvl; boss.spot = {pos: boss.pos.clone(), rot, pose: 'stand'}; vault = null; watching = null; keys.clear(); me.then = null;
   boss.root.position.set(x, lvl, z); boss.root.rotation.y = rot; boss.root.updateMatrixWorld(true);
-  if (pov) { const eye = boss.parts.head.localToWorld(_eye.set(0, 0.26, 0.32)); camera.position.copy(eye); povLook.copy(eye).add(_look.set(Math.sin(rot), -0.08, Math.cos(rot))); camera.lookAt(povLook); povLocked = false; }
+  if (pov) { const eye = boss.parts.head.localToWorld(_eye.set(0, 0.26, 0)); camera.position.copy(eye); povLook.copy(eye).add(_look.set(Math.sin(rot), -0.08, Math.cos(rot))); camera.lookAt(povLook); povLocked = false; }
 }
 /** up to the arena or back to the office: the veil, the other level hidden (it costs nothing), the figure on its place */
 function setLevel(next) {
