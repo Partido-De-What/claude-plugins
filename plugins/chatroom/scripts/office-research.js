@@ -65,7 +65,7 @@ export function createResearch(ctx) {
   const root = new THREE.Group(); root.name = 'research'; scene.add(root);
   const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2(), tmp = new THREE.Vector3();
   const aniso = renderer.capabilities.getMaxAnisotropy();
-  let lastT = 0, armAngle = 0, data = null, key = '', skew = 0, drawnLang = '', hoverN = null, busy = false, disposed = false;
+  let lastT = 0, armAngle = 0, ver = 0, refutedN = 0, data = null, key = '', skew = 0, drawnLang = '', busy = false, disposed = false;
   const panels = {};
 
   // ------------------------------------------------------------------ panels
@@ -176,8 +176,8 @@ export function createResearch(ctx) {
   }
   panel('results', AT.results, 240, drawResults);
 
-  // ------------------------------------------------------------------ the detail of a run, under the pointer
-  const tip = {c: document.createElement('canvas'), n: null};
+  // ------------------------------------------------------------------ the detail of a run, or of a worker's bench, under the pointer (nothing stays floating: it shows while you point)
+  const tip = {c: document.createElement('canvas')};
   tip.c.width = 400 * SS; tip.c.height = 150 * SS;
   tip.g = tip.c.getContext('2d'); tip.g.scale(SS, SS);
   tip.tex = new THREE.CanvasTexture(tip.c); tip.tex.colorSpace = THREE.SRGBColorSpace; tip.tex.anisotropy = aniso;
@@ -194,26 +194,49 @@ export function createResearch(ctx) {
     g.fillStyle = PAL.steel; g.font = `500 19px ${FONT}`; wrap(g, a.revoked_why || a.desc || '', 16, 88, 368, 24, 2);
     tip.tex.needsUpdate = true;
   }
-  function setHover(n) {
-    if (n === hoverN) return; hoverN = n;
-    const p = panels.results, a = n != null && data ? data.attempts.find(x => x.n === n) : null, at = a && p.pointAt && p.pointAt[n];
-    if (!a || !at) { tip.mesh.visible = false; return; }
-    drawTip(a);
-    toLocal(p, at.x, at.y, tmp);                                                    // above the point, inside the wall's screen
-    const hx = Math.max(-p.at.w / 2 + 0.85, Math.min(p.at.w / 2 - 0.85, tmp.x)), hy = Math.max(-p.at.h / 2 + 0.4, Math.min(p.at.h / 2 - 0.45, tmp.y + 0.45));
-    tip.mesh.position.set(p.at.x + hx, p.at.y + hy, p.at.z + 0.03); tip.mesh.visible = true;
+  function drawTipBench(name) {
+    const g = tip.g, st = benchState(data, name), col = st.paused ? PAL.warn : st.crashed ? PAL.crash : st.run ? PAL.run : PAL.discard;
+    g.clearRect(0, 0, 400, 150);
+    g.fillStyle = '#0b1318f2'; g.beginPath(); g.roundRect(2, 2, 396, 146, 12); g.fill();
+    g.strokeStyle = col; g.lineWidth = 4; g.stroke();
+    g.textBaseline = 'middle'; g.fillStyle = PAL.white; g.font = `800 24px ${FONT}`; g.fillText(fit(g, name, 368), 16, 28);
+    g.fillStyle = col; g.font = `700 21px ${FONT}`;
+    g.fillText(fit(g, st.paused ? I18N.text('office.research.wPaused', {}, lang()) : st.run ? I18N.text('office.research.wRunning', {n: st.run.n}, lang()) : st.crashed ? I18N.text('office.research.wCrashed', {}, lang()) : I18N.text('office.research.wIdle', {}, lang()), 368), 16, 58);
+    g.fillStyle = PAL.steel; g.font = `500 18px ${FONT}`;
+    g.fillText(fit(g, `work-${name}${st.w.idea ? ' · ' + st.w.idea : ''}${st.crashes ? ' · ' + I18N.text('office.research.wCrashes', {n: st.crashes}, lang()) : ''}`, 368), 16, 88);
+    g.fillText(fit(g, st.w.best ? I18N.text('office.research.wBest', {n: st.w.best.n, v: num(st.w.best.metric)}, lang()) : I18N.text('office.research.wNone', {}, lang()), 368), 16, 116);
+    tip.tex.needsUpdate = true;
   }
-  let moveAt = 0, lastCenter = 0;
+  let hoverKind = '', hoverId = null;
+  function setHover(kind, id) {                                                      // kind: 'run' (id: its number), 'bench' (id: the worker's name) or '' (nothing)
+    if (kind === hoverKind && id === hoverId) return; hoverKind = kind; hoverId = id;
+    tip.mesh.visible = false; tip.mesh.quaternion.identity();
+    if (kind === 'run') {
+      const p = panels.results, a = data ? data.attempts.find(x => x.n === id) : null, at = a && p.pointAt && p.pointAt[id];
+      if (!a || !at) return;
+      drawTip(a);
+      toLocal(p, at.x, at.y, tmp);                                                    // above the point, inside the wall's screen
+      const hx = Math.max(-p.at.w / 2 + 0.85, Math.min(p.at.w / 2 - 0.85, tmp.x)), hy = Math.max(-p.at.h / 2 + 0.4, Math.min(p.at.h / 2 - 0.45, tmp.y + 0.45));
+      tip.mesh.position.set(p.at.x + hx, p.at.y + hy, p.at.z + 0.03); tip.mesh.visible = true;
+    } else if (kind === 'bench') {
+      const b = benches.get(id); if (!b || !data) return;
+      drawTipBench(id); b.desk.g.getWorldPosition(tip.mesh.position); tip.mesh.position.y = 1.6; tip.mesh.visible = true;   // faces the camera: update() turns it
+    }
+  }
+  let moveAt = 0;
   function pick(ev) {
     const p = panels.results; if (!p || !data || paused()) return;
     if (pov()) ndc.set(0, 0); else { const r = dom.getBoundingClientRect(); ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1); }
     raycaster.setFromCamera(ndc, camera);
     const hit = raycaster.intersectObject(p.mesh, false)[0];
-    if (!hit || !hit.uv) return setHover(null);
-    const px = hit.uv.x * p.lw, py = (1 - hit.uv.y) * p.lh;
-    let near = null, dist = 26;                                                       // within 26 canvas pixels of a point
-    for (const h of p.hit) { const dd = Math.hypot(h.x - px, h.y - py); if (dd < dist) { dist = dd; near = h.n; } }
-    setHover(near);
+    if (hit && hit.uv) {
+      const px = hit.uv.x * p.lw, py = (1 - hit.uv.y) * p.lh;
+      let near = null, dist = 26;                                                     // within 26 canvas pixels of a point
+      for (const h of p.hit) { const dd = Math.hypot(h.x - px, h.y - py); if (dd < dist) { dist = dd; near = h.n; } }
+      return near != null ? setHover('run', near) : setHover('', null);
+    }
+    const bh = benches.size ? raycaster.intersectObjects(benchHits, false)[0] : null;      // a worker's desk: its hit box (invisible)
+    setHover(bh ? 'bench' : '', bh ? bh.object.userData.worker : null);
   }
   const onMove = ev => { const now = performance.now(); if (now - moveAt < 40) return; moveAt = now; pick(ev); };
   dom.addEventListener('pointermove', onMove, {passive: true});
@@ -413,9 +436,10 @@ export function createResearch(ctx) {
   }
   const plaque = panel('plaque', {x: AT.trophy.x, y: 0.42, z: AT.trophy.z + 0.312, w: 0.5, h: 0.2}, 400, drawPlaque);
 
-  // ------------------------------------------------------------------ the benches: a card over the desk of each worker, a light, smoke when a run crashed, tape when it is paused
+  // ------------------------------------------------------------------ the benches: on each worker's desk a light, a bar for the run's budget, smoke when a run crashed and tape when it is paused (no text: the detail shows when you point at the desk)
   const desks = new Map();                                                                  // agent name -> its desk (office.js attach/detach)
-  const benches = new Map();                                                                // worker name -> {card, light, tape, smoke, key, ...}
+  const benches = new Map();                                                                // worker name -> {desk, light, track, fill, tape, smoke, hit, st, ver, sec}
+  const benchHits = [];                                                                     // the invisible boxes a pointer can find
   const hazard = (() => {                                                                   // yellow and black tape: one picture for every bench
     const c = document.createElement('canvas'); c.width = 128; c.height = 16; const g = c.getContext('2d');
     g.fillStyle = '#ffd54f'; g.fillRect(0, 0, 128, 16); g.fillStyle = '#1a1a1a';
@@ -423,9 +447,10 @@ export function createResearch(ctx) {
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; tex.repeat.set(5, 1); return tex;
   })();
   const tapeGeo = new THREE.PlaneGeometry(1.25, 0.14), tapeMat = new THREE.MeshBasicMaterial({map: hazard, side: THREE.DoubleSide, toneMapped: false});
-  const lightGeo = new THREE.PlaneGeometry(0.7, 0.035);
+  const lightGeo = new THREE.PlaneGeometry(0.7, 0.04), trackGeo = new THREE.PlaneGeometry(0.7, 0.025), fillGeo = new THREE.PlaneGeometry(0.7, 0.025).translate(0.35, 0, 0);
+  const trackMat = new THREE.MeshBasicMaterial({color: '#27414c', toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2});
+  const hitGeo = new THREE.BoxGeometry(1.3, 1.2, 1.1), hitMat = new THREE.MeshBasicMaterial();
   const puffGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07), puffMat = new THREE.MeshBasicMaterial({color: '#9aa5ab', transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false});
-  const CARD = {w: 0.8, h: 0.45, ppm: 450};
   const benchState = (d, name) => {
     const w = d.workers[name], run = d.pending && d.pending.worker === name ? d.pending : null;
     const mine = d.attempts.filter(a => a.worker === name && a.kind === 'attempt'), last = mine[mine.length - 1];
@@ -433,72 +458,52 @@ export function createResearch(ctx) {
     return {w, run, paused: !!w.paused, crashed: !!fresh, crashes: w.crashes || 0};
   };
   function makeBench(name, desk) {
-    const lw = Math.round(CARD.w * CARD.ppm), lh = Math.round(CARD.h * CARD.ppm), c = document.createElement('canvas');
-    c.width = lw * SS; c.height = lh * SS; const g = c.getContext('2d'); g.scale(SS, SS);
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = aniso;
-    const card = new THREE.Mesh(new THREE.PlaneGeometry(CARD.w, CARD.h), new THREE.MeshBasicMaterial({map: tex, toneMapped: false, transparent: true}));
-    card.renderOrder = 3; root.add(card);
-    const light = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({color: PAL.run, toneMapped: false, transparent: true}));
-    light.rotation.x = -Math.PI / 2; light.position.set(0, 0.725, 0.3); desk.g.add(light);
-    const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false; desk.g.add(tape);
-    const b = {name, desk, lw, lh, g, tex, card, light, tape, smoke: null, key: '', puffs: null};
+    const mat = () => new THREE.MeshBasicMaterial({color: PAL.run, toneMapped: false, transparent: true});
+    const light = new THREE.Mesh(lightGeo, mat()), track = new THREE.Mesh(trackGeo, trackMat), fill = new THREE.Mesh(fillGeo, mat());
+    light.rotation.x = track.rotation.x = fill.rotation.x = -Math.PI / 2;
+    light.position.set(0, 0.727, 0.3); track.position.set(0, 0.724, 0.355); fill.position.set(-0.35, 0.726, 0.355);
+    const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false;
+    const hit = new THREE.Mesh(hitGeo, hitMat); hit.visible = false; hit.position.set(0, 0.85, 0.1); hit.userData.worker = name;       // raycast ignores `visible`: the box is found, never drawn
+    desk.g.add(light, track, fill, tape, hit); benchHits.push(hit);
+    const b = {name, desk, light, track, fill, tape, hit, smoke: null, st: null, ver: -1, sec: -1};
     benches.set(name, b); return b;
   }
-  function drawBench(b, st, d) {
-    const {g, lw, lh} = b, col = st.paused ? PAL.warn : st.crashed ? PAL.crash : st.run ? PAL.run : PAL.discard;
-    g.clearRect(0, 0, lw, lh);
-    g.fillStyle = '#0b1318f2'; g.beginPath(); g.roundRect(2, 2, lw - 4, lh - 4, 14); g.fill();
-    g.strokeStyle = col; g.lineWidth = 5; g.stroke();
-    g.textBaseline = 'middle'; g.fillStyle = PAL.white; g.font = `800 26px ${FONT}`; g.fillText(fit(g, b.name, lw - 36), 18, 28);
-    g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(`work-${b.name}${st.w.idea ? ' · ' + st.w.idea : ''}`, 18, 54);
-    g.fillStyle = col; g.font = `700 20px ${FONT}`;
-    let line;
-    if (st.paused) line = I18N.text('office.research.wPaused', {}, lang());
-    else if (st.run) line = I18N.text('office.research.wRunning', {n: st.run.n}, lang());
-    else if (st.crashed) line = I18N.text('office.research.wCrashed', {}, lang());
-    else line = I18N.text('office.research.wIdle', {}, lang());
-    g.fillText(fit(g, line, lw - 36), 18, 86);
-    if (st.run) {                                                                              // the run's budget: a bar that fills, amber past the limit
-      const el = Math.max(0, Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts)), f = Math.min(1, el / d.contract.budget_s);
-      g.fillStyle = '#27414c'; g.fillRect(18, 100, lw - 36, 10); g.fillStyle = el > d.contract.budget_s ? PAL.warn : PAL.run; g.fillRect(18, 100, (lw - 36) * f, 10);
-      g.fillStyle = PAL.steel; g.font = `500 16px ${FONT}`; g.fillText(`${Math.round(el)} / ${d.contract.budget_s} s`, 18, 126);
-      g.fillText(fit(g, st.run.desc || '', lw - 36), 18, 148);
-    } else if (st.crashes) { g.fillStyle = PAL.crash; g.font = `600 18px ${FONT}`; g.fillText(I18N.text('office.research.wCrashes', {n: st.crashes}, lang()), 18, 112); }
-    g.fillStyle = PAL.steel; g.font = `500 17px ${FONT}`;
-    g.fillText(fit(g, st.w.best ? I18N.text('office.research.wBest', {n: st.w.best.n, v: num(st.w.best.metric)}, lang()) : I18N.text('office.research.wNone', {}, lang()), lw - 36), 18, lh - 22);
-    b.tex.needsUpdate = true;
+  function dropBench(b) {
+    b.desk.g.remove(b.light, b.track, b.fill, b.tape, b.hit); b.light.material.dispose(); b.fill.material.dispose();
+    if (b.smoke) { b.desk.g.remove(b.smoke); b.smoke.dispose(); }
+    benchHits.splice(benchHits.indexOf(b.hit), 1); benches.delete(b.name);
+    if (hoverKind === 'bench' && hoverId === b.name) setHover('', null);
   }
   function syncBenches() {
-    for (const [name, b] of benches) if (!data || !data.workers[name] || !desks.has(name) || desks.get(name) !== b.desk) {          // a worker that left, or moved to another desk
-      root.remove(b.card); b.desk.g.remove(b.light, b.tape); b.tex.dispose(); b.card.geometry.dispose(); b.card.material.dispose(); b.light.material.dispose();
-      if (b.smoke) { b.desk.g.remove(b.smoke); b.smoke.dispose(); }
-      benches.delete(name);
-    }
+    for (const b of [...benches.values()]) if (!data || !data.workers[b.name] || desks.get(b.name) !== b.desk) dropBench(b);        // a worker that left, or moved to another desk
     if (!data) return;
     for (const [name, desk] of desks) if (data.workers[name] && !benches.has(name)) makeBench(name, desk);
   }
-  const _wp = new THREE.Vector3();
+  const _wp = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v3 = new THREE.Vector3(), _s3 = new THREE.Vector3();
   function updateBenches(t) {
+    const sec = Math.floor(Date.now() / 1000);
     for (const b of benches.values()) {
-      const st = benchState(data, b.name), second = Math.floor(Date.now() / 1000);
-      const key = JSON.stringify([st.w, st.run && st.run.n, st.paused, st.crashed, st.crashes, lang(), st.run ? second : 0]);   // the bar moves once a second
-      if (key !== b.key) { b.key = key; drawBench(b, st, data); }
-      b.desk.g.getWorldPosition(_wp); b.card.position.set(_wp.x, 1.75, _wp.z); b.card.quaternion.copy(camera.quaternion);
-      const col = st.paused ? PAL.warn : st.crashed ? PAL.crash : PAL.run;
-      b.light.visible = !!(st.run || st.paused || st.crashed); b.light.material.color.set(col);
-      b.light.material.opacity = st.run ? 0.55 + 0.45 * Math.sin(t * 5) : 0.9;
-      b.tape.visible = st.paused;
-      if (st.crashed && !b.smoke) {
-        b.smoke = new THREE.InstancedMesh(puffGeo, puffMat, 9); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke);
+      if (b.ver !== ver || (sec !== b.sec && b.st && (b.st.run || b.st.crashed))) {                       // the state is read when the data changed, and once a second while a bar moves or smoke may end
+        b.ver = ver; b.sec = sec; const st = b.st = benchState(data, b.name);
+        const col = st.paused ? PAL.warn : st.crashed ? PAL.crash : st.run ? PAL.run : PAL.discard;
+        b.light.material.color.set(col); b.fill.material.color.set(st.run && Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts) > data.contract.budget_s ? PAL.warn : PAL.run);
+        b.fill.visible = b.track.visible = !!st.run; b.tape.visible = st.paused;
+        if (st.run) b.fill.scale.x = Math.max(0.001, Math.min(1, (Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts)) / data.contract.budget_s));
+        if (st.crashed && !b.smoke) { b.smoke = new THREE.InstancedMesh(puffGeo, puffMat, 9); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke); }
+        if (b.smoke) b.smoke.visible = st.crashed;
       }
-      if (b.smoke) {
-        b.smoke.visible = st.crashed;
-        if (st.crashed) { const m = _m4, q = _q, s = _wp; for (let i = 0; i < 9; i++) { const ph = (t * 0.45 + i / 9) % 1; s.setScalar(0.5 + ph * 1.6);
-          m.compose(_v3.set(Math.sin(i * 2.1 + t) * 0.06 * ph + 0.0, 0.85 + ph * 0.75, -0.25 + Math.cos(i * 1.7) * 0.05), q, s); b.smoke.setMatrixAt(i, m); } b.smoke.instanceMatrix.needsUpdate = true; }
+      const st = b.st; if (!st) continue;
+      b.light.material.opacity = st.run ? 0.55 + 0.45 * Math.sin(t * 5) : st.paused || st.crashed ? 1 : 0.35;
+      if (b.smoke && st.crashed) {
+        for (let i = 0; i < 9; i++) {
+          const ph = (t * 0.45 + i / 9) % 1; _s3.setScalar(0.5 + ph * 1.6);
+          _m4.compose(_v3.set(Math.sin(i * 2.1 + t) * 0.06 * ph, 0.85 + ph * 0.75, -0.25 + Math.cos(i * 1.7) * 0.05), _q, _s3); b.smoke.setMatrixAt(i, _m4);
+        }
+        b.smoke.instanceMatrix.needsUpdate = true;
       }
     }
+    if (hoverKind === 'bench') tip.mesh.quaternion.copy(camera.quaternion);                                 // the detail faces whoever points
   }
-  const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v3 = new THREE.Vector3();
 
   // ------------------------------------------------------------------ the data
   function feed(d) {
@@ -506,8 +511,9 @@ export function createResearch(ctx) {
     if (d && d.now) skew = Date.now() / 1000 - d.now;
     if (k === key) return; key = k; data = d && d.enabled ? d : null;
     for (const p of Object.values(panels)) p.dirty = true;
+    ver++; refutedN = data ? data.ideas.filter(i => refuted(data, i)).length : 0; root.visible = !!data;
     syncBenches();
-    if (hoverN != null) { const n = hoverN; hoverN = null; setHover(n); }
+    if (hoverKind) { const k = hoverKind, id = hoverId; hoverKind = ''; hoverId = null; setHover(k, id); }
   }
   async function load() {
     if (busy || disposed || paused()) return; busy = true;
@@ -533,7 +539,7 @@ export function createResearch(ctx) {
     tower.gpu.material.color.set(data.lamps.gpu ? PAL.warn : '#3b2f1a');
     const busy = !!(data.lamps.lock && data.lamps.lock.alive);
     tower.run.material.color.set(busy ? PAL.run : '#16303a'); if (busy) tower.run.material.color.multiplyScalar(0.7 + 0.3 * Math.sin(t * 5));
-    setPaper(data.ideas.filter(i => refuted(data, i)).length);
+    setPaper(refutedN);
     trophy.cup.visible = plaque.mesh.visible = plaque.frame.visible = !!(data.final && data.final.metric != null);
     if (panels.verdicts.animating) panels.verdicts.dirty = true;                       // a new stamp comes in over half a second
     updateBenches(t);
