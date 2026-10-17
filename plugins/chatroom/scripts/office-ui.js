@@ -153,9 +153,9 @@ body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox) { displa
 #office .o-palette small { opacity: .75; }
 #office .o-hint { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); pointer-events: none; padding: 6px 14px; border-radius: 3px;
   background: #f5b400; color: #222; font-weight: 800; font-size: 14px; box-shadow: 2px 2px 0 #0008; display: none; }
-#office .o-help { position: absolute; left: 12px; bottom: 60px; max-width: min(400px, 46%); padding: 7px 11px; border-radius: 9px; background: #14151de6; box-shadow: 0 6px 16px #0004;
+#office div.o-help { position: absolute; left: 12px; bottom: 60px; max-width: min(400px, 46%); padding: 7px 11px; border-radius: 9px; background: #14151de6; box-shadow: 0 6px 16px #0004;
   font-size: 11.5px; line-height: 1.45; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .35s, transform .35s; z-index: 2; }
-#office .o-help.o-show { opacity: 1; transform: none; }
+#office div.o-help.o-show { opacity: 1; transform: none; }
 #office .o-more { position: relative; }
 #office .o-menu { position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 220px; display: none; flex-direction: column; gap: 2px; padding: 8px; background: #14151df2;
   border: 1px solid #ffffff14; border-radius: 12px; box-shadow: 0 10px 28px #0007; z-index: 3; }
@@ -169,6 +169,8 @@ body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox) { displa
 @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes blink { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { #office .o-bubble, #office .o-flag.o-wait, #office .o-inspector.o-open, #office .o-common.o-open { animation: none; } #office button { transition: none; } }
+/* a phone: the button bar takes two rows (87 px at 375 wide), the hint and the help panel stand above it, not on it */
+@media (max-width: 480px) { #office .o-hint { bottom: 100px; } #office div.o-help { bottom: 100px; } }
 @media (max-width: 900px) { body.mode-split { padding-left: 0; padding-top: 42vh; } body.mode-split #office { width: 100vw; height: 42vh; inset: 0 0 auto 0; } }
 `;
 
@@ -312,7 +314,7 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
     if (on !== null) b.setAttribute('aria-pressed', String(!!on)); else b.removeAttribute('aria-pressed');
   };
   // the help line: shown for a few seconds at the start, gone at the first click in the office, back with the Help button; never a fixture over the panels
-  const helpEl = root.querySelector('.o-help'); let helpTimer = 0;
+  const helpEl = root.querySelector('div.o-help'); let helpTimer = 0;
   const showHelp = ms => { helpEl.classList.add('o-show'); clearTimeout(helpTimer); helpTimer = setTimeout(() => helpEl.classList.remove('o-show'), ms); };
   root.addEventListener('pointerdown', e => { if (!e.target.closest('.o-btns')) { clearTimeout(helpTimer); helpEl.classList.remove('o-show'); } }, true);
   setTimeout(() => showHelp(14000), 1500);

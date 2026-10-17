@@ -29,24 +29,25 @@ export const budgetColor = (used, budget) => !budget ? COL.off : used >= budget 
 
 const AT = /(^|[^\w@])@([\w-]+)/g;
 /** who tagged whom in the last `window` seconds: [{from, to, n, answeredTs}] — answeredTs 0 while the tagged one has said nothing since (a message, a
- *  status or a board line; a break does not answer). Only the unanswered ones (the newest `max`) and those answered less than `fade` seconds ago stay.
+ *  status or a board line; a break does not answer; an answer that tags the tagger back closes the link and opens none). Only the unanswered ones (the newest `max`) and those answered less than `fade` seconds ago stay.
  *  `who`: Map of lower-case name -> name for the figures that can be tagged. */
 export function tagLinks(all, who, now, {window = 600, max = 8, fade = 25} = {}) {
   const recent = [];
   for (let i = all.length - 1; i >= 0 && recent.length < 80; i--) { if (now - (all[i].ts || now) > window) break; recent.push(all[i]); }
   recent.reverse();
   const links = [];
-  recent.forEach((m, i) => {
-    if (m.kind && m.kind !== 'status') return;
+  for (const m of recent) {
+    const replied = new Set();                                         // who tagged this author and is answered by this message: its tag back is the answer, not a tag of its own
+    if (m.kind !== 'idle') for (const l of links) if (!l.answeredTs && l.to === m.from) { l.answeredTs = m.ts || now; replied.add(l.from); }
+    if (m.kind && m.kind !== 'status') continue;
     const seen = new Set();
     for (const g of String(m.text || '').matchAll(AT)) {
       const to = who.get(g[2].toLowerCase());
-      if (!to || to === m.from || seen.has(to)) continue;
+      if (!to || to === m.from || seen.has(to) || replied.has(to)) continue;
       seen.add(to);
-      const ans = recent.slice(i + 1).find(x => x.from === to && x.kind !== 'idle');
-      links.push({from: m.from, to, n: m.n, answeredTs: ans ? (ans.ts || now) : 0});
+      links.push({from: m.from, to, n: m.n, answeredTs: 0});
     }
-  });
+  }
   const newest = new Map();                                              // one line for a pair and a state: a second tag to the same person draws nothing new
   for (const l of links) if (!l.answeredTs || now - l.answeredTs < fade) newest.set(l.from + '>' + l.to + (l.answeredTs ? '!' : ''), l);
   const kept = [...newest.values()];

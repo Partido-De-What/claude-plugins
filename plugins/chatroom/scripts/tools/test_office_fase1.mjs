@@ -136,6 +136,11 @@ test('budget: green under 60%, amber up to the limit, red from it, grey without 
     const done = viz.tagLinks([m(1, 'LEAD', '@ALFA do it', 990), m(2, 'ALFA', 'ok', 995, 'status')], who, now);
     return open.length === 1 && open[0].answeredTs === 0 && done.length === 1 && done[0].answeredTs === 995 ? '' : JSON.stringify({open, done});
   });
+  test('tag links: an answer that tags the tagger back closes the link and opens none; a later ping opens a new one', () => {
+    const one = viz.tagLinks([m(1, 'ALFA', '@BETA question', 990), m(2, 'BETA', '@ALFA ok', 995)], who, now);
+    const two = viz.tagLinks([m(1, 'ALFA', '@BETA question', 990), m(2, 'BETA', '@ALFA ok', 995), m(3, 'ALFA', '@BETA and one more', 997)], who, now);
+    return one.length === 1 && one[0].from === 'ALFA' && one[0].answeredTs === 995 && two.length === 2 && two[0].answeredTs === 0 && two[1].answeredTs === 995 ? '' : JSON.stringify({one, two});
+  });
   test('tag links: @all, a self tag, a name nobody has and a quoted address are no link; two tags to one person are one link', () => {
     const l = viz.tagLinks([m(1, 'LEAD', '@all hello', 990), m(2, 'ALFA', '@ALFA me', 991), m(3, 'ALFA', '@nobody x', 992), m(4, 'ALFA', 'mail a@beta.org', 993), m(5, 'BETA', '@GAMMA and @gamma', 994)], who, now);
     return l.length === 1 && l[0].to === 'GAMMA' ? '' : JSON.stringify(l);
