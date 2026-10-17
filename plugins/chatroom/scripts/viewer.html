@@ -208,6 +208,65 @@
   @media (max-width: 640px) { .live { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2;
                                       -webkit-box-orient: vertical; }
                                 #feed { padding: 10px 8px 18px; } .bubble { max-width: 92%; } #search.open { width: 120px; } }
+
+  /* the Research tab of a research room: phases, chart, runs, ideas, verdicts (research.json) */
+  #research { flex: 1; overflow-y: auto; padding: 12px 5% 18px; display: none; }
+  body.rs-open #research { display: block; }
+  body.rs-open #feed, body.rs-open #newer { display: none; }
+  .rs { --ok: #43a047; --no: #90a4ae; --bad: #e53935; --run: #4dd0e1; --warn: #ffb74d; max-width: 1100px; margin: 0 auto; }
+  .rs h2 { font-size: 15px; margin: 0 0 6px; font-weight: 700; }
+  .rs h3 { font-size: 12.5px; margin: 0 0 6px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .rs-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+  .rs-head small { color: var(--muted); }
+  .rs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 10px; margin-top: 10px; }
+  .rs-card { background: var(--in); border-radius: 10px; padding: 10px 12px; box-shadow: 0 1px .5px var(--shadow); min-width: 0; overflow-wrap: anywhere; }
+  .rs-wide { grid-column: 1 / -1; }
+  .rs-pipe { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0; align-items: center; }
+  .rs-pipe li { border-radius: 14px; padding: 3px 11px; font-size: 12.5px; background: rgba(127,127,127,.14); color: var(--muted); }
+  .rs-pipe li.done { background: var(--ok); color: #fff; }
+  .rs-pipe li.cur { background: var(--run); color: #08323a; font-weight: 700; animation: rs-pulse 2.4s ease-in-out infinite; }
+  .rs-pipe li.gate { padding: 3px 6px; background: var(--bad); color: #fff; font-weight: 700; }
+  .rs-pipe li.gate.open { background: var(--ok); }
+  .rs-why { font-size: 12.5px; margin-top: 6px; color: var(--muted); }
+  .rs-why.shut { color: var(--bad); }
+  @keyframes rs-pulse { 50% { box-shadow: 0 0 0 4px rgba(77,208,225,.35); } }
+  @media (prefers-reduced-motion: reduce) { .rs-pipe li.cur, .rs-ring, .rs-lamp.run { animation: none !important; } }
+  .rs-chart { width: 100%; height: auto; display: block; touch-action: manipulation; }
+  .rs-chart text { fill: var(--muted); font-size: 11px; }
+  .rs-chart .grid { stroke: var(--border); stroke-width: 1; }
+  .rs-chart .pt { cursor: pointer; }
+  .rs-ring { fill: none; stroke: var(--run); stroke-width: 2; animation: rs-pulse-svg 2s ease-in-out infinite; }
+  @keyframes rs-pulse-svg { 50% { stroke-opacity: .25; } }
+  .rs-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .rs-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .rs-detail { min-height: 20px; font-size: 13px; margin-top: 6px; }
+  .rs-tablewrap { overflow-x: auto; }
+  .rs-table { display: table; width: 100%; font-size: 12.5px; margin: 0; }
+  .rs-table td, .rs-table th { padding: 3px 6px; }
+  .rs-table tr.rev td { text-decoration: line-through; opacity: .55; }
+  .rs-chip { display: inline-block; border-radius: 9px; padding: 0 8px; font-size: 11.5px; font-weight: 700; color: #fff; background: var(--no); }
+  .rs-chip.keep, .rs-chip.pass, .rs-chip.answer_ready { background: var(--ok); }
+  .rs-chip.crash, .rs-chip.fail { background: var(--bad); }
+  .rs-chip.search_more, .rs-chip.warn { background: var(--warn); color: #3b2a00; }
+  .rs-chip.run { background: var(--run); color: #08323a; }
+  .rs-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 3px 0; font-size: 13px; }
+  .rs-row small { color: var(--muted); }
+  .rs-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; width: 100%; margin: 4px 0; }
+  .rs-bar i { display: block; height: 100%; background: var(--run); transition: width .9s linear; }
+  .rs-idea { border-left: 3px solid var(--no); padding: 2px 8px; margin: 4px 0; font-size: 13px; }
+  .rs-idea.tried { border-color: var(--run); } .rs-idea.accepted { border-color: var(--warn); }
+  .rs-idea.trash { opacity: .6; text-decoration: line-through; border-color: var(--bad); }
+  .rs-chain, .rs-chain ul { list-style: none; margin: 0; padding-left: 14px; border-left: 2px solid var(--bad); font-size: 13px; }
+  .rs-chain { padding-left: 0; border: 0; }
+  .rs-seals { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0; }
+  .rs-seals i { width: 12px; height: 12px; border-radius: 3px; background: var(--no); display: block; }
+  .rs-seals i.on { background: var(--ok); }
+  .rs-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .rs-chips code { font-size: 11.5px; }
+  .rs-lamp { width: 12px; height: 12px; border-radius: 50%; background: var(--no); display: inline-block; vertical-align: -1px; margin-right: 6px; }
+  .rs-lamp.warn { background: var(--warn); } .rs-lamp.run { background: var(--run); animation: rs-pulse 2s ease-in-out infinite; }
+  .rs-log { font-size: 12px; color: var(--muted); max-height: 190px; overflow-y: auto; }
+  .rs-log b { color: var(--text); } .rs-log .bad { color: var(--bad); }
 </style>
 <script type="importmap">{"imports": {"three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/"}}</script>
 </head>
@@ -220,6 +279,7 @@
     <div class="live" id="live"></div>
   </div>
   <input id="search" type="text" autocomplete="off">
+  <button class="icon-btn" id="researchBtn" title="" hidden>🔬</button>
   <button class="icon-btn" id="officeBtn" title="Ufficio 3D / 3D office" onclick="window.officeMode && window.officeMode()">🏢</button>
   <button class="icon-btn" id="searchBtn" title="">🔍</button>
   <button class="icon-btn" id="soundBtn" title="">🔕</button>
@@ -228,6 +288,7 @@
 <div class="strip" id="strip"></div>
 <div class="scope" id="scope" hidden></div>
 <main id="feed"><div id="empty"></div></main>
+<main id="research"></main>
 <button id="newer"></button>
 <div id="lightbox"><img alt=""></div>
 <footer>
@@ -871,6 +932,180 @@ setSound(pref('sound', false));
 window.I18N_READY = Promise.all(I18N.LANGS.map(l => I18N.fetchLang(l))).then(() => I18N.load(config.lang));
 I18N_READY.then(applyLook);
 loadCommands().then(() => { COMMANDS._lang = config.lang; });
+/* the Research tab of a research room (config.mode === 'research'): phases, chart, runs, workers, ideas, verdicts, provenance, contract, report gate and lamps,
+   all from research.json (read only), asked every 2.5 s while the tab is open and the page is visible. Same colours as the 3D laboratory (office-lab.js PALETTE) */
+const RS = {data: null, key: '', open: false, sel: null, skew: 0, busy: false, shown: 30};
+const RS_PHASES = ['contract', 'drafting', 'investigation', 'evidence', 'final', 'report', 'closed'];
+const RS_SEC = {'Result': 'result', 'What changed': 'changed', 'Evidence': 'evidence', 'What did not work': 'failed', 'Limits': 'limits', 'Disclosure': 'disclosure'};
+const RS_COLOR = {keep: '#43a047', discard: '#90a4ae', crash: '#e53935', run: '#4dd0e1', warn: '#ffb74d'};
+const rsNum = v => v == null ? '—' : String(+Number(v).toPrecision(5));
+const rsStatus = s => I18N.text('viewer.research.st.' + s);
+const rsChip = (cls, text, title = '') => `<span class="rs-chip ${esc(cls)}" title="${esc(title)}">${esc(text)}</span>`;
+
+function rsPhases(d) {
+  const L = d.phase, items = RS_PHASES.map((k, i) => `<li class="${i < L ? 'done' : i === L ? 'cur' : ''}">${i < L ? '✓ ' : ''}${esc(I18N.text('kernel.phase.' + k))}</li>` + (i === L && L < 6 ? `<li class="gate ${d.gate.open ? 'open' : ''}">${d.gate.open ? '▶' : '■'}</li>` : ''));
+  const reason = d.gate.open ? '' : I18N.text('kernel._phase_next.' + d.gate.why, d.gate.args || {});
+  const why = d.gate.open ? I18N.text('viewer.research.gateOpen') : I18N.text('viewer.research.gateShut', {why: reason});
+  return `<ol class="rs-pipe">${items.join('')}</ol><div class="rs-why ${d.gate.open ? '' : 'shut'}">${esc(why)}</div>`;
+}
+
+function rsGain(d, best) {
+  const g = String(d.contract.min_gain || '0'), v = g.endsWith('%') ? Math.abs(best) * parseFloat(g) / 100 : parseFloat(g);
+  return v > 0 ? v : 0;
+}
+function rsChart(d) {
+  const runs = d.attempts.filter(a => a.kind === 'attempt'), vals = runs.map(a => a.metric).filter(v => v != null);
+  if (d.baseline) vals.push(d.baseline.metric);
+  if (!vals.length) return '';
+  const W = 640, H = 260, L = 48, R = 14, T = 14, B = 34, up = d.contract.direction === 'max';       // better is always up
+  let lo = Math.min(...vals), hi = Math.max(...vals); if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const N = Math.max(4, ...runs.map(a => a.n), d.pending ? d.pending.n : 0), x = n => L + (n - 0.5) / N * (W - L - R);
+  const y = v => T + (up ? hi - v : v - lo) / (hi - lo) * (H - T - B), yCrash = H - B + 16;
+  const alive = runs.filter(a => a.state !== 'revoked' && a.status === 'keep' && a.metric != null);
+  let best = null, path = '', bestAt = null;
+  for (const a of alive) if (best === null || (up ? a.metric > best : a.metric < best)) { path += (path ? ` H${x(a.n)}` : `M${x(a.n)} ${y(a.metric)}`) + ` V${y(a.metric)}`; best = a.metric; bestAt = a.n; }
+  const out = [];
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, yy = T + (up ? hi - v : v - lo) / (hi - lo) * (H - T - B); out.push(`<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${esc(rsNum(v))}</text>`); }
+  const step = Math.max(1, Math.ceil(N / 10));
+  for (let n = 1; n <= N; n += step) out.push(`<text x="${x(n)}" y="${H - 4}" text-anchor="middle">${n}</text>`);
+  if (best !== null) { const gain = rsGain(d, best); if (gain) { const y0 = y(best), y1 = Math.max(T, y(up ? best + gain : best - gain)); out.push(`<rect x="${L}" y="${Math.min(y0, y1)}" width="${W - L - R}" height="${Math.abs(y0 - y1)}" fill="${RS_COLOR.warn}" opacity=".22"/>`); } }
+  if (d.baseline) out.push(`<line x1="${L}" x2="${W - R}" y1="${y(d.baseline.metric)}" y2="${y(d.baseline.metric)}" stroke="${RS_COLOR.discard}" stroke-width="1.5" stroke-dasharray="6 4"/><text x="${W - R}" y="${y(d.baseline.metric) - 4}" text-anchor="end">${esc(I18N.text('viewer.research.lgBase'))}</text>`);
+  if (path) out.push(`<path d="${path} H${W - R}" fill="none" stroke="${RS_COLOR.keep}" stroke-width="2.5" stroke-linejoin="round" opacity=".85"/>`);
+  for (const a of runs) {
+    const c = RS_COLOR[a.status] || RS_COLOR.discard, rev = a.state === 'revoked', cy = a.metric == null ? yCrash : y(a.metric), cx = x(a.n);
+    const title = `att-${a.n} ${a.worker} ${rsNum(a.metric)} ${rsStatus(a.status)}${a.desc ? ': ' + a.desc : ''}`;
+    out.push(`<g class="pt" data-n="${a.n}"><title>${esc(title)}</title><circle cx="${cx}" cy="${cy}" r="14" fill="transparent"/>` + (a.metric == null
+      ? `<path d="M${cx - 5} ${cy - 5}L${cx + 5} ${cy + 5}M${cx + 5} ${cy - 5}L${cx - 5} ${cy + 5}" stroke="${c}" stroke-width="2.5" ${rev ? 'opacity=".5"' : ''}/>`
+      : `<circle cx="${cx}" cy="${cy}" r="${a.n === bestAt ? 7 : 5.5}" fill="${rev ? 'none' : c}" stroke="${c}" stroke-width="2" ${rev ? 'stroke-dasharray="2 2" opacity=".6"' : ''}/>`) + (RS.sel === a.n ? `<circle cx="${cx}" cy="${cy}" r="11" fill="none" stroke="currentColor" stroke-width="1.5"/>` : '') + '</g>');
+  }
+  if (d.pending && d.pending.kind === 'attempt') out.push(`<circle class="rs-ring" cx="${x(d.pending.n)}" cy="${best !== null ? y(best) : (T + H - B) / 2}" r="9"/>`);
+  return `<svg class="rs-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(I18N.text('viewer.research.results'))}">${out.join('')}</svg>`;
+}
+function rsDetail(d) {
+  const a = d.attempts.find(x => x.n === RS.sel);
+  if (!a) return esc(I18N.text('viewer.research.hint'));
+  return esc(I18N.text('viewer.research.detail', {n: a.n, worker: a.worker, metric: rsNum(a.metric), status: rsStatus(a.status), secs: a.secs != null ? ' · ' + Math.round(a.secs) + ' s' : ''})) + (a.desc ? ` · ${esc(a.desc)}` : '')
+    + (a.revoked_why ? ` · <b>${esc(I18N.text('viewer.research.lgRevoked'))}</b>: ${esc(a.revoked_why)}` : '');
+}
+function rsRuns(d) {
+  const rows = d.attempts.slice().reverse(), shown = rows.slice(0, RS.shown), X = I18N;
+  return `<div class="rs-tablewrap"><table class="rs-table"><tr><th>${esc(X.text('viewer.research.colN'))}</th><th>${esc(X.text('viewer.research.colWorker'))}</th><th>${esc(X.text('viewer.research.colMetric'))}</th><th>${esc(X.text('viewer.research.colStatus'))}</th><th>${esc(X.text('viewer.research.colTime'))}</th><th>${esc(X.text('viewer.research.colWhat'))}</th></tr>`
+    + shown.map(a => `<tr class="${a.state === 'revoked' ? 'rev' : ''}" data-n="${a.n}" title="${esc(a.revoked_why || '')}"><td>att-${a.n}</td><td>${esc(a.worker)}</td><td>${esc(rsNum(a.metric))}</td><td>${rsChip(a.status, rsStatus(a.status))}</td><td>${a.secs != null ? Math.round(a.secs) + ' s' : '—'}</td><td>${esc(a.desc)}</td></tr>`).join('')
+    + `</table></div>` + (rows.length > shown.length ? `<div class="rs-why">${esc(X.text('viewer.research.runsMore', {n: rows.length - shown.length}))}</div>` : '');
+}
+function rsWorkers(d) {
+  const budget = d.contract.budget_s;
+  return Object.entries(d.workers).map(([name, w]) => {
+    const run = d.pending && d.pending.worker === name ? d.pending : null;
+    return `<div class="rs-row"><b>${esc(name)}</b>` + (w.best ? `<small>${esc(I18N.text('viewer.research.wBest', {n: w.best.n, v: rsNum(w.best.metric)}))}</small>` : `<small>${esc(I18N.text('viewer.research.wNone'))}</small>`)
+      + (w.paused ? rsChip('warn', I18N.text('viewer.research.wPaused')) : w.crashes ? rsChip('crash', I18N.text('viewer.research.wCrashes', {n: w.crashes})) : run ? '' : `<small>${esc(I18N.text('viewer.research.wIdle'))}</small>`) + '</div>'
+      + (run ? `<div class="rs-row">${rsChip('run', I18N.text('viewer.research.wRunning', {n: run.n, desc: run.desc || ''}))}</div><div class="rs-bar"><i data-start="${run.child_ts || run.ts}" data-budget="${budget}" style="width:0"></i></div>` : '');
+  }).join('') || `<div class="rs-why">${esc(I18N.text('viewer.research.wNone'))}</div>`;
+}
+function rsIdeas(d) {
+  const runsOf = id => d.attempts.filter(a => a.idea === id && a.kind === 'attempt' && a.state !== 'revoked');
+  const refuted = i => i.status === 'rejected' || (i.status === 'tried' && runsOf(i.id).length && runsOf(i.id).every(a => a.status !== 'keep'));
+  const card = (i, trash) => `<div class="rs-idea ${trash ? 'trash' : esc(i.status)}"><b>${esc(i.id)}</b> ${esc(i.title)} <small>${esc(I18N.text('viewer.research.ideaBy', {by: i.by}))} · ${esc(I18N.text('viewer.research.idea.' + i.status))} · ${esc(I18N.text('viewer.research.ideaRuns', {n: runsOf(i.id).length}))}</small></div>`;
+  const live = d.ideas.filter(i => !refuted(i)), bin = d.ideas.filter(refuted);
+  return live.map(i => card(i, false)).join('') + (bin.length ? `<h3 style="margin-top:8px">${esc(I18N.text('viewer.research.ideaTrash'))}</h3>` + bin.map(i => card(i, true)).join('') : '');
+}
+function rsVerdicts(d) {
+  return d.verdicts.map(v => `<div class="rs-row">${rsChip(v.outcome, I18N.text('viewer.research.out.' + v.outcome))}<b>${esc(I18N.text('viewer.research.vPhase', {n: v.phase}))}</b>`
+    + (v.of ? `<small>${esc(I18N.text('viewer.research.vScore', {got: rsNum(v.score), of: v.of}))}</small>` : '') + `<small>${esc(v.by)}${v.notes ? ' · ' + esc(v.notes) : ''}</small></div>`).join('') || `<div class="rs-why">${esc(I18N.text('viewer.research.vNone'))}</div>`;
+}
+function rsRevoked(d) {
+  const gone = new Set(d.attempts.filter(a => a.state === 'revoked').map(a => a.n));
+  const kids = n => d.attempts.filter(a => gone.has(a.n) && a.parent_n === n).map(a => `<li>att-${a.n} ${esc(a.desc)}${sub(a.n)}</li>`).join('');
+  const evid = n => d.evidence.filter(e => e.state === 'revoked' && e.source.includes('att-' + n)).map(e => `<li>${esc(e.id)} ${esc(e.text.slice(0, 80))}</li>`).join('');
+  const sub = n => { const k = kids(n) + evid(n); return k ? `<ul>${k}</ul>` : ''; };
+  const roots = d.attempts.filter(a => gone.has(a.n) && !gone.has(a.parent_n));
+  return roots.length ? `<ul class="rs-chain">${roots.map(a => `<li><b>att-${a.n}</b> ${esc(a.desc)} <small>${esc(a.revoked_why)}</small>${sub(a.n)}</li>`).join('')}</ul>` : `<div class="rs-why">${esc(I18N.text('viewer.research.revNone'))}</div>`;
+}
+function rsProv(d) {
+  const runs = d.attempts.filter(a => a.kind === 'attempt' && a.status !== 'crash'), sealed = runs.filter(a => a.built).length, last = d.attempts.slice().reverse().find(a => a.env && a.env.length);
+  return `<div class="rs-seals">${runs.map(a => `<i class="${a.built ? 'on' : ''}" title="att-${a.n}: ${esc(a.built ? I18N.text('viewer.research.provSealed') : I18N.text('viewer.research.provPlain'))}"></i>`).join('')}</div>`
+    + `<div class="rs-row"><small>${esc(I18N.text('viewer.research.provCount', {n: sealed, m: runs.length}))}</small></div>`
+    + `<h3 style="margin-top:6px">${esc(I18N.text('viewer.research.envHead'))}</h3>` + (last ? `<div class="rs-chips">${last.env.flatMap(l => l.split(/\s+/)).map(x => `<code>${esc(x)}</code>`).join('')}</div>` : `<div class="rs-why">${esc(I18N.text('viewer.research.envNone'))}</div>`);
+}
+function rsContract(d) {
+  const c = d.contract, files = c.sealed.join(', ');
+  return `<div class="rs-row"><b>${esc(I18N.text('viewer.research.cProgram', {program: c.program}))}</b><small>${esc(I18N.text('viewer.research.cBudget', {s: c.budget_s, repeats: c.repeats}))}</small></div>`
+    + (c.sealed.length ? `<div class="rs-row"><small>${esc(I18N.text('viewer.research.cSealed', {files}))}</small></div>` : '')
+    + `<h3 style="margin-top:6px">${esc(I18N.text('viewer.research.amends'))}</h3>`
+    + (d.amends.map(a => `<div class="rs-row"><small>${esc(I18N.text('viewer.research.amendLine', {n: a.after_run, by: a.by, what: a.what, reason: a.reason}))}</small></div>`).join('') || `<div class="rs-why">${esc(I18N.text('viewer.research.amendNone'))}</div>`);
+}
+function rsFinal(d) {
+  if (d.final && d.final.metric != null) return `<div class="rs-row" style="font-size:15px">🏆 <b>${esc(I18N.text('viewer.research.finalLine', {search: rsNum(d.final.search_metric), final: rsNum(d.final.metric), delta: (d.final.metric - d.final.search_metric >= 0 ? '+' : '') + rsNum(d.final.metric - d.final.search_metric)}))}</b></div>`;
+  return `<div class="rs-why">${esc(d.contract.final ? I18N.text('viewer.research.finalWait') : I18N.text('viewer.research.finalNone'))}</div>`;
+}
+function rsReport(d) {
+  return d.report.exists ? d.report.sections.map(s => `<div class="rs-row">${s.ok ? '☑' : '☐'} ${esc(I18N.text('viewer.research.sec.' + (RS_SEC[s.name] || 'result')))}</div>`).join('')
+    : `<div class="rs-why">${esc(I18N.text('viewer.research.reportNone'))}</div>`;
+}
+function rsLamps(d) {
+  const g = d.lamps.gpu, k = d.lamps.lock, s = k ? Math.max(0, Math.round(Date.now() / 1000 - RS.skew - k.since)) : 0;
+  return `<div class="rs-row"><span class="rs-lamp ${g ? 'warn' : ''}"></span>${esc(g ? I18N.text('viewer.research.gpuHeld', {by: g.by, reason: g.reason}) : I18N.text('viewer.research.gpuFree'))}</div>`
+    + `<div class="rs-row"><span class="rs-lamp ${k && k.alive ? 'run' : ''}"></span>${esc(k && k.alive ? I18N.text('viewer.research.lockBusy', {who: k.who, s}) : I18N.text('viewer.research.lockFree'))}</div>`;
+}
+function rsLog(d) {
+  return `<div class="rs-log">${d.log.slice(-12).reverse().map(l => `<div class="${l.ok ? '' : 'bad'}">${esc((l.ts || '').slice(11))} <b>${esc(l.by || '')}</b> ${esc(l.action || '')}${l.ok ? '' : ' ✕'} ${esc(l.detail || '')}</div>`).join('')}</div>`;
+}
+function rsRender() {
+  const d = RS.data, box = $('research');
+  if (!d) return;
+  if (!d.enabled) return setHTML(box, `<div class="rs"><div id="empty" style="margin-top:40px">${esc(I18N.text('viewer.research.empty'))}</div></div>`);
+  const c = d.contract, card = (title, body, wide) => `<section class="rs-card ${wide ? 'rs-wide' : ''}"><h3>${esc(title)}</h3>${body}</section>`, X = I18N;
+  const head = `<div class="rs-head"><h2>🔬 ${esc(d.title || d.tag)}</h2><small>${esc(d.tag)}</small></div>`
+    + `<section class="rs-card"><h3>${esc(X.text('viewer.research.phases'))}</h3>${rsPhases(d)}</section>`;
+  const line = X.text('viewer.research.metricLine', {metric: c.metric, dir: c.direction === 'max' ? X.text('viewer.research.dirMax') : X.text('viewer.research.dirMin'), best: d.best ? rsNum(d.best.metric) : '—', base: d.baseline ? rsNum(d.baseline.metric) : '—', n: d.evals, max: c.max_evals});
+  const results = `<div class="rs-row"><b>${esc(line)}</b>${c.min_gain ? `<small>${esc(X.text('viewer.research.minGain', {v: c.min_gain}))}</small>` : ''}</div>${rsChart(d)}`
+    + `<div class="rs-legend"><span><i style="background:${RS_COLOR.keep}"></i>${esc(rsStatus('keep'))}</span><span><i style="background:${RS_COLOR.discard}"></i>${esc(rsStatus('discard'))}</span><span><i style="background:${RS_COLOR.crash}"></i>${esc(rsStatus('crash'))}</span><span>${esc(X.text('viewer.research.lgBest'))}</span><span>${esc(X.text('viewer.research.lgBand'))}</span></div><div class="rs-detail">${rsDetail(d)}</div>`;
+  const html = `<div class="rs">${head}<div class="rs-grid">` + card(X.text('viewer.research.results'), results, true)
+    + card(X.text('viewer.research.workers'), rsWorkers(d)) + card(X.text('viewer.research.lamps'), rsLamps(d))
+    + card(X.text('viewer.research.ideas'), rsIdeas(d)) + card(X.text('viewer.research.verdicts'), rsVerdicts(d))
+    + card(X.text('viewer.research.revs'), rsRevoked(d)) + card(X.text('viewer.research.prov'), rsProv(d))
+    + card(X.text('viewer.research.contract'), rsContract(d)) + card(X.text('viewer.research.final'), rsFinal(d))
+    + card(X.text('viewer.research.report'), rsReport(d)) + card(X.text('viewer.research.runs'), rsRuns(d), true)
+    + card(X.text('viewer.research.log'), rsLog(d), true) + '</div></div>';
+  const top = box.scrollTop; setHTML(box, html); box.scrollTop = top;
+  rsBars();
+}
+function rsBars() {                                                   // the budget bar of a run in progress (the page's clock, corrected by what the server's said)
+  const now = Date.now() / 1000 - RS.skew;
+  document.querySelectorAll('#research .rs-bar i').forEach(el => { el.style.width = Math.max(0, Math.min(100, (now - +el.dataset.start) / +el.dataset.budget * 100)) + '%'; });
+}
+async function rsLoad() {
+  if (RS.busy || document.hidden) return; RS.busy = true;
+  try {
+    const r = await fetch('research.json', {cache: 'no-store'});
+    if (r.ok) {
+      const d = await r.json(), at = Date.now() / 1000;
+      if (d.now) RS.skew = at - d.now;
+      const key = JSON.stringify(d, (k, v) => k === 'now' ? undefined : v);       // `now` changes at every answer: not a change
+      if (key !== RS.key) { RS.key = key; RS.data = d; rsRender(); }
+    }
+  } catch (e) { /* the viewer is away: the tab keeps what it had */ }
+  RS.busy = false;
+}
+function rsOpen(on) {
+  RS.open = !!on && config.mode === 'research'; setPref('research', RS.open);
+  document.body.classList.toggle('rs-open', RS.open); $('researchBtn').classList.toggle('on', RS.open);
+  if (RS.open) { RS.key = ''; rsLoad(); }
+}
+function rsSync() {                                                   // the button is there in research rooms only
+  const on = config.mode === 'research';
+  $('researchBtn').hidden = !on; $('researchBtn').title = I18N.text('viewer.research.tabTip');
+  if (!on && RS.open) rsOpen(false);
+  if (on && !RS.synced) { RS.synced = true; if (pref('research', false)) rsOpen(true); }
+}
+$('researchBtn').addEventListener('click', () => rsOpen(!RS.open));
+$('research').addEventListener('click', e => {
+  const el = e.target.closest('[data-n]'); if (el && RS.data) { RS.sel = +el.dataset.n; rsRender(); }
+});
+window.addEventListener('chatroom:data', rsSync);
+setInterval(() => { if (RS.open) rsLoad(); }, 2500);
+setInterval(() => { if (RS.open && RS.data) rsBars(); }, 1000);
 /* the 3D office (office.js) reads the chat through these */
 window.chatroom = {
   jumpTo, snapshot: () => ({all, config}),
