@@ -213,8 +213,9 @@ function workDesk() {                    // 1.6 x 0.8 m, top at 0.7 m: ESD bench
   const k = deskN++ % 3, tops = [PALETTE.cyan, PALETTE.amber, '#66bb6a', '#b39ddb', '#f06292', PALETTE.cyan];     // lab things in the two front corners, where the office puts nothing (in the same mesh: no draw call more)
   if (k < 2) { v.box(1, 14, 12, 6, 14, 14, STEEL_D); for (let i = 0; i < 6; i++) v.box(1 + i, 15, 13, 1 + i, 17, 13, i % 2 ? '#d5eaf2' : tops[i]).set(1 + i, 15, 13, tops[i]); }    // a rack of six test tubes
   else v.box(1, 14, 12, 3, 16, 14, PALETTE.cyan).box(1, 17, 12, 3, 17, 14, '#d5eaf2').box(5, 14, 12, 6, 15, 14, PALETTE.amber).box(5, 16, 12, 6, 16, 14, '#d5eaf2');      // two beakers
-  if (k !== 1) v.box(26, 14, 11, 30, 14, 14, '#2b3238').box(29, 15, 12, 30, 20, 13, '#46535e').box(26, 19, 11, 30, 20, 13, '#eef3f6').box(26, 21, 12, 27, 22, 13, '#2b3238').box(27, 17, 12, 28, 18, 13, PALETTE.cyan).box(26, 16, 11, 28, 16, 14, STEEL);    // a microscope
-  else v.box(26, 14, 12, 28, 17, 14, PALETTE.amber).box(26, 18, 12, 28, 18, 14, '#d5eaf2').box(30, 14, 12, 30, 15, 14, PALETTE.cyan);
+  v.box(26, 14, 11, 30, 14, 14, '#20262c').box(29, 15, 12, 30, 20, 13, '#2f3a43').box(26, 19, 11, 30, 20, 13, '#eef3f6');     // a microscope on the right, seen from the front: base, C arm, head,
+  v.box(27, 21, 12, 28, 21, 13, '#20262c').box(26, 22, 12, 27, 22, 13, '#20262c').box(26, 23, 12, 26, 23, 13, '#20262c');           // the eyepiece tube leaning to the left,
+  v.box(27, 17, 12, 28, 18, 13, PALETTE.cyan).box(26, 16, 11, 28, 16, 14, '#dfe6eb');                                              // the cyan objective and the plate
   return vmesh(v, {pivot: [16, 0, 8], jitter: 0.06});
 }
 let deskN = 0;
