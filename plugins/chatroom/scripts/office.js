@@ -217,7 +217,7 @@ for (const d of PLACED.doors) {
   lit.forEach(([x, y, z, ry], i) => { const mm = new THREE.Matrix4().makeRotationY(ry); mm.setPosition(x, y, z); own.setMatrixAt(i, mm); });
   scene.add(own); towerWindows.push(own);
 }
-const buildItem = it => it.pack ? V.packModel(it.pack, it) : V[it.model](...it.args);
+const buildItem = it => LAB?.item?.(it, V) ?? (it.pack ? V.packModel(it.pack, it) : V[it.model](...it.args));   // the laboratory may draw a piece its own way (office-lab.js item(it, V): an Object3D, or nothing)
 const ITEM_MESHES = [];                                                     // the pieces the editor can move (not walls, not cubicles)
 for (const it of PLACED.items) {
   if (it.part) continue;                                                   // a cubicle of a block: built with its block below
