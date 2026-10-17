@@ -452,7 +452,13 @@ export function createResearch(ctx) {
   const lightGeo = new THREE.BoxGeometry(0.9, 0.09, 0.07), trackGeo = new THREE.PlaneGeometry(0.9, 0.03), fillGeo = new THREE.PlaneGeometry(0.9, 0.03).translate(0.45, 0, 0);
   const trackMat = new THREE.MeshBasicMaterial({color: '#27414c', toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2});
   const hitGeo = new THREE.BoxGeometry(1.3, 1.2, 1.1), hitMat = new THREE.MeshBasicMaterial();
-  const puffGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14), puffMat = new THREE.MeshBasicMaterial({color: '#56626a', transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false});
+  const soft = (rgb, mid) => {                                                              // a soft round blob: the glow of a lamp, a puff of smoke
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, `rgba(${rgb},1)`); gr.addColorStop(0.45, `rgba(${rgb},${mid})`); gr.addColorStop(1, `rgba(${rgb},0)`); g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  };
+  const glowTex = soft('255,255,255', 0.6), puffTex = soft('96,108,116', 0.7);
+  const smokeMat = new THREE.PointsMaterial({map: puffTex, size: 0.6, transparent: true, opacity: 0.9, depthWrite: false, sizeAttenuation: true, toneMapped: false});
   const benchState = (d, name) => {
     const w = d.workers[name], run = d.pending && d.pending.worker === name ? d.pending : null;
     const mine = d.attempts.filter(a => a.worker === name && a.kind === 'attempt'), last = mine[mine.length - 1];
@@ -466,13 +472,15 @@ export function createResearch(ctx) {
     light.position.set(0, 1.53, -0.33); track.position.set(0, 1.488, -0.285); fill.position.set(-0.45, 1.49, -0.285);
     const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false;
     const hit = new THREE.Mesh(hitGeo, hitMat); hit.visible = false; hit.position.set(0, 0.85, 0.1); hit.userData.worker = name;       // raycast ignores `visible`: the box is found, never drawn
-    desk.g.add(light, track, fill, tape, hit); benchHits.push(hit);
-    const b = {name, desk, light, track, fill, tape, hit, smoke: null, st: null, ver: -1, sec: -1};
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({map: glowTex, color: PAL.run, depthWrite: false, transparent: true, toneMapped: false}));   // a soft disc of the state's colour over the monitor: seen from any side and any distance
+    glow.scale.setScalar(1.0); glow.position.set(0, 1.58, -0.33); glow.renderOrder = 6; glow.visible = false;
+    desk.g.add(light, track, fill, tape, hit, glow); benchHits.push(hit);
+    const b = {name, desk, light, track, fill, tape, hit, glow, smoke: null, st: null, ver: -1, sec: -1};
     benches.set(name, b); return b;
   }
   function dropBench(b) {
-    b.desk.g.remove(b.light, b.track, b.fill, b.tape, b.hit); b.light.material.dispose(); b.fill.material.dispose();
-    if (b.smoke) { b.desk.g.remove(b.smoke); b.smoke.dispose(); }
+    b.desk.g.remove(b.light, b.track, b.fill, b.tape, b.hit, b.glow); b.light.material.dispose(); b.fill.material.dispose(); b.glow.material.dispose();
+    if (b.smoke) { b.desk.g.remove(b.smoke); b.smoke.geometry.dispose(); }
     benchHits.splice(benchHits.indexOf(b.hit), 1); benches.delete(b.name);
     if (hoverKind === 'bench' && hoverId === b.name) setHover('', null);
   }
@@ -481,27 +489,28 @@ export function createResearch(ctx) {
     if (!data) return;
     for (const [name, desk] of desks) if (data.workers[name] && !benches.has(name)) makeBench(name, desk);
   }
-  const _wp = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v3 = new THREE.Vector3(), _s3 = new THREE.Vector3();
   function updateBenches(t) {
     const sec = Math.floor(Date.now() / 1000);
     for (const b of benches.values()) {
       if (b.ver !== ver || (sec !== b.sec && b.st && (b.st.run || b.st.crashed))) {                       // the state is read when the data changed, and once a second while a bar moves or smoke may end
         b.ver = ver; b.sec = sec; const st = b.st = benchState(data, b.name);
         const col = st.paused ? PAL.warn : st.crashed ? PAL.crash : st.run ? PAL.run : PAL.discard;
-        b.light.material.color.set(col); b.fill.material.color.set(st.run && Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts) > data.contract.budget_s ? PAL.warn : PAL.run);
+        b.light.material.color.set(col); b.glow.material.color.set(col); b.glow.visible = !!(st.run || st.paused || st.crashed); b.fill.material.color.set(st.run && Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts) > data.contract.budget_s ? PAL.warn : PAL.run);
         b.fill.visible = b.track.visible = !!st.run; b.tape.visible = st.paused;
         if (st.run) b.fill.scale.x = Math.max(0.001, Math.min(1, (Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts)) / data.contract.budget_s));
-        if (st.crashed && !b.smoke) { b.smoke = new THREE.InstancedMesh(puffGeo, puffMat, 10); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke); }
+        if (st.crashed && !b.smoke) {
+          const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(30), 3));
+          b.smoke = new THREE.Points(geo, smokeMat); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke);
+        }
         if (b.smoke) b.smoke.visible = st.crashed;
       }
       const st = b.st; if (!st) continue;
-      b.light.material.opacity = st.run ? 0.55 + 0.45 * Math.sin(t * 5) : st.paused || st.crashed ? 1 : 0.35;
-      if (b.smoke && st.crashed) {
-        for (let i = 0; i < 10; i++) {
-          const ph = (t * 0.4 + i / 10) % 1; _s3.setScalar(0.6 + ph * 1.8);
-          _m4.compose(_v3.set(Math.sin(i * 2.1 + t) * 0.12 * ph, 1.6 + ph * 1.0, -0.3 + Math.cos(i * 1.7) * 0.08), _q, _s3); b.smoke.setMatrixAt(i, _m4);
-        }
-        b.smoke.instanceMatrix.needsUpdate = true;
+      const pulse = st.run ? 0.55 + 0.45 * Math.sin(t * 5) : st.paused || st.crashed ? 1 : 0.35;
+      b.light.material.opacity = pulse; b.glow.material.opacity = 0.35 + 0.55 * pulse;
+      if (b.smoke && st.crashed) {                                                                 // ten puffs rise over the monitor, one after the other, drifting
+        const a = b.smoke.geometry.attributes.position.array;
+        for (let i = 0; i < 10; i++) { const ph = (t * 0.4 + i / 10) % 1; a[i * 3] = Math.sin(i * 2.1 + t) * 0.15 * ph; a[i * 3 + 1] = 1.65 + ph * 1.0; a[i * 3 + 2] = -0.3 + Math.cos(i * 1.7) * 0.08; }
+        b.smoke.geometry.attributes.position.needsUpdate = true;
       }
     }
     if (hoverKind === 'bench') tip.mesh.quaternion.copy(camera.quaternion);                                 // the detail faces whoever points
