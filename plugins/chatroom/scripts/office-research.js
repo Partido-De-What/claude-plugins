@@ -101,7 +101,7 @@ export function createResearch(ctx) {
     g.fillStyle = '#16303a'; g.fillRect(6, 6, lw - 12, 46);
     g.fillStyle = PAL.cyan; g.font = `800 28px ${FONT}`; g.fillText(I18N.text('office.research.results', {}, lang()), 22, 30);
     g.fillStyle = PAL.white; g.font = `600 20px ${FONT}`;
-    const head = `${c.metric} (${c.direction === 'max' ? I18N.text('office.research.higher', {}, lang()) : I18N.text('office.research.lower', {}, lang())}) · ${I18N.text('office.research.best', {}, lang())} ${d.best ? num(d.best.metric) : '—'} · ${I18N.text('office.research.baseline', {}, lang())} ${d.baseline ? num(d.baseline.metric) : '—'} · ${d.evals}/${c.max_evals}`;
+    const head = `${c.metric} · ${I18N.text('office.research.best', {}, lang())} ${d.best ? num(d.best.metric) : '—'} · ${I18N.text('office.research.baseline', {}, lang())} ${d.baseline ? num(d.baseline.metric) : '—'} · ${d.evals}/${c.max_evals}`;
     g.fillText(fit(g, head, lw - 560), 232, 30);
     const lamp = (xx, yy, on, col, text) => { g.fillStyle = on ? col : '#2b3a43'; g.beginPath(); g.arc(xx, yy, 7, 0, 7); g.fill(); g.fillStyle = on ? PAL.white : PAL.discard; g.font = `500 18px ${FONT}`; g.fillText(fit(g, text, 300), xx + 14, yy); };
     const gpu = d.lamps.gpu, lock = d.lamps.lock;
@@ -115,7 +115,8 @@ export function createResearch(ctx) {
     const x = n => L + (n - 0.5) / N * (R - L), y = v => Tp + (up ? hi - v : v - lo) / (hi - lo) * plotH;
     g.font = `500 18px ${FONT}`; g.textAlign = 'right';
     for (const v of ticks(lo, hi)) { g.strokeStyle = '#27414c'; g.lineWidth = 1; g.beginPath(); g.moveTo(L, y(v)); g.lineTo(R, y(v)); g.stroke(); g.fillStyle = PAL.steel; g.fillText(num(v), L - 8, y(v)); }
-    g.textAlign = 'center'; const step = Math.max(1, Math.ceil(N / 12));
+    g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(c.direction === 'max' ? I18N.text('office.research.higher', {}, lang()) : I18N.text('office.research.lower', {}, lang()), L + 6, Tp - 9);   // which way is better (up)
+    g.font = `500 18px ${FONT}`; g.textAlign = 'center'; const step = Math.max(1, Math.ceil(N / 12));
     for (let n = 1; n <= N; n += step) { g.fillStyle = PAL.steel; g.fillText(String(n), x(n), B + 38); }
     g.textAlign = 'left';
     const alive = runs.filter(a => a.state !== 'revoked' && a.status === 'keep' && a.metric != null);
@@ -353,7 +354,7 @@ export function createResearch(ctx) {
     if (!n) return;
     const v = new V.Vox();
     for (let i = 0; i < n; i++) { const x = 1 + (i % 3), z = 1 + Math.floor(i / 3) % 3, y = 1 + Math.floor(i / 6) + (i % 2); v.box(x, y, z, x, y, z, i % 2 ? '#f4f6f7' : '#dfe6ea'); }
-    paper = V.mesh(v, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.04}); paper.position.y = 0.1; bin.add(paper);
+    paper = V.mesh(v, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.04}); paper.position.y = 0.1; paper.castShadow = false; bin.add(paper);
   }
 
   // ------------------------------------------------------------------ the verdicts wall: the auditor's stamps and the revocation chain
@@ -422,9 +423,9 @@ export function createResearch(ctx) {
   const trophy = new THREE.Group(); trophy.position.set(AT.trophy.x, 0, AT.trophy.z); trophy.visible = true; root.add(trophy);
   {
     trophy.add(V.mesh(new V.Vox().box(0, 0, 0, 5, 7, 5, '#e8edf0').box(0, 7, 0, 5, 7, 5, '#aeb8c2'), {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}));           // the plinth, 0.8 m
-    const cup = new V.Vox().box(1, 0, 1, 4, 0, 4, '#b8860b').box(2, 1, 2, 3, 3, 3, '#d4a017').box(0, 4, 0, 5, 4, 5, '#ffca28');
-    for (let y = 5; y <= 7; y++) cup.box(0, y, 0, 5, y, 5, '#ffca28').box(1, y, 1, 4, y, 4, '#ffd54f');
-    cup.box(-1, 5, 2, -1, 6, 3, '#ffca28').box(6, 5, 2, 6, 6, 3, '#ffca28');
+    const cup = new V.Vox().box(1, 0, 1, 4, 0, 4, '#b8860b').box(2, 1, 2, 3, 3, 3, '#d4a017').box(1, 4, 1, 4, 4, 4, '#e8b923');     // base, stem, the cup widening to the rim
+    cup.box(0, 5, 0, 5, 6, 5, '#ffca28').box(0, 7, 0, 5, 8, 5, '#ffd54f').box(1, 8, 1, 4, 8, 4, '#8d6e08');                      // the rim is hollow and dark inside
+    cup.box(-1, 6, 2, -1, 7, 3, '#ffca28').box(-2, 7, 2, -2, 8, 3, '#ffca28').box(6, 6, 2, 6, 7, 3, '#ffca28').box(7, 7, 2, 7, 8, 3, '#ffca28');   // the handles
     trophy.cup = V.mesh(cup, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}); trophy.cup.position.y = 0.85; trophy.add(trophy.cup);
   }
   function drawPlaque(p, d) {
@@ -562,6 +563,7 @@ export function createResearch(ctx) {
       scene.remove(root);
     },
   };
+  root.traverse(o => { if (o.isMesh) o.castShadow = false; });                                  // small pieces and flat screens: their shadows cost the shadow pass and show nothing
   if (FORCE) window.__officeResearch = api;
   return api;
 }
