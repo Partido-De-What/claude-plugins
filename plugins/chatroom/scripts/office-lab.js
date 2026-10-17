@@ -260,7 +260,9 @@ function fumeHood() {                    // 1.2 x 0.7 m: steel base cabinet, ESD
   return vmesh(v, {pivot: [W / 2, 0, D / 2], jitter: 0.02});
 }
 /** the lab's builder for a model name of office-voxel.js (undefined: office.js uses the office's own) */
-export const MODELS = {workDesk, cubicle, smallDesk, bossDesk, confTable, fumeHood};
+// the pieces whose office model takes the colour of its wood as an argument: the same model in steel and white resin
+const binderShelf = seed => V.binderShelf(seed, STEEL), barCounter = len => V.barCounter(len, STEEL_L), cafeTable = top => V.cafeTable(top ? top : '#e3e9ed');
+export const MODELS = {workDesk, cubicle, smallDesk, bossDesk, confTable, fumeHood, binderShelf, barCounter, cafeTable};
 CATALOG.fumeHood = {model: 'fumeHood', foot: [1.2, 0.7]};              // a new piece of the catalog: office-layout.js resolve() gives it its box
 
 function labCabinet(it) {                // a tall cabinet of the pack becomes a server rack or a sample fridge, as big as the pack's one
