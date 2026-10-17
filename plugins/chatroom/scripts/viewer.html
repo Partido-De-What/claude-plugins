@@ -953,6 +953,11 @@ function rsGain(d, best) {
   const g = String(d.contract.min_gain || '0'), v = g.endsWith('%') ? Math.abs(best) * parseFloat(g) / 100 : parseFloat(g);
   return v > 0 ? v : 0;
 }
+function rsTicks(lo, hi) {                                          // round values for the grid: 1, 2 or 5 times a power of ten
+  const raw = (hi - lo) / 4, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p, step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p, out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
 function rsChart(d) {
   const runs = d.attempts.filter(a => a.kind === 'attempt'), vals = runs.map(a => a.metric).filter(v => v != null);
   if (d.baseline) vals.push(d.baseline.metric);
@@ -966,7 +971,7 @@ function rsChart(d) {
   let best = null, path = '', bestAt = null;
   for (const a of alive) if (best === null || (up ? a.metric > best : a.metric < best)) { path += (path ? ` H${x(a.n)}` : `M${x(a.n)} ${y(a.metric)}`) + ` V${y(a.metric)}`; best = a.metric; bestAt = a.n; }
   const out = [];
-  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, yy = T + (up ? hi - v : v - lo) / (hi - lo) * (H - T - B); out.push(`<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${esc(rsNum(v))}</text>`); }
+  for (const v of rsTicks(lo, hi)) { const yy = T + (up ? hi - v : v - lo) / (hi - lo) * (H - T - B); out.push(`<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${esc(rsNum(v))}</text>`); }
   const step = Math.max(1, Math.ceil(N / 10));
   for (let n = 1; n <= N; n += step) out.push(`<text x="${x(n)}" y="${H - 4}" text-anchor="middle">${n}</text>`);
   if (best !== null) { const gain = rsGain(d, best); if (gain) { const y0 = y(best), y1 = Math.max(T, y(up ? best + gain : best - gain)); out.push(`<rect x="${L}" y="${Math.min(y0, y1)}" width="${W - L - R}" height="${Math.abs(y0 - y1)}" fill="${RS_COLOR.warn}" opacity=".22"/>`); } }
