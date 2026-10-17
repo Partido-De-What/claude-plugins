@@ -962,7 +962,7 @@ function rsChart(d) {
   const runs = d.attempts.filter(a => a.kind === 'attempt'), vals = runs.map(a => a.metric).filter(v => v != null);
   if (d.baseline) vals.push(d.baseline.metric);
   if (!vals.length) return '';
-  const W = 640, H = 260, L = 48, R = 14, T = 14, B = 34, up = d.contract.direction === 'max';       // better is always up
+  const W = Math.round(Math.max(300, Math.min(900, $('research').clientWidth * 0.9 - 24))), H = Math.max(190, Math.round(W * 0.4)), L = 46, R = 12, T = 14, B = 34, up = d.contract.direction === 'max';   // drawn at the card's width: the text stays 11 px on a phone; better is always up
   let lo = Math.min(...vals), hi = Math.max(...vals); if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
   const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
   const N = Math.max(4, ...runs.map(a => a.n), d.pending ? d.pending.n : 0), x = n => L + (n - 0.5) / N * (W - L - R);
@@ -1109,6 +1109,7 @@ $('research').addEventListener('click', e => {
   const el = e.target.closest('[data-n]'); if (el && RS.data) { RS.sel = +el.dataset.n; rsRender(); }
 });
 window.addEventListener('chatroom:data', rsSync);
+addEventListener('resize', () => { if (RS.open && RS.data) rsRender(); });
 setInterval(() => { if (RS.open) rsLoad(); }, 2500);
 setInterval(() => { if (RS.open && RS.data) rsBars(); }, 1000);
 /* the 3D office (office.js) reads the chat through these */
