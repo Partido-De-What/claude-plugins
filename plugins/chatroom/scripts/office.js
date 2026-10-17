@@ -249,7 +249,7 @@ const ceiling = new THREE.Group();
   const p = new THREE.Mesh(new THREE.PlaneGeometry(SIZE_X, SIZE_Z), new THREE.MeshStandardMaterial({color: LAB?.THEME.ceiling ?? '#e9e6df', roughness: 0.95}));
   p.rotation.x = Math.PI / 2; p.position.y = 3; ceiling.add(p);
   for (let x = -SIZE_X / 2 + 3; x < SIZE_X / 2 - 1; x += 4) for (let z = -SIZE_Z / 2 + 2.5; z < SIZE_Z / 2 - 1; z += 4) {
-    const l = V.ceilingLight(); l.position.set(x, 2.99, z); ceiling.add(l);
+    const l = V.ceilingLight(LAB?.THEME.light); l.position.set(x, 2.99, z); ceiling.add(l);
   }
   ceiling.visible = false; scene.add(ceiling);
 }
