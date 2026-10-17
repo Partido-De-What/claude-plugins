@@ -115,7 +115,7 @@ export function createResearch(ctx) {
     const x = n => L + (n - 0.5) / N * (R - L), y = v => Tp + (up ? hi - v : v - lo) / (hi - lo) * plotH;
     g.font = `500 18px ${FONT}`; g.textAlign = 'right';
     for (const v of ticks(lo, hi)) { g.strokeStyle = '#27414c'; g.lineWidth = 1; g.beginPath(); g.moveTo(L, y(v)); g.lineTo(R, y(v)); g.stroke(); g.fillStyle = PAL.steel; g.fillText(num(v), L - 8, y(v)); }
-    g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(c.direction === 'max' ? I18N.text('office.research.higher', {}, lang()) : I18N.text('office.research.lower', {}, lang()), L + 6, Tp - 9);   // which way is better (up)
+    g.textAlign = 'left'; g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(c.direction === 'max' ? I18N.text('office.research.higher', {}, lang()) : I18N.text('office.research.lower', {}, lang()), L + 6, Tp - 9);   // which way is better (up)
     g.font = `500 18px ${FONT}`; g.textAlign = 'center'; const step = Math.max(1, Math.ceil(N / 12));
     for (let n = 1; n <= N; n += step) { g.fillStyle = PAL.steel; g.fillText(String(n), x(n), B + 38); }
     g.textAlign = 'left';
@@ -564,6 +564,6 @@ export function createResearch(ctx) {
     },
   };
   root.traverse(o => { if (o.isMesh) o.castShadow = false; });                                  // small pieces and flat screens: their shadows cost the shadow pass and show nothing
-  if (FORCE) window.__officeResearch = api;
+  if (FORCE) window.__officeResearch = Object.assign(api, {camera, benches, AT});
   return api;
 }
