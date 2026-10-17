@@ -448,7 +448,8 @@ export function createResearch(ctx) {
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; tex.repeat.set(5, 1); return tex;
   })();
   const tapeGeo = new THREE.PlaneGeometry(1.25, 0.14), tapeMat = new THREE.MeshBasicMaterial({map: hazard, side: THREE.DoubleSide, toneMapped: false});
-  const lightGeo = new THREE.PlaneGeometry(0.7, 0.04), trackGeo = new THREE.PlaneGeometry(0.7, 0.025), fillGeo = new THREE.PlaneGeometry(0.7, 0.025).translate(0.35, 0, 0);
+  // on the top edge of the worker's monitor, flat and facing up (seen from above, away from the call-budget bar on the desk's front edge, office-viz.js)
+  const lightGeo = new THREE.PlaneGeometry(0.9, 0.04), trackGeo = new THREE.PlaneGeometry(0.9, 0.03), fillGeo = new THREE.PlaneGeometry(0.9, 0.03).translate(0.45, 0, 0);
   const trackMat = new THREE.MeshBasicMaterial({color: '#27414c', toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2});
   const hitGeo = new THREE.BoxGeometry(1.3, 1.2, 1.1), hitMat = new THREE.MeshBasicMaterial();
   const puffGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07), puffMat = new THREE.MeshBasicMaterial({color: '#9aa5ab', transparent: true, opacity: 0.5, depthWrite: false, toneMapped: false});
@@ -462,7 +463,7 @@ export function createResearch(ctx) {
     const mat = () => new THREE.MeshBasicMaterial({color: PAL.run, toneMapped: false, transparent: true});
     const light = new THREE.Mesh(lightGeo, mat()), track = new THREE.Mesh(trackGeo, trackMat), fill = new THREE.Mesh(fillGeo, mat());
     light.rotation.x = track.rotation.x = fill.rotation.x = -Math.PI / 2;
-    light.position.set(0, 0.727, 0.3); track.position.set(0, 0.724, 0.355); fill.position.set(-0.35, 0.726, 0.355);
+    light.position.set(0, 1.492, -0.33); track.position.set(0, 1.488, -0.285); fill.position.set(-0.45, 1.49, -0.285);
     const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false;
     const hit = new THREE.Mesh(hitGeo, hitMat); hit.visible = false; hit.position.set(0, 0.85, 0.1); hit.userData.worker = name;       // raycast ignores `visible`: the box is found, never drawn
     desk.g.add(light, track, fill, tape, hit); benchHits.push(hit);
