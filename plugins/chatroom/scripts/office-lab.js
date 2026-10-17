@@ -39,7 +39,7 @@ const hexTiles = (base, seed) => (g, w, h) => {                    // antistatic
   const joint = shade(base, 0.5), hi = shade(base, 1.3), lo = shade(base, 0.82), stud = shade(base, 1.45);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const c = hexAt(x + 0.5, y + 0.5, w, h);
-    dot(g, x, y, c.d < 1.2 ? stud : c.edge < 0.6 ? joint : c.edge < 1.6 ? (c.lit ? hi : lo) : tones[c.id]);
+    dot(g, x, y, c.d < 1 ? stud : c.edge < 0.6 ? joint : c.edge < 1.6 ? (c.lit ? hi : lo) : tones[c.id]);
   }
 };
 const resin = (base, seed) => (g, w, h) => {                       // epoxy resin tiles, 50 cm: a lit edge on top and left, a dark joint, chips
@@ -83,8 +83,8 @@ function esd(g, w, h) {                                             // ESD fabri
 function circuit(g, w, h) {                                         // printed circuit board: traces with pads, chips with pins, vias
   const r = rnd(83), cells = w / 8;
   g.fillStyle = '#0b2a31'; g.fillRect(0, 0, w, h); speckle(g, w, h, r, w * h / 10, '#0b2a31', 0.25);
-  for (let k = 0; k < cells * 2; k++) {                             // buses along x and along y: a segment and a pad at each end
-    const along = k % 2 === 0, line = Math.floor(r() * cells) * 8 + (r() < 0.5 ? 2 : 5), start = 2 + Math.floor(r() * (w - 32)), len = 10 + Math.floor(r() * 18);
+  for (let k = 0; k < cells * 2; k++) {                             // buses along x and along y, one lane each: a segment and a pad at each end
+    const along = k % 2 === 0, line = (k >> 1) * 8 + (r() < 0.5 ? 2 : 5), start = 2 + Math.floor(r() * (w - 32)), len = 10 + Math.floor(r() * 18);
     g.fillStyle = '#1b8a98'; if (along) g.fillRect(start, line, len, 1); else g.fillRect(line, start, 1, len);
     g.fillStyle = PALETTE.cyan;
     for (const e of [start, start + len]) if (along) g.fillRect(e - 1, line - 1, 3, 3); else g.fillRect(line - 1, e - 1, 3, 3);
