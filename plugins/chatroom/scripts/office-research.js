@@ -21,6 +21,8 @@ export const AT = {
   trophy: {x: 6.3, z: 1.55},                                      // at the end of the strip, where the arena's lift (x 6.65..8.55) begins
 };
 const FONT = '"Segoe UI", sans-serif';
+const ghost = o => { o.raycast = () => {}; return o; };           // not for rays: a Sprite throws in a ray that has no camera, and a decoration must not stop a shot or a click
+const HITS = 7;                                                  // the layer of the invisible boxes this file's own pointer finds (other rays look at layer 0 only)
 const SS = 2;                                                    // canvases at twice their logical size: crisp text
 const FALLBACK = {white: '#eef3f6', steel: '#aeb8c2', resin: '#8c969f', ink: '#0e1a22', cyan: '#4dd0e1', amber: '#ffb74d',
                   keep: '#43a047', discard: '#90a4ae', crash: '#e53935', run: '#4dd0e1', warn: '#ffb74d'};
@@ -183,7 +185,7 @@ export function createResearch(ctx) {
   tip.g = tip.c.getContext('2d'); tip.g.scale(SS, SS);
   tip.tex = new THREE.CanvasTexture(tip.c); tip.tex.colorSpace = THREE.SRGBColorSpace; tip.tex.anisotropy = aniso;
   tip.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.6), new THREE.MeshBasicMaterial({map: tip.tex, toneMapped: false, transparent: true}));
-  tip.mesh.visible = false; tip.mesh.renderOrder = 5; root.add(tip.mesh);
+  tip.mesh.visible = false; tip.mesh.renderOrder = 5; ghost(tip.mesh); root.add(tip.mesh);
   function drawTip(a) {
     const g = tip.g;
     g.clearRect(0, 0, 400, 150);
@@ -230,6 +232,7 @@ export function createResearch(ctx) {
     const p = panels.results; if (!p || !data || paused()) return;
     if (pov()) ndc.set(0, 0); else { const r = dom.getBoundingClientRect(); ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1); }
     raycaster.setFromCamera(ndc, camera);
+    raycaster.layers.set(0);
     const hit = raycaster.intersectObject(p.mesh, false)[0];
     if (hit && hit.uv) {
       const px = hit.uv.x * p.lw, py = (1 - hit.uv.y) * p.lh;
@@ -237,6 +240,7 @@ export function createResearch(ctx) {
       for (const h of p.hit) { const dd = Math.hypot(h.x - px, h.y - py); if (dd < dist) { dist = dd; near = h.n; } }
       return near != null ? setHover('run', near) : setHover('', null);
     }
+    raycaster.layers.set(HITS);
     const bh = benches.size ? raycaster.intersectObjects(benchHits, false)[0] : null;      // a worker's desk: its hit box (invisible)
     setHover(bh ? 'bench' : '', bh ? bh.object.userData.worker : null);
   }
@@ -245,7 +249,7 @@ export function createResearch(ctx) {
 
   // ------------------------------------------------------------------ the marker of the run in progress (a ring on the wall, pulsing)
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.07, 32), new THREE.MeshBasicMaterial({color: PAL.run, transparent: true, toneMapped: false, depthWrite: false}));
-  ring.visible = false; ring.renderOrder = 4; root.add(ring);
+  ring.visible = false; ring.renderOrder = 4; ghost(ring); root.add(ring);
 
   // ------------------------------------------------------------------ the phases, on the floor
   const PHASES = ['contract', 'drafting', 'investigation', 'evidence', 'final', 'report', 'closed'];
@@ -274,7 +278,7 @@ export function createResearch(ctx) {
   })();
   const glowMat = new THREE.MeshBasicMaterial({color: PAL.cyan, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -16, polygonOffsetUnits: -32});
   const pulse = new THREE.Mesh(new THREE.PlaneGeometry(segLen - 0.16, AT.strip.w - 0.1), glowMat);   // the current phase breathes
-  pulse.rotation.x = -Math.PI / 2; pulse.visible = false; pulse.renderOrder = 2; root.add(pulse);
+  pulse.rotation.x = -Math.PI / 2; pulse.visible = false; pulse.renderOrder = 2; ghost(pulse); root.add(pulse);
 
   // the gate: a barrier across the strip where the next phase starts, shut (red and white, a red light) or raised (a green light); beside it a sign with why
   const gate = new THREE.Group(); gate.visible = false; root.add(gate);
@@ -472,9 +476,9 @@ export function createResearch(ctx) {
     track.rotation.x = fill.rotation.x = -Math.PI / 2;                                                 // the light is a thin box standing on the monitor: seen from any side
     light.position.set(0, 1.53, -0.33); track.position.set(0, 1.488, -0.285); fill.position.set(-0.45, 1.49, -0.285);
     const tape = new THREE.Mesh(tapeGeo, tapeMat); tape.position.set(0, 0.95, 0.55); tape.visible = false;
-    const hit = new THREE.Mesh(hitGeo, hitMat); hit.visible = false; hit.position.set(0, 0.85, 0.1); hit.userData.worker = name;       // raycast ignores `visible`: the box is found, never drawn
+    const hit = new THREE.Mesh(hitGeo, hitMat); hit.visible = false; hit.layers.set(HITS); hit.position.set(0, 0.85, 0.1); hit.userData.worker = name;       // raycast ignores `visible`: the box is found, never drawn
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({map: glowTex, color: PAL.run, depthWrite: false, transparent: true, toneMapped: false}));   // a soft disc of the state's colour over the monitor: seen from any side and any distance
-    glow.scale.setScalar(1.0); glow.position.set(0, 1.58, -0.33); glow.renderOrder = 6; glow.visible = false;
+    glow.scale.setScalar(1.0); glow.position.set(0, 1.58, -0.33); glow.renderOrder = 6; glow.visible = false; ghost(glow);
     desk.g.add(light, track, fill, tape, hit, glow); benchHits.push(hit);
     const b = {name, desk, light, track, fill, tape, hit, glow, smoke: null, st: null, ver: -1, sec: -1};
     benches.set(name, b); return b;
@@ -501,7 +505,7 @@ export function createResearch(ctx) {
         if (st.run) b.fill.scale.x = Math.max(0.001, Math.min(1, (Date.now() / 1000 - skew - (st.run.child_ts || st.run.ts)) / data.contract.budget_s));
         if (st.crashed && !b.smoke) {
           const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(30), 3));
-          b.smoke = new THREE.Points(geo, smokeMat); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke);
+          b.smoke = ghost(new THREE.Points(geo, smokeMat)); b.smoke.frustumCulled = false; b.desk.g.add(b.smoke);
         }
         if (b.smoke) b.smoke.visible = st.crashed;
       }
