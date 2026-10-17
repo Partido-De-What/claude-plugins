@@ -2567,7 +2567,8 @@ def research_json(room):
         'evals': st['evals'], 'best': st['best'], 'baseline': st.get('baseline'),
         'pending': {k: pend.get(k) for k in ('n', 'worker', 'desc', 'ts', 'child_ts', 'kind')} if pend else None,
         'workers': {k: {'best': w.get('best'), 'paused': bool(w.get('paused')), 'crashes': w.get('crashes', 0),
-                        'idea': w.get('idea'), 'type': w.get('type'), 'parent': w.get('parent')}
+                        'idea': w.get('idea'), 'type': w.get('type'), 'parent': w.get('parent'),
+                        'work': Path(w.get('work') or '').name, 'branch': w.get('branch')}
                     for k, w in st['workers'].items() if k != '_main' or len(st['workers']) == 1},   # _main is a placeholder once workers have their own
         'attempts': attempts,
         'ideas': [{'id': i['id'], 'title': cut(i['title'], 100), 'status': i['status'], 'by': i['by'], 'changes': i['changes'],

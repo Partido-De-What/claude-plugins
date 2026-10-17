@@ -108,7 +108,7 @@ export function createResearch(ctx) {
     lamp(lw - 560 + 232 + 6, 20, !!gpu, PAL.warn, gpu ? I18N.text('office.research.gpuHeld', {by: gpu.by}, lang()) : I18N.text('office.research.gpuFree', {}, lang()));
     lamp(lw - 560 + 232 + 6, 42, !!(lock && lock.alive), PAL.run, lock && lock.alive ? I18N.text('office.research.lockBusy', {who: lock.who}, lang()) : I18N.text('office.research.lockFree', {}, lang()));
     // the chart
-    const L = 74, R = 770, Tp = 78, B = 398, plotH = B - Tp, N = Math.max(4, ...runs.map(a => a.n), d.pending ? d.pending.n : 0);
+    const L = 74, R = 770, Tp = 78, B = 376, plotH = B - Tp, N = Math.max(4, ...runs.map(a => a.n), d.pending ? d.pending.n : 0);
     let lo = Math.min(...(vals.length ? vals : [0])), hi = Math.max(...(vals.length ? vals : [1]));
     if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
     const padv = (hi - lo) * 0.08; lo -= padv; hi += padv;
@@ -169,11 +169,11 @@ export function createResearch(ctx) {
     wrap(g, f && f.metric != null ? I18N.text('office.research.finalLine', {search: num(f.search_metric), final: num(f.metric), delta: (delta >= 0 ? '+' : '') + num(delta)}, lang())
       : d.contract.final ? I18N.text('office.research.finalWait', {}, lang()) : I18N.text('office.research.finalNone', {}, lang()), X0, 434, W0, 22, 2);
     // the foot: contract changes after the baseline
-    g.fillStyle = '#16303a'; g.fillRect(6, lh - 62, lw - 12, 56);
-    g.fillStyle = PAL.amber; g.font = `800 20px ${FONT}`; g.fillText(I18N.text('office.research.amends', {}, lang()), 20, lh - 44);
+    g.fillStyle = '#16303a'; g.fillRect(6, 428, X0 - 20, lh - 434);                                     // under the chart; the right column goes on to the bottom
+    g.fillStyle = PAL.amber; g.font = `800 20px ${FONT}`; g.fillText(`${I18N.text('office.research.amends', {}, lang())}${d.amends.length ? ' · ' + d.amends.length : ''}`, 20, 444);
     g.fillStyle = PAL.white; g.font = `500 18px ${FONT}`;
-    const last = d.amends[d.amends.length - 1];
-    g.fillText(fit(g, last ? I18N.text('office.research.amendLine', {n: last.after_run, by: last.by, what: last.what, reason: last.reason}, lang()) : I18N.text('office.research.amendNone', {}, lang()), lw - 40), 20, lh - 20);
+    if (!d.amends.length) g.fillText(I18N.text('office.research.amendNone', {}, lang()), 20, 470);
+    d.amends.slice(-3).forEach((a, i) => g.fillText(fit(g, I18N.text('office.research.amendLine', {n: a.after_run, by: a.by, what: a.what, reason: a.reason}, lang()), X0 - 52), 20, 470 + i * 22));   // all of them up to three, the latest last
   }
   panel('results', AT.results, 240, drawResults);
 
@@ -204,8 +204,9 @@ export function createResearch(ctx) {
     g.fillStyle = col; g.font = `700 21px ${FONT}`;
     g.fillText(fit(g, st.paused ? I18N.text('office.research.wPaused', {}, lang()) : st.run ? I18N.text('office.research.wRunning', {n: st.run.n}, lang()) : st.crashed ? I18N.text('office.research.wCrashed', {}, lang()) : I18N.text('office.research.wIdle', {}, lang()), 368), 16, 58);
     g.fillStyle = PAL.steel; g.font = `500 18px ${FONT}`;
-    g.fillText(fit(g, `work-${name}${st.w.idea ? ' · ' + st.w.idea : ''}${st.crashes ? ' · ' + I18N.text('office.research.wCrashes', {n: st.crashes}, lang()) : ''}`, 368), 16, 88);
-    g.fillText(fit(g, st.w.best ? I18N.text('office.research.wBest', {n: st.w.best.n, v: num(st.w.best.metric)}, lang()) : I18N.text('office.research.wNone', {}, lang()), 368), 16, 116);
+    g.fillText(fit(g, `${st.w.work || ''}${st.w.branch ? ' · ' + st.w.branch : ''}`, 368), 16, 88);                    // the worktree and its branch, as the kernel has them
+    const best = st.w.best ? I18N.text('office.research.wBest', {n: st.w.best.n, v: num(st.w.best.metric)}, lang()) : I18N.text('office.research.wNone', {}, lang());
+    g.fillText(fit(g, best + (st.w.idea ? ' · ' + st.w.idea : '') + (st.crashes ? ' · ' + I18N.text('office.research.wCrashes', {n: st.crashes}, lang()) : ''), 368), 16, 116);
     tip.tex.needsUpdate = true;
   }
   let hoverKind = '', hoverId = null;
