@@ -163,7 +163,7 @@ export function labTexture(ctx, name) {
 export function sky({sun, hemi, lamps, night, dusk}) {
   sun.color.set(night ? THEME.sun.night : dusk ? THEME.sun.dusk : THEME.sun.day);
   hemi.color.set(THEME.hemi[0]); hemi.groundColor.set(THEME.hemi[1]);
-  for (const l of lamps) l.color.set(THEME.lamp);
+  for (const l of lamps) if (l.position.y < 3.5) l.color.set(THEME.lamp);          // the office floor's lamps only: the arena above keeps the colours of its two teams (its lamps hang at 7 m)
 }
 
 // ------------------------------------------------------------------ the walls

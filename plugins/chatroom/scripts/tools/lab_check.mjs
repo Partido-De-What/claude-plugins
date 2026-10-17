@@ -2,7 +2,7 @@
 // and the wall band covers the walls but not the doors. Run: node tools/lab_check.mjs (exit 0 = ok)
 import assert from 'node:assert/strict';
 globalThis.location = {search: ''};                      // office-research.js (imported by the lab) reads it
-const {FLOOR, THEME, PALETTE, MODELS, hexAt, install, item, withLab} = await import('../office-lab.js');
+const lab = await import('../office-lab.js'), {FLOOR, THEME, PALETTE, MODELS, hexAt, install, item, withLab} = lab;
 const {CATALOG} = await import('../office-layout.js');
 const {CLEAR} = await import('../office-research.js');
 import {PX} from '../office-floor.js';
@@ -50,4 +50,8 @@ assert.equal(item({type: 'couch', pack: 'p'}, V), 'pack', 'couch tinted through 
 const plan = withLab([{type: 'plantTall', x: 0, z: 0}, {type: 'rack', x: -7.5, z: -9.45}, {type: 'cabinet', x: 7.4, z: -9.55}]);
 assert.equal(plan.length, 2, 'the rack and the cabinet under the research panels go, the hood comes'); assert.equal(withLab(plan).length, 2, 'the hood is added once');
 assert(CLEAR.length >= 2 && CLEAR.every(c => c.z1 <= -8), 'CLEAR spans on the north wall');
+// sky(): the cold light on the office lamps, not on the arena's team lamps (y 7 m)
+const col = () => ({c: '', set(v) { this.c = v; }}), lampOffice = {position: {y: 2.6}, color: col()}, lampArena = {position: {y: 7.1}, color: col()}, sunC = col(), hemiC = {color: col(), groundColor: col()};
+lab.sky({sun: {color: sunC}, hemi: hemiC, lamps: [lampOffice, lampArena], night: true, dusk: false});
+assert.equal(lampOffice.color.c, THEME.lamp, 'office lamp goes cold'); assert.equal(lampArena.color.c, '', 'arena lamp keeps its colour');
 console.log('lab_check: ok', Object.keys(FLOOR.kinds).length, 'kinds', THEME.wall, PALETTE.cyan);
