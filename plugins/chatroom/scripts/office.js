@@ -150,8 +150,9 @@ let visit = visitJson, myLook = settingsJson?.avatar || null;
 const tidy = items => items.map(it => it.type === 'console' && it.x === -12.2 && it.y === 0.45 && it.z === 0.45 ? {...it, x: -11.25, y: 0, z: 0.5} : it);
 // an office saved before the third lead's table existed gets it (three live rooms: three leads)
 const conLead3 = items => items.some(it => it.tag === 'lead3') ? items : [...items, ...LEAD3_ITEMS];
-const LAYOUT = visit ? {...DEFAULT_LAYOUT, items: tidy(visit.items || DEFAULT_LAYOUT.items)}
+const LAYOUT0 = visit ? {...DEFAULT_LAYOUT, items: tidy(visit.items || DEFAULT_LAYOUT.items)}
   : Array.isArray(saved?.items) ? {...DEFAULT_LAYOUT, items: conLead3(tidy(saved.items))} : DEFAULT_LAYOUT;
+const LAYOUT = LAB ? {...LAYOUT0, items: LAB.withLab(LAYOUT0.items)} : LAYOUT0;           // the laboratory adds its own pieces (a fume hood) to the plan, as a copy: DEFAULT_LAYOUT stays as it is
 const PLACED = resolve(LAYOUT, {packSize: V.packSize});
 const ARC_ON = !visit && LAYOUT.floor.zones.some(z => z.kind === 'common');                // the arcade cabinet stands in the common room, whatever the furniture of a saved office
 if (ARC_ON) PLACED.boxes.push({x: ARCADE_AT.x, z: ARCADE_AT.z, hw: ARCADE_AT.hw, hd: ARCADE_AT.hd, rot: ARCADE_AT.rot});
@@ -174,7 +175,7 @@ for (const w of PLACED.walls) {
     full.attach(add(p, w.a[0] + w.dx / w.len * mid, 1.62, w.a[1] + w.dz / w.len * mid, w.rot));
   }
 }
-LAB?.install({THREE, renderer, scene, PLACED});
+LAB?.install({THREE, renderer, scene, PLACED, V});
 for (const g of PLACED.glass) {
   add(V.glassFrame(g.len, g.doors.length ? g.doors : null), g.a[0], 0, g.a[1], g.rot);
   let from = 0;
@@ -457,7 +458,7 @@ const DESKS = PLACED.desks.map((d, i) => buildDesk(d, i));
 function buildDesk(d, i) {
   const g = new THREE.Group(); g.position.set(d.x, 0, d.z); g.rotation.y = d.rot; scene.add(g);
   const put = (m, x, y, z, ry = 0) => { m.position.set(x, y, z); m.rotation.y = ry; g.add(m); return m; };
-  put(V.workDesk(), 0, 0, 0);
+  put((LAB?.MODELS.workDesk ?? V.workDesk)(), 0, 0, 0);
   put(V.monitor(), 0, 0.7, -0.27); put(V.keyboard(), -0.05, 0.71, 0.12);
   put(V.packModel(i % 3 ? 'Misc/Office_Misc_Papers' : 'Misc/Office_Misc_Organizer', {scale: 0.03}), 0.45, 0.71, -0.1, 0.3);
   if (i % 2) put(V.deskLamp(), -0.62, 0.71, -0.2); else put(V.plant(i + 2, false), -0.62, 0.71, -0.22);
