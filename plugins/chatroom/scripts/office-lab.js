@@ -84,23 +84,6 @@ function esd(g, w, h) {                                             // ESD fabri
   g.fillStyle = '#3d4e57'; for (let y = 0; y < h; y += 2) for (let x = (y / 2) % 2 * 2; x < w; x += 4) g.fillRect(x, y, 2, 1);
   for (let x = 1; x < w; x += 4) for (let y = 1; y < h; y += 4) dot(g, x, y, '#566a75');
 }
-function circuit(g, w, h) {                                         // printed circuit board: traces with pads, chips with pins, vias
-  const r = rnd(83), cells = w / 8;
-  g.fillStyle = '#0b2a31'; g.fillRect(0, 0, w, h); speckle(g, w, h, r, w * h / 10, '#0b2a31', 0.25);
-  for (let k = 0; k < cells * 2; k++) {                             // buses along x and along y, one lane each: a segment and a pad at each end
-    const along = k % 2 === 0, line = (k >> 1) * 8 + (r() < 0.5 ? 2 : 5), start = 2 + Math.floor(r() * (w - 32)), len = 10 + Math.floor(r() * 18);
-    g.fillStyle = '#1b8a98'; if (along) g.fillRect(start, line, len, 1); else g.fillRect(line, start, 1, len);
-    g.fillStyle = PALETTE.cyan;
-    for (const e of [start, start + len]) if (along) g.fillRect(e - 1, line - 1, 3, 3); else g.fillRect(line - 1, e - 1, 3, 3);
-  }
-  for (let k = 0; k < 3; k++) {                                     // chips
-    const x = 4 + Math.floor(r() * (w - 22)), y = 4 + Math.floor(r() * (h - 18));
-    g.fillStyle = '#06181c'; g.fillRect(x, y, 14, 10);
-    g.fillStyle = '#7aa7b0'; for (let p = 1; p < 14; p += 3) { g.fillRect(x + p, y - 1, 1, 1); g.fillRect(x + p, y + 10, 1, 1); }
-    dot(g, x + 2, y + 2, PALETTE.amber);
-  }
-  for (let k = 0; k < 14; k++) dot(g, Math.floor(r() * w), Math.floor(r() * h), r() < 0.2 ? PALETTE.amber : PALETTE.cyan);
-}
 function trace(g, w, h) {                                           // a strip of circuit, 0.34 m tall: the technical band along the walls
   const r = rnd(91);
   g.fillStyle = '#0b2a31'; g.fillRect(0, 0, w, h); speckle(g, w, h, r, w * h / 10, '#0b2a31', 0.25);
@@ -114,12 +97,6 @@ function trace(g, w, h) {                                           // a strip o
     const x = 6 + Math.floor(r() * (w - 20)); g.fillStyle = '#06181c'; g.fillRect(x, 3, 10, h - 6);
     g.fillStyle = '#7aa7b0'; for (let p = 1; p < 10; p += 3) { g.fillRect(x + p, 2, 1, 1); g.fillRect(x + p, h - 3, 1, 1); }
   }
-}
-function blueprint(g, w, h) {                                       // blueprint paper: a fine grid every 25 cm, a stronger one every metre, a dimension line
-  g.fillStyle = '#123f66'; g.fillRect(0, 0, w, h);
-  for (let k = 0; k < w; k += 8) { g.fillStyle = k % 32 ? '#1a5584' : '#3b8cc2'; g.fillRect(k, 0, 1, h); g.fillRect(0, k, w, 1); }
-  g.fillStyle = '#cfe9f7'; g.fillRect(10, 20, 24, 1); g.fillRect(10, 17, 1, 7); g.fillRect(33, 17, 1, 7);
-  g.fillRect(40, 42, 1, 14); g.fillRect(37, 42, 7, 1); g.fillRect(37, 55, 7, 1);
 }
 function pad(g, w, h) {                                             // the lounge rug of the lab: a lit floor pad, cyan border and amber corners
   const b = Math.max(2, Math.round(Math.min(w, h) * 0.05));
@@ -137,7 +114,6 @@ const KINDS = {
   labResin: {m: 2, rough: 0.3, draw: resin('#566b7b', 101)}, labResinLight: {m: 2, rough: 0.3, draw: resin('#c4ced4', 102)}, labResinDark: {m: 2, rough: 0.3, draw: resin('#6c7781', 103)},
   labHex: {m: 2, rough: 0.5, draw: hexTiles('#5d7081', 104)}, labHexDark: {m: 2, rough: 0.5, draw: hexTiles('#3f505e', 105)},
   labClean: {m: 2, rough: 0.4, draw: clean}, labSteel: {m: 2, rough: 0.35, metal: 0.35, draw: steel}, labEsd: {m: 0.5, rough: 0.85, draw: esd},
-  labCircuit: {m: 2, rough: 0.5, draw: circuit}, labBlueprint: {m: 2, rough: 0.9, draw: blueprint},
   labTrace: {m: 2, h: 11, rough: 0.5, draw: trace},
   labPad: {fit: true, rough: 0.6, draw: pad},
 };
@@ -150,7 +126,7 @@ export const FLOOR = {
 
 let V = null, CTX = null;                                           // office-voxel.js and the context, from install(): the models are built after it
 const made = new Map();
-/** a lab picture as a shared texture (one per name; do not dispose): `labTexture({THREE, renderer}, 'labCircuit')`. Names: the keys of KINDS except labPad */
+/** a lab picture as a shared texture (one per name; do not dispose): `labTexture({THREE, renderer}, 'labSteel')`. Names: the keys of KINDS except labPad */
 export function labTexture(ctx, name) {
   const K = KINDS[name];
   if (!K || K.fit) throw new Error(`labTexture: ${name}`);
@@ -290,16 +266,6 @@ function labCabinet(it) {                // a tall cabinet of the pack becomes a
   }
   return vmesh(v, {pivot: [W / 2, 0, D / 2], jitter: 0.02});
 }
-function labBoard(it) {                  // a blueprint panel in a steel frame instead of the pack's corkboard and wall graph (same size, same place)
-  const {THREE} = CTX, [w, h, d] = V.packSize(it.pack, it.scale ?? 0.065) || [1, 0.8, 0.1], g = new THREE.Group();
-  const W = Math.max(6, Math.round(w / 0.05)), H = Math.max(6, Math.round(h / 0.05)), iw = (W - 2) * 0.05, ih = (H - 2) * 0.05;
-  const frame = vmesh(new V.Vox().box(0, 0, 0, W - 1, 0, 0, STEEL).box(0, H - 1, 0, W - 1, H - 1, 0, STEEL).box(0, 0, 0, 0, H - 1, 0, STEEL).box(W - 1, 0, 0, W - 1, H - 1, 0, STEEL), {pivot: [W / 2, 0, 0]});
-  frame.position.z = -d / 2;
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(iw, ih), new THREE.MeshStandardMaterial({map: labTexture(CTX, 'labBlueprint'), roughness: 0.8}));
-  const uv = plane.geometry.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * iw / KINDS.labBlueprint.m, uv.getY(i) * ih / KINDS.labBlueprint.m);
-  plane.position.set(0, h / 2, -d / 2 + 0.052); g.add(frame, plane);
-  return g;
-}
 const TINT = {couch: {hue: 0.55, sat: 0.5, light: 1.1}};              // the brown couches go blue-grey
 /** a lab piece for a placed item (office-layout.js resolve() item), or null: the office builds it as usual */
 export function item(it, Vm) {
@@ -307,7 +273,6 @@ export function item(it, Vm) {
   if (!V) return null;                   // no voxel helpers yet: the office draws the piece
   if (!it.pack && MODELS[it.model]) return MODELS[it.model](...(it.args || []));
   if (it.type === 'cabinet') return labCabinet(it);
-  if (it.type === 'corkboard' || it.type === 'wallGraph') return labBoard(it);
   if (TINT[it.type] && it.pack) return V.packModel(it.pack, {...it, tint: TINT[it.type]});
   return null;
 }
