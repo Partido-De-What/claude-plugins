@@ -168,7 +168,7 @@ export function createPaintball({THREE, scene, camera, canvas, root, pov, me, pl
   const UP = new V3(0, 1, 0);
   const _mA = new M4(), _mB = new M4(), _mC = new M4(), _mD = new M4(), _mR = new M4(), _mT = new M4(), _mH = new M4();
   const _q = new Q(), _qI = new Q(), _eu = new E(), _col = new Col(), _col2 = new Col();
-  const ray = new THREE.Raycaster();
+  const ray = new THREE.Raycaster(); ray.camera = camera;                  // a Sprite in the scene (the laboratory's smoke) throws in raycast without it
   const rnd = () => Math.random();
 
   // ---------------------------------------------------------------- the paint on surfaces: four splash shapes, each one instanced mesh
