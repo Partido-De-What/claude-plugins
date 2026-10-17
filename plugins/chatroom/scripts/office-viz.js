@@ -152,17 +152,18 @@ export function createViz({THREE, scene, V, raycastables, data, lang, jump, setL
     checkSig = sig; shown = checks ? checks.slice(0, checks.length > PANEL.rows ? PANEL.rows - 1 : PANEL.rows) : [];
     drawCheckPanel(panelCanvas, checks, texts(lg)); panelTex.needsUpdate = true;
   }
-  let calls = {}, inflight = false;
+  let calls = {}, inflight = false, timer = 0;
   async function poll() {
     if (inflight || !active()) return;
     inflight = true;
     try {
       const r = await fetch('check.json', {cache: 'no-store'});
       if (r.ok) { const j = await r.json(); checks = sortChecks(j.checks); calls = j.calls || {}; drawPanel(); budgetDirty = true; }
-    } catch (e) { /* an older server has no /check.json: the panel stays empty */ }
+      else if (r.status === 404) clearInterval(timer);           // an older server has no /check.json: the panel stays empty, and nobody asks again
+    } catch (e) { /* the server is busy: the next round */ }
     inflight = false;
   }
-  setInterval(poll, 3000);
+  timer = setInterval(poll, 3000);
 
   // --- the call-budget bars: one instanced mesh, two bars (the track and the fill) for each desk that has an agent
   const BAR = {w: 1.1, y: 0.715, z: 0.37, h: 0.012, d: 0.03};
