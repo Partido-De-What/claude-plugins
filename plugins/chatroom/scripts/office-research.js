@@ -266,12 +266,12 @@ export function createResearch(ctx) {
     const lw = Math.round(stripLen * 100), lh = Math.round(AT.strip.w * 100), c = document.createElement('canvas');
     c.width = lw * SS; c.height = lh * SS; const g = c.getContext('2d'); g.scale(SS, SS);
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = aniso;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(stripLen, AT.strip.w), new THREE.MeshBasicMaterial({map: tex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4}));
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(stripLen, AT.strip.w), new THREE.MeshBasicMaterial({map: tex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -12, polygonOffsetUnits: -24}));   // above every floor zone (office-floor.js pulls the zone of layer n by -n, -2n)
     mesh.rotation.x = -Math.PI / 2; mesh.position.set((AT.strip.x0 + AT.strip.x1) / 2, 0.012, AT.strip.z); root.add(mesh);
     const p = {name: 'strip', lw, lh, g, tex, mesh, draw: drawStrip, dirty: true, at: {w: stripLen, h: AT.strip.w}};
     panels.strip = p; return p;
   })();
-  const glowMat = new THREE.MeshBasicMaterial({color: PAL.cyan, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8});
+  const glowMat = new THREE.MeshBasicMaterial({color: PAL.cyan, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -16, polygonOffsetUnits: -32});
   const pulse = new THREE.Mesh(new THREE.PlaneGeometry(segLen - 0.16, AT.strip.w - 0.1), glowMat);   // the current phase breathes
   pulse.rotation.x = -Math.PI / 2; pulse.visible = false; pulse.renderOrder = 2; root.add(pulse);
 
