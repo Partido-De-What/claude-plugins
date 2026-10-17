@@ -493,7 +493,7 @@ export function createTV({THREE, scene, camera, renderer, root, tvMesh, table, r
   }
   const close = () => { if (menuEl) { menuEl.remove(); menuEl = null; } };
 
-  const _p = new THREE.Vector3(), _ray = new THREE.Raycaster(), corners = [[-w / 2, h / 2], [w / 2, h / 2], [w / 2, -h / 2], [-w / 2, -h / 2]];
+  const _p = new THREE.Vector3(), _ray = Object.assign(new THREE.Raycaster(), {camera}), corners = [[-w / 2, h / 2], [w / 2, h / 2], [w / 2, -h / 2], [-w / 2, -h / 2]];
   return {
     remote,
     menu,
