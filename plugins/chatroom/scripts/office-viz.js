@@ -47,8 +47,10 @@ export function tagLinks(all, who, now, {window = 600, max = 8, fade = 25} = {})
       links.push({from: m.from, to, n: m.n, answeredTs: ans ? (ans.ts || now) : 0});
     }
   });
-  const open = links.filter(l => !l.answeredTs).slice(-max), done = links.filter(l => l.answeredTs && now - l.answeredTs < fade).slice(-max);
-  return [...open, ...done].slice(-max);
+  const newest = new Map();                                              // one line for a pair and a state: a second tag to the same person draws nothing new
+  for (const l of links) if (!l.answeredTs || now - l.answeredTs < fade) newest.set(l.from + '>' + l.to + (l.answeredTs ? '!' : ''), l);
+  const kept = [...newest.values()];
+  return [...kept.filter(l => !l.answeredTs).slice(-max), ...kept.filter(l => l.answeredTs).slice(-max)].slice(-max);
 }
 /** the pieces lent and not yet given back: [{id, from, to, accepted}] (the board's tasks: `lender` is who lent, `owner` who works on it) */
 export const loans = tasks => (tasks || []).filter(t => t.lender && t.state === 'taken' && t.owner && t.owner !== t.lender)

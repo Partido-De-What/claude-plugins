@@ -103,9 +103,14 @@ test('budget: green under 60%, amber up to the limit, red from it, grey without 
     const late = viz.tagLinks(all, who, 980), gone = viz.tagLinks(all, who, 990), old = viz.tagLinks([m(1, 'LEAD', '@BETA x', 100)], who, now);
     return late.length === 0 && gone.length === 0 && old.length === 0 ? '' : JSON.stringify({late, gone, old});
   });
+  test('tag links: a second tag from the same person to the same person is one line, the newest', () => {
+    const l = viz.tagLinks([m(1, 'LEAD', '@ALFA one', 980), m(2, 'LEAD', '@ALFA two', 990), m(3, 'BETA', '@ALFA three', 991)], who, now);
+    return l.length === 2 && l[0].n === 2 && l[1].n === 3 ? '' : JSON.stringify(l);
+  });
   test('tag links: at most eight, the newest', () => {
-    const all = Array.from({length: 12}, (_, i) => m(i + 1, 'LEAD', `@${['ALFA', 'BETA', 'GAMMA'][i % 3]} ${i}`, 990));
-    const l = viz.tagLinks(all, who, now);
+    const names = ['A', 'B', 'C', 'D', 'E', 'F'], w2 = new Map([...names.map(n => [n.toLowerCase(), n]), ['x', 'X'], ['y', 'Y'], ['z', 'Z'], ['v', 'V']]);
+    const all = Array.from({length: 12}, (_, i) => m(i + 1, names[i % 6], `@${['x', 'y', 'z', 'v'][i % 4]} ${i}`, 990));
+    const l = viz.tagLinks(all, w2, now);
     return l.length === 8 && l[7].n === 12 ? '' : `${l.length} links, last #${l[l.length - 1]?.n}`;
   });
 }
