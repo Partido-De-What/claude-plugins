@@ -8,13 +8,18 @@
 /** wall spans the research panels use (x0..x1 along the north wall, z0..z1 from it): the laboratory's own pieces stay out of them */
 export const CLEAR = [
   {name: 'results', x0: 4.4, x1: 8.95, z0: -10, z1: -8.7},
-  {name: 'ideas', x0: -8.9, x1: -2.7, z0: -10, z1: -8.7},
+  {name: 'ideas', x0: -8.95, x1: -4.75, z0: -10, z1: -8.7},      // up to the CHECK panel of the control room (office-viz.js, x -4.6..-3.0)
 ];
 /** where the panels stand: x, y (centre), z (in front of the wall's face, 12.5 cm in), size in metres */
 export const AT = {
   results: {x: 6.675, y: 1.8, z: -9.845, w: 4.5, h: 2.2},
   strip: {x0: -11.5, x1: 8.5, z: 1.55, w: 0.8},                  // the phases, on the floor of the aisle in front of the open space
   tower: {x: 4.2, z: -9.5},                                       // the stack light: GPU held, evaluation running
+  ideas: {x: -8.0, y: 1.85, z: -9.845, w: 1.9, h: 1.95},
+  verdicts: {x: -5.95, y: 1.85, z: -9.845, w: 1.9, h: 1.95},
+  bin: {x: -8.0, z: -9.45},                                       // the refuted ideas' bin under the ideas board
+  report: {x: 7.4, y: 1.0, z: 2.8, w: 1.5, h: 1.0, tilt: -0.55},  // a lectern at the end of the strip: the report's gate, and the trophy beside it
+  trophy: {x: 8.45, z: 2.8},
 };
 const FONT = '"Segoe UI", sans-serif';
 const SS = 2;                                                    // canvases at twice their logical size: crisp text
@@ -243,18 +248,18 @@ export function createResearch(ctx) {
   // the gate: a barrier across the strip where the next phase starts, shut (red and white, a red light) or raised (a green light); beside it a sign with why
   const gate = new THREE.Group(); gate.visible = false; root.add(gate);
   {
-    const post = V.mesh(new V.Vox().box(0, 0, 0, 1, 11, 1, '#e8edf0').box(0, 8, 0, 1, 9, 1, PAL.crash), {pivot: [1, 0, 1], scale: 0.1, jitter: 0.02});
-    post.position.set(0, 0, -AT.strip.w / 2 - 0.45); gate.add(post);
-    const post2 = V.mesh(new V.Vox().box(0, 0, 0, 1, 7, 1, '#e8edf0'), {pivot: [1, 0, 1], scale: 0.1, jitter: 0.02});
-    post2.position.set(0, 0, AT.strip.w / 2 + 0.45 + 0.8); gate.add(post2);
-    gate.arm = new THREE.Group(); gate.arm.position.set(0, 0.8, -AT.strip.w / 2 - 0.45); gate.add(gate.arm);   // the hinge on the north post
-    const L = Math.round((AT.strip.w + 0.9 + 0.8) * 10), bar = V.mesh(new V.Vox().box(0, 0, 0, 1, 1, L, (x, y, z) => Math.floor(z / 3) % 2 ? '#f4f6f7' : PAL.crash), {pivot: [1, 1, 0], scale: 0.1, jitter: 0.01});
+    const off = AT.strip.w / 2 + 0.2, post = V.mesh(new V.Vox().box(0, 0, 0, 1, 8, 1, '#e8edf0').box(0, 6, 0, 1, 7, 1, PAL.crash), {pivot: [1, 0, 1], scale: 0.1, jitter: 0.02});
+    post.position.set(0, 0, -off); gate.add(post);                                                    // north post: the hinge
+    const post2 = V.mesh(new V.Vox().box(0, 0, 0, 1, 8, 1, '#e8edf0').box(0, 6, 0, 1, 7, 1, PAL.crash), {pivot: [1, 0, 1], scale: 0.1, jitter: 0.02});
+    post2.position.set(0, 0, off); gate.add(post2);                                                   // south post: the sign above it, readable from the plaza
+    gate.arm = new THREE.Group(); gate.arm.position.set(0, 0.62, -off); gate.add(gate.arm);
+    const L = Math.round(2 * off * 10), bar = V.mesh(new V.Vox().box(0, 0, 0, 1, 1, L, (x, y, z) => Math.floor(z / 3) % 2 ? '#f4f6f7' : PAL.crash), {pivot: [1, 1, 0], scale: 0.1, jitter: 0.01});
     gate.arm.add(bar);
     gate.lamp = V.mesh(new V.Vox().box(0, 0, 0, 1, 1, 1, '#ffffff'), {pivot: [1, 0, 1], scale: 0.1}, true);
-    gate.lamp.position.copy(post.position); gate.lamp.position.y = 1.12; gate.add(gate.lamp);
+    gate.lamp.position.set(0, 0.9, -off); gate.add(gate.lamp);
     gate.lampMat = gate.lamp.material.clone(); gate.lamp.material = gate.lampMat;                   // MAT.glow is shared: this lamp gets its own colour
   }
-  const signAt = {x: 0, y: 1.55, z: AT.strip.z - AT.strip.w / 2 - 0.45, w: 2.0, h: 0.8, tilt: -0.3};
+  const signAt = {x: 0, y: 1.5, z: AT.strip.z + AT.strip.w / 2 + 0.25, w: 2.0, h: 0.8, tilt: -0.3};
   function drawSign(p, d) {
     const {g, lw, lh} = p; if (!d) return;
     const open = d.gate.open, col = open ? PAL.keep : PAL.crash;
@@ -273,6 +278,138 @@ export function createResearch(ctx) {
     tower.run = V.mesh(new V.Vox().box(0, 0, 0, 3, 2, 3, '#ffffff'), {pivot: [2, 0, 2], scale: 0.1}, true); tower.run.position.y = 1.3;
     for (const m of [tower.gpu, tower.run]) { m.material = m.material.clone(); tower.add(m); }
     tower.gpu.material.color.set('#3b2f1a'); tower.run.material.color.set('#16303a');
+  }
+
+  // ------------------------------------------------------------------ the ideas board and its bin
+  const ideaRuns = (d, id) => d.attempts.filter(a => a.idea === id && a.kind === 'attempt' && a.state !== 'revoked');
+  const refuted = (d, i) => i.status === 'rejected' || (i.status === 'tried' && ideaRuns(d, i.id).length > 0 && ideaRuns(d, i.id).every(a => a.status !== 'keep'));
+  function drawIdeas(p, d) {
+    const {g, lw, lh} = p;
+    g.fillStyle = PAL.ink; g.fillRect(0, 0, lw, lh); g.strokeStyle = PAL.cyan; g.lineWidth = 3; g.strokeRect(2, 2, lw - 4, lh - 4);
+    g.textBaseline = 'middle'; g.fillStyle = '#16303a'; g.fillRect(6, 6, lw - 12, 46);
+    g.fillStyle = PAL.cyan; g.font = `800 28px ${FONT}`; g.fillText(I18N.text('office.research.ideas', {}, lang()), 20, 30);
+    if (!d) return;
+    const live = d.ideas.filter(i => !refuted(d, i)), bin = d.ideas.filter(i => refuted(d, i)), shown = live.slice(-6);
+    g.fillStyle = PAL.steel; g.font = `500 18px ${FONT}`; g.textAlign = 'right';
+    g.fillText(I18N.text('office.research.ideasCount', {n: d.ideas.length, m: bin.length}, lang()), lw - 18, 30); g.textAlign = 'left';
+    shown.forEach((i, k) => {
+      const cw = 264, ch = 118, x = 14 + (k % 2) * (cw + 14), y = 64 + Math.floor(k / 2) * (ch + 10), col = i.status === 'accepted' ? PAL.warn : PAL.cyan;
+      g.fillStyle = '#e9f1f4'; g.beginPath(); g.roundRect(x, y, cw, ch, 8); g.fill();
+      g.fillStyle = col; g.beginPath(); g.roundRect(x, y, cw, 9, [8, 8, 0, 0]); g.fill();
+      g.fillStyle = PAL.ink; g.font = `800 20px ${FONT}`; g.fillText(fit(g, `${i.id} · ${i.by}`, cw - 20), x + 12, y + 28);
+      g.font = `600 20px ${FONT}`; wrap(g, i.title, x + 12, y + 54, cw - 24, 24, 2);
+      g.fillStyle = '#53656f'; g.font = `500 16px ${FONT}`;
+      g.fillText(fit(g, `${I18N.text('office.research.ideaRuns', {n: ideaRuns(d, i.id).length}, lang())} · ${I18N.text('office.research.idea.' + i.status, {}, lang())}`, cw - 20), x + 12, y + ch - 14);
+    });
+    if (live.length > shown.length) { g.fillStyle = PAL.steel; g.font = `600 18px ${FONT}`; g.fillText('+' + (live.length - shown.length), lw - 60, 66 + 3 * 128 - 14); }
+    g.fillStyle = '#16303a'; g.fillRect(6, 456, lw - 12, 30);
+    g.fillStyle = PAL.discard; g.font = `800 18px ${FONT}`; g.fillText(I18N.text('office.research.ideaTrash', {}, lang()), 18, 471);
+    g.font = `500 18px ${FONT}`;
+    bin.slice(-3).forEach((i, k) => { const y = 506 + k * 28, t = fit(g, `${i.id} ${i.title}`, lw - 70); g.fillStyle = PAL.crash; g.fillText('✕', 18, y); g.fillStyle = PAL.discard; g.fillText(t, 46, y);
+      g.strokeStyle = PAL.discard; g.lineWidth = 2; g.beginPath(); g.moveTo(46, y); g.lineTo(46 + g.measureText(t).width, y); g.stroke(); });
+    if (!bin.length) { g.fillStyle = '#44565f'; g.fillText(I18N.text('office.research.binEmpty', {}, lang()), 18, 520); }
+  }
+  panel('ideas', AT.ideas, 300, drawIdeas);
+  const bin = new THREE.Group(); bin.position.set(AT.bin.x, 0, AT.bin.z); root.add(bin);
+  {
+    const v = new V.Vox().box(0, 0, 0, 5, 5, 5, '#6c7680');
+    for (let x = 1; x <= 4; x++) for (let y = 1; y <= 5; y++) for (let z = 1; z <= 4; z++) v.del(x, y, z);
+    bin.add(V.mesh(v, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}));
+  }
+  let paper = null, paperN = -1;
+  function setPaper(n) {                                                                    // one crumpled ball in the bin for each refuted idea (up to 8)
+    n = Math.min(8, n); if (n === paperN) return; paperN = n;
+    if (paper) { bin.remove(paper); paper.geometry.dispose(); paper = null; }
+    if (!n) return;
+    const v = new V.Vox();
+    for (let i = 0; i < n; i++) { const x = 1 + (i % 3), z = 1 + Math.floor(i / 3) % 3, y = 1 + Math.floor(i / 6) + (i % 2); v.box(x, y, z, x, y, z, i % 2 ? '#f4f6f7' : '#dfe6ea'); }
+    paper = V.mesh(v, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.04}); paper.position.y = 0.1; bin.add(paper);
+  }
+
+  // ------------------------------------------------------------------ the verdicts wall: the auditor's stamps and the revocation chain
+  const seen = new Map();                                                                  // verdict -> when it first showed (a new one is stamped in, once)
+  let seenAll = false;                                                                     // the first drawing shows what was already there without stamping
+  const OUT = {pass: PAL.keep, answer_ready: PAL.keep, fail: PAL.crash, search_more: PAL.warn};
+  function drawVerdicts(p, d) {
+    const {g, lw, lh} = p;
+    g.fillStyle = PAL.ink; g.fillRect(0, 0, lw, lh); g.strokeStyle = PAL.cyan; g.lineWidth = 3; g.strokeRect(2, 2, lw - 4, lh - 4);
+    g.textBaseline = 'middle'; g.fillStyle = '#16303a'; g.fillRect(6, 6, lw - 12, 46);
+    g.fillStyle = PAL.cyan; g.font = `800 28px ${FONT}`; g.fillText(I18N.text('office.research.verdicts', {}, lang()), 20, 30);
+    if (!d) return;
+    const last = new Map(); for (const v of d.verdicts) last.set(v.phase, v);                // the latest verdict of each phase
+    const rows = [...last.values()].sort((a, b) => a.phase - b.phase).slice(-4), now = performance.now();
+    p.animating = false;
+    rows.forEach((v, k) => {
+      const y = 62 + k * 64, id = `${v.phase}:${v.outcome}:${v.ts}`; if (!seen.has(id)) seen.set(id, seenAll ? now : -1e9);
+      const age = (now - seen.get(id)) / 1000, e = age >= 0.5 ? 1 : 1 - Math.pow(1 - age / 0.5, 3);   // ease out: 1.8 times too big and faint, then home
+      if (age < 0.5) p.animating = true;
+      g.fillStyle = PAL.steel; g.font = `700 18px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.vPhase', {n: v.phase, name: I18N.text('kernel.phase.' + PHASES[v.phase], {}, lang())}, lang()), 250), 18, y + 14);
+      g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(fit(g, (v.of ? `${num(v.score)}/${v.of} · ` : '') + v.by, 250), 18, y + 40);
+      const col = OUT[v.outcome] || PAL.discard, label = I18N.text('office.research.out.' + v.outcome, {}, lang()).toUpperCase();
+      g.save(); g.translate(430, y + 26); g.rotate(-0.06); const s = 1.8 - 0.8 * e; g.scale(s, s); g.globalAlpha = 0.25 + 0.75 * e;
+      g.font = `800 24px ${FONT}`; const w = Math.min(250, g.measureText(label).width + 36);
+      g.strokeStyle = col; g.lineWidth = 5; g.beginPath(); g.roundRect(-w / 2, -24, w, 48, 8); g.stroke(); g.fillStyle = col; g.textAlign = 'center'; g.fillText(label, 0, 2); g.textAlign = 'left';
+      g.restore(); g.globalAlpha = 1;
+      g.strokeStyle = '#1f333c'; g.lineWidth = 1; g.beginPath(); g.moveTo(14, y + 58); g.lineTo(lw - 14, y + 58); g.stroke();
+    });
+    if (!rows.length) { g.fillStyle = PAL.discard; g.font = `500 20px ${FONT}`; g.fillText(I18N.text('office.research.vNone', {}, lang()), 18, 90); }
+    seenAll = true;
+    // the chain: what was revoked, and what rested on it
+    g.fillStyle = '#16303a'; g.fillRect(6, 330, lw - 12, 30);
+    g.fillStyle = PAL.crash; g.font = `800 18px ${FONT}`; g.fillText(I18N.text('office.research.revs', {}, lang()), 18, 345);
+    const gone = new Set(d.attempts.filter(a => a.state === 'revoked').map(a => a.n));
+    const kids = n => [...d.attempts.filter(a => gone.has(a.n) && a.parent_n === n).flatMap(a => [`att-${a.n}`, ...kids(a.n)]), ...d.evidence.filter(e => e.state === 'revoked' && e.source.includes('att-' + n)).map(e => e.id)];
+    const roots = d.attempts.filter(a => gone.has(a.n) && !gone.has(a.parent_n)).slice(0, 2);
+    let yy = 392;
+    g.font = `700 18px ${FONT}`;
+    for (const r of roots) {
+      let x = 18; const chain = [`att-${r.n}`, ...kids(r.n)].slice(0, 12);
+      chain.forEach((label, i) => {
+        const w = g.measureText(label).width + 20; if (x + w > lw - 14) { x = 18; yy += 38; }
+        if (i) { g.strokeStyle = PAL.crash; g.lineWidth = 3; g.beginPath(); g.moveTo(x - 12, yy); g.lineTo(x, yy); g.stroke(); }   // a link of the chain
+        g.fillStyle = i ? '#3a1d1d' : PAL.crash; g.strokeStyle = PAL.crash; g.lineWidth = 3; g.beginPath(); g.roundRect(x, yy - 15, w, 30, 15); g.fill(); g.stroke();
+        g.fillStyle = PAL.white; g.fillText(label, x + 10, yy + 1); x += w + 14;
+      });
+      g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(fit(g, r.revoked_why || r.desc, lw - 36), 18, yy + 30); g.font = `700 18px ${FONT}`; yy += 74;
+    }
+    if (!roots.length) { g.fillStyle = PAL.discard; g.font = `500 18px ${FONT}`; g.fillText(I18N.text('office.research.revNone', {}, lang()), 18, 392); }
+  }
+  panel('verdicts', AT.verdicts, 300, drawVerdicts);
+
+  // ------------------------------------------------------------------ the end of the strip: the report's gate and the final evaluation, with a trophy
+  const SEC = {'Result': 'result', 'What changed': 'changed', 'Evidence': 'evidence', 'What did not work': 'failed', 'Limits': 'limits', 'Disclosure': 'disclosure'};
+  function drawReport(p, d) {
+    const {g, lw, lh} = p;
+    g.fillStyle = PAL.ink; g.fillRect(0, 0, lw, lh); g.strokeStyle = PAL.cyan; g.lineWidth = 3; g.strokeRect(2, 2, lw - 4, lh - 4);
+    g.textBaseline = 'middle'; g.fillStyle = '#16303a'; g.fillRect(6, 6, lw - 12, 40);
+    g.fillStyle = PAL.cyan; g.font = `800 24px ${FONT}`; g.fillText(I18N.text('office.research.report', {}, lang()), 18, 27);
+    if (!d) return;
+    if (!d.report.exists) { g.fillStyle = PAL.warn; g.font = `500 18px ${FONT}`; g.textAlign = 'right'; g.fillText(I18N.text('office.research.reportNone', {}, lang()), lw - 16, 27); g.textAlign = 'left'; }
+    d.report.sections.forEach((s, i) => {
+      const x = 18 + (i % 2) * 214, y = 78 + Math.floor(i / 2) * 44;
+      g.strokeStyle = s.ok ? PAL.keep : PAL.discard; g.lineWidth = 3; g.strokeRect(x, y - 14, 26, 26);
+      if (s.ok) { g.beginPath(); g.moveTo(x + 5, y); g.lineTo(x + 12, y + 8); g.lineTo(x + 22, y - 9); g.stroke(); }
+      g.fillStyle = s.ok ? PAL.white : PAL.discard; g.font = `600 19px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.sec.' + (SEC[s.name] || 'result'), {}, lang()), 168), x + 36, y);
+    });
+    g.fillStyle = '#16303a'; g.fillRect(6, 214, lw - 12, 34);
+    g.fillStyle = PAL.amber; g.font = `800 20px ${FONT}`; g.fillText(I18N.text('office.research.final', {}, lang()), 18, 231);
+    g.fillStyle = PAL.white; g.font = `700 20px ${FONT}`;
+    const f = d.final;
+    g.fillText(fit(g, f && f.metric != null ? I18N.text('office.research.finalLine', {search: num(f.search_metric), final: num(f.metric), delta: (f.metric - f.search_metric >= 0 ? '+' : '') + num(f.metric - f.search_metric)}, lang())
+      : d.contract.final ? I18N.text('office.research.finalWait', {}, lang()) : I18N.text('office.research.finalNone', {}, lang()), lw - 36), 18, 272);
+  }
+  const reportPanel = panel('report', AT.report, 300, drawReport);
+  {
+    const ped = V.mesh(new V.Vox().box(0, 0, 0, 14, 5, 5, '#aeb8c2').box(1, 6, 1, 13, 6, 4, '#6c7680'), {pivot: [7, 0, 2], scale: 0.1, jitter: 0.02});
+    ped.position.set(AT.report.x, 0, AT.report.z - 0.12); root.add(ped);                      // the lectern's body under the tilted screen
+  }
+  const trophy = new THREE.Group(); trophy.position.set(AT.trophy.x, 0, AT.trophy.z); trophy.visible = true; root.add(trophy);
+  {
+    trophy.add(V.mesh(new V.Vox().box(0, 0, 0, 5, 7, 5, '#e8edf0').box(0, 7, 0, 5, 7, 5, '#aeb8c2'), {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}));           // the plinth, 0.8 m
+    const cup = new V.Vox().box(1, 0, 1, 4, 0, 4, '#b8860b').box(2, 1, 2, 3, 3, 3, '#d4a017').box(0, 4, 0, 5, 4, 5, '#ffca28');
+    for (let y = 5; y <= 7; y++) cup.box(0, y, 0, 5, y, 5, '#ffca28').box(1, y, 1, 4, y, 4, '#ffd54f');
+    cup.box(-1, 5, 2, -1, 6, 3, '#ffca28').box(6, 5, 2, 6, 6, 3, '#ffca28');
+    trophy.cup = V.mesh(cup, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}); trophy.cup.position.y = 0.85; trophy.add(trophy.cup);
   }
 
   // ------------------------------------------------------------------ the data
@@ -300,13 +437,16 @@ export function createResearch(ctx) {
     pulse.visible = true; pulse.position.set(AT.strip.x0 + segLen * (cur + 0.5), 0.016, AT.strip.z); glowMat.opacity = 0.12 + 0.2 * (0.5 + 0.5 * Math.sin(t * 1.8));
     gate.visible = sign.mesh.visible = sign.frame.visible = atBoundary;
     if (atBoundary) {
-      const gx = AT.strip.x0 + segLen * (cur + 1); gate.position.x = gx; sign.mesh.position.x = sign.frame.position.x = gx;
+      const gx = AT.strip.x0 + segLen * (cur + 1); gate.position.set(gx, 0, AT.strip.z); sign.mesh.position.x = sign.frame.position.x = gx;
       const target = data.gate.open ? -1.4 : 0; armAngle += (target - armAngle) * (1 - Math.exp(-dt * 3.5)); gate.arm.rotation.x = armAngle;
       gate.lampMat.color.set(data.gate.open ? PAL.keep : PAL.crash);
     }
     tower.gpu.material.color.set(data.lamps.gpu ? PAL.warn : '#3b2f1a');
     const busy = !!(data.lamps.lock && data.lamps.lock.alive);
     tower.run.material.color.set(busy ? PAL.run : '#16303a'); if (busy) tower.run.material.color.multiplyScalar(0.7 + 0.3 * Math.sin(t * 5));
+    setPaper(data.ideas.filter(i => refuted(data, i)).length);
+    trophy.cup.visible = !!(data.final && data.final.metric != null);
+    if (panels.verdicts.animating) panels.verdicts.dirty = true;                       // a new stamp comes in over half a second
     const p = panels.results;
     if (p.next && !disposed) {
       toLocal(p, p.next.x, p.next.y, tmp); ring.position.set(p.at.x + tmp.x, p.at.y + tmp.y, p.at.z + 0.02);
