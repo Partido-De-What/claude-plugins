@@ -1853,6 +1853,7 @@ function frame(now) {
     boss.act = boss.bubble && boss.bubble.until > Date.now() / 1000 ? 'speak' : t < (me.waveUntil || 0) ? 'wave' : me.act;
     boss.speed = running || shiftHeld ? 2 : 1;
     boss.update(dt, t); tendMe(dt, t); checkDoor(); tendCup(t);
+    if (pov) { boss.root.position.x -= Math.sin(boss.rot) * 0.32; boss.root.position.z -= Math.cos(boss.rot) * 0.32; }   // in first person the body stands 0.32 m behind the eye, out of the picture (its head is hidden)
   }
   if (assistant) { assistant.act = assistant.bubble && assistant.bubble.until > Date.now() / 1000 ? 'speak' : 'read'; assistant.update(dt, t); }
   screenAcc += dt;
@@ -1920,7 +1921,7 @@ function flyCamera(dt) {
   let pos = HOME.pos, look = HOME.target, fov = 30;
   if (pov && boss) {
     boss.root.updateMatrixWorld(true);
-    pos = boss.parts.head.localToWorld(_eye.set(0, 0.26, 0));                     // on the axis the body turns about: the view turns round the eye (an eye ahead of it swings on an arc, and a wall close by seemed to turn up to twice as fast)
+    pos = boss.parts.head.localToWorld(_eye.set(0, 0.26, 0)); pos.x = boss.pos.x; pos.z = boss.pos.z;   // the eye is on the axis the body turns about: the view turns round the eye (an eye ahead of it swung on an arc, and a wall close by seemed to turn up to twice as fast)
     const dr = wrapAng(boss.rot - povRot); povRot = boss.rot;                    // the body turned by itself (walking to a seat, sitting): the view keeps pointing where it was
     if (dr) me.yaw = wrapAng(me.yaw - dr);
     const yaw = boss.rot + me.yaw, c = Math.cos(me.pitch);
