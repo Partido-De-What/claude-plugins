@@ -562,7 +562,7 @@ export function plantBush(seed) {
 }
 /** a wall like wall(), but its windows have venetian blinds: slats every other row; doors are 2.25 m openings */
 export function blindWall(length, height, holes = [], color = '#ece8e1', doors = [], pal = {}) {
-  const P = {skirt: '#5f6670', base: '#d9d5ce', door: '#8d6e63', win: '#f7f7f5', blind: '#e3e6e8', sill: '#f2f0ec', ...pal};   // the lab recolours these (office-lab.js THEME.wallPal)
+  const P = {skirt: '#5f6670', base: '#d9d5ce', door: '#8d6e63', win: '#f7f7f5', blind: '#e3e6e8', sill: '#f2f0ec', cap: null, cap2: null, ...pal};   // the lab recolours these (office-lab.js THEME.wallPal)
   // the plan speaks in 25 cm cells (length, height, holes, doors); the wall is drawn at 12.5 cm, two voxels thick:
   // thin frames standing out on both faces, sills, slim blinds, a baseboard and a cornice
   const v = new Vox(), L = length * 2, H = height * 2;
@@ -573,7 +573,7 @@ export function blindWall(length, height, holes = [], color = '#ece8e1', doors =
     const doorFrame = doors.some(([a, b]) => ((x === a * 2 - 1 || x === b * 2 + 2) && y <= 18) || (x >= a * 2 - 1 && x <= b * 2 + 2 && y === 18));
     const winFrame = holes.some(([a, b]) => ((x === a * 2 - 1 || x === b * 2 + 2) && y >= 5 && y <= 20) || (x >= a * 2 - 1 && x <= b * 2 + 2 && (y === 5 || y === 20)));
     const c = doorFrame ? P.door : winFrame ? P.win : y === 0 ? P.skirt : y === 1 ? P.base
-            : y === H - 1 ? darker(color, 0.86) : y === H - 2 ? darker(color, 0.95) : color;
+            : y === H - 1 ? (P.cap || darker(color, 0.86)) : y === H - 2 ? (P.cap2 || darker(color, 0.95)) : color;
     v.set(x, y, 0, c).set(x, y, 1, c);
     if (doorFrame || winFrame) v.set(x, y, -1, c).set(x, y, 2, c);
   }
@@ -773,6 +773,6 @@ export function copier() {
 }
 
 /** a flat ceiling light panel, glowing; seen only from inside (first person) */
-export function ceilingLight() {
-  return mesh(new Vox().box(0, 0, 0, 11, 0, 5, '#fff6dc'), {pivot: [6, 1, 3], glow: 1.05}, true);
+export function ceilingLight(color = '#fff6dc') {
+  return mesh(new Vox().box(0, 0, 0, 11, 0, 5, color), {pivot: [6, 1, 3], glow: 1.05}, true);
 }

@@ -18,11 +18,11 @@ export const PALETTE = {
   keep: '#43a047', discard: '#90a4ae', crash: '#e53935', run: '#4dd0e1', warn: '#ffb74d',
 };
 
-/** colours that office.js reads: the walls and ceiling, the cold light (hemisphere, sun by the hour, lamps) */
+/** colours that office.js reads: the walls and ceiling, the colour of the ceiling panels (light), the cold light (hemisphere, sun by the hour, lamps) */
 export const THEME = {
   wall: '#eef3f6', ceiling: '#f3f7f9',
-  wallPal: {skirt: '#3b4a55', base: '#c9d3da', door: '#7e8c97', win: '#dfeaf0', blind: '#c4d6df', sill: '#e8eff3'},   // blindWall(): the parts that are not the wall colour
-  hemi: ['#e6f3ff', '#46515c'], sun: {night: '#e4eeff', dusk: '#dbe8ff', day: '#eaf4ff'}, lamp: '#bfe9ff',
+  wallPal: {skirt: '#3b4a55', base: '#c9d3da', door: '#7e8c97', win: '#dfeaf0', blind: '#c4d6df', sill: '#e8eff3', cap: '#4dd0e1', cap2: '#33424e'},   // blindWall(): the parts that are not the wall colour
+  light: '#dff4ff', hemi: ['#e6f3ff', '#46515c'], sun: {night: '#e4eeff', dusk: '#dbe8ff', day: '#eaf4ff'}, lamp: '#bfe9ff',
 };
 
 // ------------------------------------------------------------------ the pictures
@@ -134,7 +134,7 @@ function pad(g, w, h) {                                             // the loung
 
 // each kind: m = metres one texture covers (w x h = m * PX; `h` in pixels when it differs), rough, metal, draw(g, w, h)
 const KINDS = {
-  labResin: {m: 2, rough: 0.3, draw: resin('#98a3ac', 101)}, labResinLight: {m: 2, rough: 0.3, draw: resin('#c4ced4', 102)}, labResinDark: {m: 2, rough: 0.3, draw: resin('#6c7781', 103)},
+  labResin: {m: 2, rough: 0.3, draw: resin('#566b7b', 101)}, labResinLight: {m: 2, rough: 0.3, draw: resin('#c4ced4', 102)}, labResinDark: {m: 2, rough: 0.3, draw: resin('#6c7781', 103)},
   labHex: {m: 2, rough: 0.5, draw: hexTiles('#5d7081', 104)}, labHexDark: {m: 2, rough: 0.5, draw: hexTiles('#3f505e', 105)},
   labClean: {m: 2, rough: 0.4, draw: clean}, labSteel: {m: 2, rough: 0.35, metal: 0.35, draw: steel}, labEsd: {m: 0.5, rough: 0.85, draw: esd},
   labCircuit: {m: 2, rough: 0.5, draw: circuit}, labBlueprint: {m: 2, rough: 0.9, draw: blueprint},
@@ -210,8 +210,14 @@ function workDesk() {                    // 1.6 x 0.8 m, top at 0.7 m: ESD bench
   v.box(21, 1, 3, 27, 11, 14, '#e3e9ed');
   for (const y of [4, 8]) v.box(21, y, 14, 27, y, 14, STEEL_D);
   for (const y of [2, 6, 10]) v.box(23, y, 15, 25, y, 15, PALETTE.cyan);      // handles, standing out
+  const k = deskN++ % 3, tops = [PALETTE.cyan, PALETTE.amber, '#66bb6a', '#b39ddb', '#f06292', PALETTE.cyan];     // lab things in the two front corners, where the office puts nothing (in the same mesh: no draw call more)
+  if (k < 2) { v.box(1, 14, 12, 6, 14, 14, STEEL_D); for (let i = 0; i < 6; i++) v.box(1 + i, 15, 13, 1 + i, 17, 13, i % 2 ? '#d5eaf2' : tops[i]).set(1 + i, 15, 13, tops[i]); }    // a rack of six test tubes
+  else v.box(1, 14, 12, 3, 16, 14, PALETTE.cyan).box(1, 17, 12, 3, 17, 14, '#d5eaf2').box(5, 14, 12, 6, 15, 14, PALETTE.amber).box(5, 16, 12, 6, 16, 14, '#d5eaf2');      // two beakers
+  if (k !== 1) v.box(26, 14, 11, 29, 14, 14, '#2b3238').box(29, 15, 12, 30, 20, 13, '#e8eef1').box(26, 18, 12, 29, 19, 13, '#e8eef1').box(26, 20, 12, 26, 21, 13, '#2b3238').box(27, 15, 12, 27, 16, 13, STEEL_D).set(26, 14, 14, PALETTE.cyan);    // a microscope
+  else v.box(26, 14, 12, 28, 17, 14, PALETTE.amber).box(26, 18, 12, 28, 18, 14, '#d5eaf2').box(30, 14, 12, 30, 15, 14, PALETTE.cyan);
   return vmesh(v, {pivot: [16, 0, 8], jitter: 0.06});
 }
+let deskN = 0;
 function cubicle() {                     // the screens of one cubicle: frosted glass in a steel edge, a cyan line under the frosted strip
   const v = new V.Vox(), glass = '#b9d3dc';
   const screen = (x0, x1, z0, z1, h) => {
