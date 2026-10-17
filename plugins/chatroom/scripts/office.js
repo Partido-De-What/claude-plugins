@@ -2060,7 +2060,7 @@ const VD = {
 };
 {
   const sign = (LAYOUT.signs || []).find(s => s.text?.en === 'CONTROL ROOM') || {x: 0.9, y: 2.72, z: -4.7, w: 1.9}, table = LAYOUT.items.find(it => it.type === 'confTable' && it.z < 0);
-  viz = visit || LAB ? null : createViz({THREE, scene, V, raycastables, data: VD, lang: () => DATA.config.lang, say: t => ui.placeName(t), setLang: lg => post('config', {lang: lg}),
+  viz = visit || LAB ? null : createViz({THREE, scene, V, raycastables, data: () => VD, lang: () => DATA.config.lang, say: t => ui.placeName(t), setLang: lg => post('config', {lang: lg}),
     jump: n => { if (n && window.chatroom) { if (mode === 'office') { mode = 'split'; applyMode(); } window.chatroom.jumpTo(n); } },
     active: () => mode !== 'chat' && !document.hidden, check: {x: -3.83, y: 1.75, z: -9.85}, lamp: {x: table?.x ?? 1, y: 0.9, z: table?.z ?? -6.6}, flag: {x: sign.x + (sign.w || 1.9) / 2 + 0.3, y: sign.y, z: sign.z}});
 }
