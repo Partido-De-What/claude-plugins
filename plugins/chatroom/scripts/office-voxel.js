@@ -561,22 +561,23 @@ export function plantBush(seed) {
   return mesh(v, {pivot: [0.5, 0, 0.5], scale: 0.04, jitter: 0.05});
 }
 /** a wall like wall(), but its windows have venetian blinds: slats every other row; doors are 2.25 m openings */
-export function blindWall(length, height, holes = [], color = '#ece8e1', doors = []) {
+export function blindWall(length, height, holes = [], color = '#ece8e1', doors = [], pal = {}) {
+  const P = {skirt: '#5f6670', base: '#d9d5ce', door: '#8d6e63', win: '#f7f7f5', blind: '#e3e6e8', sill: '#f2f0ec', ...pal};   // the lab recolours these (office-lab.js THEME.wallPal)
   // the plan speaks in 25 cm cells (length, height, holes, doors); the wall is drawn at 12.5 cm, two voxels thick:
   // thin frames standing out on both faces, sills, slim blinds, a baseboard and a cornice
   const v = new Vox(), L = length * 2, H = height * 2;
   for (let x = 0; x < L; x++) for (let y = 0; y < H; y++) {
     const cx = x >> 1, cy = y >> 1;
     if (doors.some(([a, b]) => cx >= a && cx <= b) && cy <= 8) continue;
-    if (holes.some(([a, b]) => cx >= a && cx <= b && cy >= 3 && cy <= 9)) { if (y % 2 === 0) v.set(x, y, 1, '#e3e6e8'); continue; }   // blinds
+    if (holes.some(([a, b]) => cx >= a && cx <= b && cy >= 3 && cy <= 9)) { if (y % 2 === 0) v.set(x, y, 1, P.blind); continue; }   // blinds
     const doorFrame = doors.some(([a, b]) => ((x === a * 2 - 1 || x === b * 2 + 2) && y <= 18) || (x >= a * 2 - 1 && x <= b * 2 + 2 && y === 18));
     const winFrame = holes.some(([a, b]) => ((x === a * 2 - 1 || x === b * 2 + 2) && y >= 5 && y <= 20) || (x >= a * 2 - 1 && x <= b * 2 + 2 && (y === 5 || y === 20)));
-    const c = doorFrame ? '#8d6e63' : winFrame ? '#f7f7f5' : y === 0 ? '#5f6670' : y === 1 ? '#d9d5ce'
+    const c = doorFrame ? P.door : winFrame ? P.win : y === 0 ? P.skirt : y === 1 ? P.base
             : y === H - 1 ? darker(color, 0.86) : y === H - 2 ? darker(color, 0.95) : color;
     v.set(x, y, 0, c).set(x, y, 1, c);
     if (doorFrame || winFrame) v.set(x, y, -1, c).set(x, y, 2, c);
   }
-  for (const [a, b] of holes) for (let x = a * 2 - 2; x <= b * 2 + 3; x++) v.set(x, 5, -2, '#f2f0ec').set(x, 5, 3, '#f2f0ec');   // sills
+  for (const [a, b] of holes) for (let x = a * 2 - 2; x <= b * 2 + 3; x++) v.set(x, 5, -2, P.sill).set(x, 5, 3, P.sill);   // sills
   return mesh(v, {pivot: [0, 0, 1], scale: 0.125, jitter: 0.03});
 }
 

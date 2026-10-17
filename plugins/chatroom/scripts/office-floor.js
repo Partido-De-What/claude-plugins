@@ -3,15 +3,15 @@
 // The voxel look at 32 pixels a metre: pixels stay sharp up close (nearest filter)
 // and calm in the distance (mipmaps, anisotropic filtering). A dozen draw calls; textures repeat in world space.
 
-const PX = 32;                                         // texels per metre
-const rnd = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-const shade = (hex, f) => {                            // a colour made lighter (f > 1) or darker (f < 1)
+export const PX = 32;                                         // texels per metre
+export const rnd = seed => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+export const shade = (hex, f) => {                            // a colour made lighter (f > 1) or darker (f < 1)
   const n = parseInt(hex.slice(1), 16), c = v => Math.max(0, Math.min(255, Math.round(v * f)));
   return `rgb(${c(n >> 16)},${c((n >> 8) & 255)},${c(n & 255)})`;
 };
-const dot = (g, x, y, color) => { g.fillStyle = color; g.fillRect(x, y, 1, 1); };
+export const dot = (g, x, y, color) => { g.fillStyle = color; g.fillRect(x, y, 1, 1); };
 /** single pixels a bit lighter or darker: fibres, grain */
-function speckle(g, w, h, r, n, base, amount = 0.08) {
+export function speckle(g, w, h, r, n, base, amount = 0.08) {
   for (let i = 0; i < n; i++) dot(g, Math.floor(r() * w), Math.floor(r() * h), shade(base, 1 + (r() < 0.5 ? -amount : amount)));
 }
 function planks(g, w, h, {wood, ph, seed}) {          // rows `ph` pixels tall, staggered planks, grain, 1 px seams
@@ -82,29 +82,32 @@ const KINDS = {
   }},
 };
 
+/** a pixel-art texture drawn once on a canvas: repeating in world space, sharp up close, calm far away. Shared by the floor and the lab theme (office-lab.js) */
+export function makeTexture({THREE, renderer}, draw, cw, ch) {
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  draw(c.getContext('2d'), cw, ch);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = renderer.capabilities.getMaxAnisotropy(); t.colorSpace = THREE.SRGBColorSpace;
+  t.magFilter = THREE.NearestFilter;                   // pixels, not blur, up close
+  return t;
+}
+
 /** the floor of the plan: size [w, d] in metres centred on 0, the base kind, and zones {x0, z0, x1, z1, kind} drawn
- *  over it in order (a later zone wins where they overlap, as before) */
-export function buildFloor({THREE, renderer, size: [w, d], base, zones}) {
-  const group = new THREE.Group(), aniso = renderer.capabilities.getMaxAnisotropy(), made = {};
-  const texture = (draw, cw, ch) => {
-    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
-    draw(c.getContext('2d'), cw, ch);
-    const t = new THREE.CanvasTexture(c);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; t.colorSpace = THREE.SRGBColorSpace;
-    t.magFilter = THREE.NearestFilter;                 // pixels, not blur, up close
-    return t;
-  };
-  const piece = (x0, z0, x1, z1, kind, layer) => {
-    const K = KINDS[kind] || KINDS.carpet;
-    const map = K.fit ? texture(K.draw, Math.round((x1 - x0) * PX), Math.round((z1 - z0) * PX))
-                      : made[kind] ??= texture(K.draw, K.m * PX, K.m * PX);
+ *  over it in order (a later zone wins where they overlap, as before). `theme` {alias, kinds} (the lab, office-lab.js) renames
+ *  kinds and adds new ones: the pieces and their draw calls stay the same, only the pictures change */
+export function buildFloor({THREE, renderer, size: [w, d], base, zones, theme}) {
+  const group = new THREE.Group(), made = {};
+  const piece = (x0, z0, x1, z1, kind0, layer) => {
+    const kind = theme?.alias?.[kind0] || kind0, K = theme?.kinds?.[kind] || KINDS[kind] || KINDS.carpet;
+    const map = K.fit ? makeTexture({THREE, renderer}, K.draw, Math.round((x1 - x0) * PX), Math.round((z1 - z0) * PX))
+                      : made[kind] ??= makeTexture({THREE, renderer}, K.draw, K.m * PX, K.m * PX);
     const u = x => K.fit ? (x - x0) / (x1 - x0) : x / K.m, v = z => K.fit ? (z - z0) / (z1 - z0) : z / K.m;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute([x0, 0, z0, x0, 0, z1, x1, 0, z1, x1, 0, z0], 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute([u(x0), v(z0), u(x0), v(z1), u(x1), v(z1), u(x1), v(z0)], 2));
     g.setIndex([0, 1, 2, 0, 2, 3]);
-    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({map, roughness: K.rough, metalness: 0,
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({map, roughness: K.rough, metalness: K.metal || 0,
                                                               polygonOffset: true, polygonOffsetFactor: -layer, polygonOffsetUnits: -layer * 2}));
     m.receiveShadow = true; m.renderOrder = layer;
     group.add(m);
