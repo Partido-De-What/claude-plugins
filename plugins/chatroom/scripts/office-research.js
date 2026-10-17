@@ -13,13 +13,12 @@ export const CLEAR = [
 /** where the panels stand: x, y (centre), z (in front of the wall's face, 12.5 cm in), size in metres */
 export const AT = {
   results: {x: 6.675, y: 1.8, z: -9.845, w: 4.5, h: 2.2},
-  strip: {x0: -11.5, x1: 8.5, z: 1.55, w: 0.8},                  // the phases, on the floor of the aisle in front of the open space
+  strip: {x0: -12.9, x1: 5.9, z: 1.55, w: 0.8},                  // the phases, on the floor of the aisle in front of the open space (ends before the arena's lift)
   tower: {x: 4.2, z: -9.5},                                       // the stack light: GPU held, evaluation running
   ideas: {x: -8.0, y: 1.85, z: -9.845, w: 1.9, h: 1.95},
   verdicts: {x: -5.95, y: 1.85, z: -9.845, w: 1.9, h: 1.95},
   bin: {x: -8.0, z: -9.45},                                       // the refuted ideas' bin under the ideas board
-  report: {x: 7.4, y: 1.0, z: 2.8, w: 1.5, h: 1.0, tilt: -0.55},  // a lectern at the end of the strip: the report's gate, and the trophy beside it
-  trophy: {x: 8.45, z: 2.8},
+  trophy: {x: 6.3, z: 1.55},                                      // at the end of the strip, where the arena's lift (x 6.65..8.55) begins
 };
 const FONT = '"Segoe UI", sans-serif';
 const SS = 2;                                                    // canvases at twice their logical size: crisp text
@@ -153,7 +152,7 @@ export function createResearch(ctx) {
     const lastEnv = [...d.attempts].reverse().find(a => a.env && a.env.length), env = readEnv(lastEnv && lastEnv.env);
     const clockMax = Math.max(0, ...d.attempts.flatMap(a => readEnv(a.env)).filter(e => /clock|mhz|freq/i.test(e.k)).map(e => e.v));
     let yy = 272;
-    for (const e of env.slice(0, 5)) {
+    for (const e of env.slice(0, 3)) {
       const isT = /temp/i.test(e.k), isC = /clock|mhz|freq/i.test(e.k), frac = isT ? Math.max(0, Math.min(1, (e.v - 30) / 65)) : isC && clockMax ? Math.min(1, e.v / clockMax) : null;
       g.fillStyle = PAL.steel; g.font = `500 18px ${FONT}`; g.fillText(fit(g, `${e.k}`, W0 - 110), X0, yy);
       g.fillStyle = PAL.white; g.font = `700 20px ${FONT}`; g.textAlign = 'right'; g.fillText(`${num(e.v)}${e.u ? ' ' + e.u : ''}`, X0 + W0, yy); g.textAlign = 'left';
@@ -161,6 +160,13 @@ export function createResearch(ctx) {
         g.fillStyle = '#27414c'; g.fillRect(X0, yy + 11, W0, 7); g.fillStyle = hot; g.fillRect(X0, yy + 11, W0 * frac, 7); yy += 38; } else yy += 28;
     }
     if (!env.length) { g.fillStyle = PAL.discard; g.font = `500 18px ${FONT}`; wrap(g, I18N.text('office.research.noEnv', {}, lang()), X0, 272, W0, 22, 3); }
+    // the final evaluation: the search's number against the one the sealed final evaluator gave
+    g.fillStyle = '#16303a'; g.fillRect(X0 - 8, 394, W0 + 16, 24);
+    g.fillStyle = PAL.amber; g.font = `800 20px ${FONT}`; g.fillText(I18N.text('office.research.final', {}, lang()), X0, 407);
+    g.fillStyle = PAL.white; g.font = `700 18px ${FONT}`;
+    const f = d.final, delta = f && f.metric != null ? f.metric - f.search_metric : 0;
+    wrap(g, f && f.metric != null ? I18N.text('office.research.finalLine', {search: num(f.search_metric), final: num(f.metric), delta: (delta >= 0 ? '+' : '') + num(delta)}, lang())
+      : d.contract.final ? I18N.text('office.research.finalWait', {}, lang()) : I18N.text('office.research.finalNone', {}, lang()), X0, 434, W0, 22, 2);
     // the foot: contract changes after the baseline
     g.fillStyle = '#16303a'; g.fillRect(6, lh - 62, lw - 12, 56);
     g.fillStyle = PAL.amber; g.font = `800 20px ${FONT}`; g.fillText(I18N.text('office.research.amends', {}, lang()), 20, lh - 44);
@@ -331,6 +337,7 @@ export function createResearch(ctx) {
   const seen = new Map();                                                                  // verdict -> when it first showed (a new one is stamped in, once)
   let seenAll = false;                                                                     // the first drawing shows what was already there without stamping
   const OUT = {pass: PAL.keep, answer_ready: PAL.keep, fail: PAL.crash, search_more: PAL.warn};
+  const SEC = {'Result': 'result', 'What changed': 'changed', 'Evidence': 'evidence', 'What did not work': 'failed', 'Limits': 'limits', 'Disclosure': 'disclosure'};
   function drawVerdicts(p, d) {
     const {g, lw, lh} = p;
     g.fillStyle = PAL.ink; g.fillRect(0, 0, lw, lh); g.strokeStyle = PAL.cyan; g.lineWidth = 3; g.strokeRect(2, 2, lw - 4, lh - 4);
@@ -338,34 +345,44 @@ export function createResearch(ctx) {
     g.fillStyle = PAL.cyan; g.font = `800 28px ${FONT}`; g.fillText(I18N.text('office.research.verdicts', {}, lang()), 20, 30);
     if (!d) return;
     const last = new Map(); for (const v of d.verdicts) last.set(v.phase, v);                // the latest verdict of each phase
-    const rows = [...last.values()].sort((a, b) => a.phase - b.phase).slice(-4), now = performance.now();
+    const rows = [...last.values()].sort((a, b) => a.phase - b.phase).slice(-3), now = performance.now();
     p.animating = false;
     rows.forEach((v, k) => {
-      const y = 62 + k * 64, id = `${v.phase}:${v.outcome}:${v.ts}`; if (!seen.has(id)) seen.set(id, seenAll ? now : -1e9);
+      const y = 58 + k * 58, id = `${v.phase}:${v.outcome}:${v.ts}`; if (!seen.has(id)) seen.set(id, seenAll ? now : -1e9);
       const age = (now - seen.get(id)) / 1000, e = age >= 0.5 ? 1 : 1 - Math.pow(1 - age / 0.5, 3);   // ease out: 1.8 times too big and faint, then home
       if (age < 0.5) p.animating = true;
       const phaseName = I18N.text('kernel.phase.' + PHASES[v.phase], {}, lang());
       g.fillStyle = PAL.steel; g.font = `700 18px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.vPhase', {n: v.phase, name: phaseName}, lang()), 250), 18, y + 14);
-      g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(fit(g, (v.of ? `${num(v.score)}/${v.of} · ` : '') + v.by, 250), 18, y + 40);
+      g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(fit(g, (v.of ? `${num(v.score)}/${v.of} · ` : '') + v.by, 250), 18, y + 38);
       const col = OUT[v.outcome] || PAL.discard, label = I18N.text('office.research.out.' + v.outcome, {}, lang()).toUpperCase();
-      g.save(); g.translate(430, y + 26); g.rotate(-0.06); const s = 1.8 - 0.8 * e; g.scale(s, s); g.globalAlpha = 0.25 + 0.75 * e;
+      g.save(); g.translate(430, y + 24); g.rotate(-0.06); const s = 1.8 - 0.8 * e; g.scale(s, s); g.globalAlpha = 0.25 + 0.75 * e;
       g.font = `800 24px ${FONT}`; const w = Math.min(250, g.measureText(label).width + 36);
       g.strokeStyle = col; g.lineWidth = 5; g.beginPath(); g.roundRect(-w / 2, -24, w, 48, 8); g.stroke(); g.fillStyle = col; g.textAlign = 'center'; g.fillText(label, 0, 2); g.textAlign = 'left';
       g.restore(); g.globalAlpha = 1;
-      g.strokeStyle = '#1f333c'; g.lineWidth = 1; g.beginPath(); g.moveTo(14, y + 58); g.lineTo(lw - 14, y + 58); g.stroke();
+      g.strokeStyle = '#1f333c'; g.lineWidth = 1; g.beginPath(); g.moveTo(14, y + 54); g.lineTo(lw - 14, y + 54); g.stroke();
     });
     if (!rows.length) { g.fillStyle = PAL.discard; g.font = `500 20px ${FONT}`; g.fillText(I18N.text('office.research.vNone', {}, lang()), 18, 90); }
     seenAll = true;
+    // the report's gate: which sections are written
+    g.fillStyle = '#16303a'; g.fillRect(6, 236, lw - 12, 30);
+    g.fillStyle = PAL.cyan; g.font = `800 18px ${FONT}`; g.fillText(I18N.text('office.research.report', {}, lang()), 18, 251);
+    if (!d.report.exists) { g.fillStyle = PAL.warn; g.font = `500 16px ${FONT}`; g.textAlign = 'right'; g.fillText(I18N.text('office.research.reportNone', {}, lang()), lw - 16, 251); g.textAlign = 'left'; }
+    d.report.sections.forEach((s, i) => {
+      const x = 18 + (i % 2) * 272, y = 292 + Math.floor(i / 2) * 32;
+      g.strokeStyle = s.ok ? PAL.keep : PAL.discard; g.lineWidth = 3; g.strokeRect(x, y - 11, 22, 22);
+      if (s.ok) { g.beginPath(); g.moveTo(x + 4, y); g.lineTo(x + 10, y + 7); g.lineTo(x + 19, y - 8); g.stroke(); }
+      g.fillStyle = s.ok ? PAL.white : PAL.discard; g.font = `600 18px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.sec.' + (SEC[s.name] || 'result'), {}, lang()), 224), x + 32, y);
+    });
     // the chain: what was revoked, and what rested on it
-    g.fillStyle = '#16303a'; g.fillRect(6, 330, lw - 12, 30);
-    g.fillStyle = PAL.crash; g.font = `800 18px ${FONT}`; g.fillText(I18N.text('office.research.revs', {}, lang()), 18, 345);
+    g.fillStyle = '#16303a'; g.fillRect(6, 372, lw - 12, 30);
+    g.fillStyle = PAL.crash; g.font = `800 18px ${FONT}`; g.fillText(I18N.text('office.research.revs', {}, lang()), 18, 387);
     const gone = new Set(d.attempts.filter(a => a.state === 'revoked').map(a => a.n));
     const kids = n => [...d.attempts.filter(a => gone.has(a.n) && a.parent_n === n).flatMap(a => [`att-${a.n}`, ...kids(a.n)]), ...d.evidence.filter(e => e.state === 'revoked' && e.source.includes('att-' + n)).map(e => e.id)];
     const roots = d.attempts.filter(a => gone.has(a.n) && !gone.has(a.parent_n)).slice(0, 2);
-    let yy = 392;
+    let yy = 426;
     g.font = `700 18px ${FONT}`;
     for (const r of roots) {
-      let x = 18; const chain = [`att-${r.n}`, ...kids(r.n)].slice(0, 12);
+      let x = 18; const chain = [...new Set([`att-${r.n}`, ...kids(r.n)])].slice(0, 12);       // an evidence that rested on two of them shows once
       chain.forEach((label, i) => {
         const w = g.measureText(label).width + 20; if (x + w > lw - 14) { x = 18; yy += 38; }
         if (i) { g.strokeStyle = PAL.crash; g.lineWidth = 3; g.beginPath(); g.moveTo(x - 12, yy); g.lineTo(x, yy); g.stroke(); }   // a link of the chain
@@ -374,37 +391,11 @@ export function createResearch(ctx) {
       });
       g.fillStyle = PAL.discard; g.font = `500 16px ${FONT}`; g.fillText(fit(g, r.revoked_why || r.desc, lw - 36), 18, yy + 30); g.font = `700 18px ${FONT}`; yy += 74;
     }
-    if (!roots.length) { g.fillStyle = PAL.discard; g.font = `500 18px ${FONT}`; g.fillText(I18N.text('office.research.revNone', {}, lang()), 18, 392); }
+    if (!roots.length) { g.fillStyle = PAL.discard; g.font = `500 18px ${FONT}`; g.fillText(I18N.text('office.research.revNone', {}, lang()), 18, 426); }
   }
   panel('verdicts', AT.verdicts, 300, drawVerdicts);
 
-  // ------------------------------------------------------------------ the end of the strip: the report's gate and the final evaluation, with a trophy
-  const SEC = {'Result': 'result', 'What changed': 'changed', 'Evidence': 'evidence', 'What did not work': 'failed', 'Limits': 'limits', 'Disclosure': 'disclosure'};
-  function drawReport(p, d) {
-    const {g, lw, lh} = p;
-    g.fillStyle = PAL.ink; g.fillRect(0, 0, lw, lh); g.strokeStyle = PAL.cyan; g.lineWidth = 3; g.strokeRect(2, 2, lw - 4, lh - 4);
-    g.textBaseline = 'middle'; g.fillStyle = '#16303a'; g.fillRect(6, 6, lw - 12, 40);
-    g.fillStyle = PAL.cyan; g.font = `800 24px ${FONT}`; g.fillText(I18N.text('office.research.report', {}, lang()), 18, 27);
-    if (!d) return;
-    if (!d.report.exists) { g.fillStyle = PAL.warn; g.font = `500 18px ${FONT}`; g.textAlign = 'right'; g.fillText(I18N.text('office.research.reportNone', {}, lang()), lw - 16, 27); g.textAlign = 'left'; }
-    d.report.sections.forEach((s, i) => {
-      const x = 18 + (i % 2) * 214, y = 78 + Math.floor(i / 2) * 44;
-      g.strokeStyle = s.ok ? PAL.keep : PAL.discard; g.lineWidth = 3; g.strokeRect(x, y - 14, 26, 26);
-      if (s.ok) { g.beginPath(); g.moveTo(x + 5, y); g.lineTo(x + 12, y + 8); g.lineTo(x + 22, y - 9); g.stroke(); }
-      g.fillStyle = s.ok ? PAL.white : PAL.discard; g.font = `600 19px ${FONT}`; g.fillText(fit(g, I18N.text('office.research.sec.' + (SEC[s.name] || 'result'), {}, lang()), 168), x + 36, y);
-    });
-    g.fillStyle = '#16303a'; g.fillRect(6, 214, lw - 12, 34);
-    g.fillStyle = PAL.amber; g.font = `800 20px ${FONT}`; g.fillText(I18N.text('office.research.final', {}, lang()), 18, 231);
-    g.fillStyle = PAL.white; g.font = `700 20px ${FONT}`;
-    const f = d.final;
-    g.fillText(fit(g, f && f.metric != null ? I18N.text('office.research.finalLine', {search: num(f.search_metric), final: num(f.metric), delta: (f.metric - f.search_metric >= 0 ? '+' : '') + num(f.metric - f.search_metric)}, lang())
-      : d.contract.final ? I18N.text('office.research.finalWait', {}, lang()) : I18N.text('office.research.finalNone', {}, lang()), lw - 36), 18, 272);
-  }
-  const reportPanel = panel('report', AT.report, 300, drawReport);
-  {
-    const ped = V.mesh(new V.Vox().box(0, 0, 0, 14, 5, 5, '#aeb8c2').box(1, 6, 1, 13, 6, 4, '#6c7680'), {pivot: [7, 0, 2], scale: 0.1, jitter: 0.02});
-    ped.position.set(AT.report.x, 0, AT.report.z - 0.12); root.add(ped);                      // the lectern's body under the tilted screen
-  }
+  // ------------------------------------------------------------------ the end of the strip: the trophy of the final evaluation (its number on a plaque)
   const trophy = new THREE.Group(); trophy.position.set(AT.trophy.x, 0, AT.trophy.z); trophy.visible = true; root.add(trophy);
   {
     trophy.add(V.mesh(new V.Vox().box(0, 0, 0, 5, 7, 5, '#e8edf0').box(0, 7, 0, 5, 7, 5, '#aeb8c2'), {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}));           // the plinth, 0.8 m
@@ -413,6 +404,14 @@ export function createResearch(ctx) {
     cup.box(-1, 5, 2, -1, 6, 3, '#ffca28').box(6, 5, 2, 6, 6, 3, '#ffca28');
     trophy.cup = V.mesh(cup, {pivot: [3, 0, 3], scale: 0.1, jitter: 0.02}); trophy.cup.position.y = 0.85; trophy.add(trophy.cup);
   }
+  function drawPlaque(p, d) {
+    const {g, lw, lh} = p;
+    g.fillStyle = '#3a2f0f'; g.fillRect(0, 0, lw, lh); g.strokeStyle = '#ffca28'; g.lineWidth = 4; g.strokeRect(3, 3, lw - 6, lh - 6);
+    if (!d || !d.final || d.final.metric == null) return;
+    g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillStyle = '#ffd54f'; g.font = `800 26px ${FONT}`;
+    g.fillText(fit(g, `${d.tag} · ${num(d.final.metric)}`, lw - 20), lw / 2, lh / 2 + 1); g.textAlign = 'left';
+  }
+  const plaque = panel('plaque', {x: AT.trophy.x, y: 0.42, z: AT.trophy.z + 0.312, w: 0.5, h: 0.2}, 400, drawPlaque);
 
   // ------------------------------------------------------------------ the data
   function feed(d) {
@@ -447,7 +446,7 @@ export function createResearch(ctx) {
     const busy = !!(data.lamps.lock && data.lamps.lock.alive);
     tower.run.material.color.set(busy ? PAL.run : '#16303a'); if (busy) tower.run.material.color.multiplyScalar(0.7 + 0.3 * Math.sin(t * 5));
     setPaper(data.ideas.filter(i => refuted(data, i)).length);
-    trophy.cup.visible = !!(data.final && data.final.metric != null);
+    trophy.cup.visible = plaque.mesh.visible = plaque.frame.visible = !!(data.final && data.final.metric != null);
     if (panels.verdicts.animating) panels.verdicts.dirty = true;                       // a new stamp comes in over half a second
     const p = panels.results;
     if (p.next && !disposed) {
