@@ -2529,6 +2529,26 @@ def research_json(room):
     except OSError:
         title = ''
     pend = st.get('pending')
+    # what keeps the next phase shut: the end of a kernel._phase_next.* catalog key, which the page translates; '' = open
+    auditor, held = bool((c.get('roles') or {}).get('AUDITOR')), lambda phase, outcome: research._verdict_holds(room, st, phase, outcome)
+    unwritten = [s['name'] for s in report['sections'] if not s['ok']]
+    p, why, args = st['phase'], '', {}
+    if p == 1:
+        why = 'phase_ends_with_research'
+    elif p == 2:
+        why = ('there_is_no_kept' if st['best'] is None else '' if (held(2, 'answer_ready') or not auditor or st['evals'] >= c['max_evals']) else 'the_auditor_has_not')
+    elif p == 3:
+        why = ('no_ablation_baseline_or' if not any(a['kind'] in research.AUX_KINDS and a['status'] != 'crash' for a in st['attempts'])
+               else 'the_auditor_has_not2' if auditor and not held(3, 'pass') else '')
+    elif p == 4:
+        why = 'run_the_final_evaluator' if c.get('final') and not st.get('final') else ''
+    elif p == 5:
+        why = ('write_room_research_report' if text is None else 'the_report_still_has' if unwritten
+               else 'the_auditor_has_not3' if auditor and not held(5, 'pass') else '')
+        args = {'len_set': len(unwritten), 'sorted': unwritten[0] if unwritten else ''}
+    elif p >= 6:
+        why = 'the_research_is_closed'
+    gate = {'open': not why, 'why': why, 'args': args}
     return {
         'enabled': True, 'now': time.time(), 'tag': c['tag'], 'title': cut(title, 120), 'phase': st['phase'], 'degraded': bool(st.get('degraded')),
         'contract': {'program': c['program'], 'metric': c['metric'], 'direction': c['direction'], 'budget_s': c['budget_s'],
@@ -2549,7 +2569,7 @@ def research_json(room):
                       'score': sum(v.get('scores', {}).values()), 'of': 3 * len(v.get('scores', {}))} for v in st['verdicts']],
         'amends': st.get('amends', []), 'final': st.get('final'),
         'lamps': {'gpu': {k: hold.get(k) for k in ('by', 'reason', 'until', 'pid')} if hold else None, 'lock': lock},
-        'report': report, 'log': log}
+        'report': report, 'gate': gate, 'log': log}
 
 
 def cmd_research(room, a):
