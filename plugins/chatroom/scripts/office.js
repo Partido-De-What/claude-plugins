@@ -9,7 +9,7 @@ import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as V from './office-voxel.js';
-import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, findWorkstation, LEAD3_ITEMS} from './office-layout.js';
+import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, findWorkstation, LEAD3_ITEMS, idleSpots} from './office-layout.js';
 import {createEditor} from './office-edit.js';
 import {createTV, createRadio, createLofi, createMixer, mixLevel} from './office-tv.js';
 import {createArcade, ARCADE_AT} from './office-arcade.js';
@@ -1101,6 +1101,30 @@ function sendVisit(p, spot, secs, act, look = null) {
   if (!p || !spot || (p.visit && p.visit.until > D.now) || [...people.values()].filter(q => q.visit && q.visit.until > D.now).length >= VISIT_MAX) return;
   p.visit = {spot, until: D.now + secs, act, look};
 }
+// life in idle (experimental, the switch in the 🛋 panel, off unless turned on): the server decides where each idle agent
+// spends its break (the same for every viewer, and the agent can choose with `go`); the office only walks the figures
+// there. The list of places comes from this office's own furniture and is sent to the server once, so both agree on ids.
+let IDLE = {on: false, places: {}}, idleList = null, idleSent = null, idleSentAt = 0;
+const idleOn = () => { try { return !VISIT && !!(commonState ? commonState.idle_life : settingsJson?.idle_life); } catch (e) { return false; } };   // commonState is declared further down
+function idleHere() {
+  if (idleList) return idleList;
+  const list = idleSpots(LAYOUT, PLACED, FLOOR), all = [...SEATS, ...STANDS];
+  list.byId = new Map(list.spots.map(s => [s.id, all.find(v => Math.hypot(v.pos.x - s.x, v.pos.z - s.z) < 0.06)]).filter(([, v]) => v));
+  post('idle_spots', {size: list.size, zones: list.zones, spots: list.spots, grid: list.grid});
+  return idleList = list;
+}
+async function pollIdle() {
+  if (!idleOn()) { IDLE = {on: false, places: {}}; return; }
+  idleHere();
+  try { const r = await fetch('idle.json', {cache: 'no-store'}); if (r.ok) IDLE = await r.json(); } catch (e) {}
+}
+setInterval(pollIdle, 10000);
+setInterval(() => {                                                         // where the user is, for the agents' `look`: when it moves, at most every 5 s
+  if (!idleOn() || !boss) return;
+  const at = {x: +boss.pos.x.toFixed(1), z: +boss.pos.z.toFixed(1)};
+  if (idleSent && Math.hypot(at.x - idleSent.x, at.z - idleSent.z) < 0.5 && Date.now() - idleSentAt < 60000) return;
+  idleSent = at; idleSentAt = Date.now(); post('idle_me', at);
+}, 5000);
 function breakSpot(p, desk, list, now) {
   if (p.breakAt && now < p.breakUntil && p.breakAt !== boss?.spot) return p.breakAt;
   const span = 40 + hash32(p.name + '/span') % 90, wall = Date.now() / 1000 + hash32(p.name + '/phase') % span, slot = Math.floor(wall / span);
@@ -1144,6 +1168,9 @@ function sync() {
     if (D.closed && !d.neighbor && now - (D.closed.ts || 0) < 90) { want = MEET_[meetIdx++ % MEET_.length]; act = now - (D.closed.ts || 0) < 8 ? 'celebrate' : 'meet'; }
     else if (a?.waiting) { want = spot.stand; act = 'raise'; }
     else if (p.visit && now < p.visit.until) { want = p.visit.spot; act = p.visit.act; if (p.visit.look) p.look = p.visit.look.head(); }          // a visit: to the whiteboard or to a colleague's desk
+    else if (d.idle && (!c || c === 'chat') && IDLE.on && idleList?.byId.get(IDLE.places?.[name])) {   // life in idle: the place the server chose
+      want = idleList.byId.get(IDLE.places[name]); act = want.pose === 'stand' ? 'coffee' : 'idle';
+    }
     else if (d.idle && (!c || c === 'chat')) {                              // a break, somewhere chosen at random
       want = breakSpot(p, spot, room.lets(name) ? COMMON_ : COFFEE_, now);
       act = want === spot.seat ? 'idle' : want.act || 'coffee';

@@ -483,3 +483,33 @@ export function floorPlan(layout, placed, {body = 0.2, cell = 0.25} = {}) {
     dropBoxes(list) { boxes = boxes.filter(b => !list.includes(b)); all = extra.length ? [...boxes, ...extra] : boxes; grid = null; },
   };
 }
+
+// ------------------------------------------------------------------ the places for a break: one list for the server (chat.py) and the office
+export const IDLE_GRID = [24, 14];
+/** the places an idle agent may take (sitting or standing in the café and the lounge, `coffee`; the common room,
+ *  `common`), with ids 1, 2, ... in the layout's order, the zone each is in, and a 24x14 map of the zones (a letter per
+ *  zone, lower case). Games and work seats are left out; with `floor` (floorPlan) the places nobody can walk to from the
+ *  plaza are left out too. chat.py reads the same list (tools/idle_spots.mjs writes it), so both agree on every id. */
+export function idleSpots(layout, placed, floor = null, from = {x: -1, z: 3}) {
+  const rooms = (layout.rooms || []).filter(r => !r.shared), zones = [];
+  for (const r of rooms) {
+    const letters = [...`${r.en}${r.it}ABCDEFGHIJKLMNOPQRSTUVWXYZ`.toUpperCase()].filter(ch => ch >= 'A' && ch <= 'Z');
+    zones.push({key: letters.find(ch => !zones.some(z => z.key === ch)), it: r.it, en: r.en, r});
+  }
+  const zoneAt = (x, z) => zones.find(({r}) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1)?.key || '';
+  const near = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) < 0.05;
+  const raw = [...placed.seats.filter(s => s.tag === 'coffee' || s.tag === 'common').map(s => ({...s, pose: s.pose || 'sit'})),
+               ...placed.spots.filter(s => s.tag === 'coffee').map(s => ({...s, pose: 'stand'}))];
+  const spots = [];
+  for (const s of raw) {
+    if (spots.some(o => near(o, s)) || (floor && floor.shutOff(from, [s]))) continue;
+    spots.push({id: spots.length + 1, x: +s.x.toFixed(2), z: +s.z.toFixed(2), rot: +(s.rot || 0).toFixed(3), pose: s.pose, tag: s.tag, zone: zoneAt(s.x, s.z)});
+  }
+  const [sx, sz] = layout.size, [W, H] = IDLE_GRID, grid = [];
+  for (let row = 0; row < H; row++) {
+    let line = '';
+    for (let col = 0; col < W; col++) line += (zoneAt(-sx / 2 + (col + 0.5) * sx / W, -sz / 2 + (row + 0.5) * sz / H) || '.').toLowerCase();
+    grid.push(line);
+  }
+  return {size: layout.size, zones: zones.map(({key, it, en}) => ({key, it, en})), spots, grid};
+}

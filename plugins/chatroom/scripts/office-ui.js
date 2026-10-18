@@ -499,6 +499,7 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
                                                       effort: cp.querySelector('[data-ae]').value, minutes: +cp.querySelector('[data-amin]').value});
         else if (b.dataset.s === 'start') onShare('start', {via: cp.querySelector('[data-s="via"]').value});
         else if (b.dataset.s === 'lendmode') onShare('lend_mode', {mode: b.dataset.mode});
+        else if (b.dataset.s === 'idlelife') onShare('idle_life', {on: !!b.dataset.on});
         else if (b.dataset.s === 'friendschat') onShare('friends_chat', {on: !!b.dataset.on});
         else if (b.dataset.s) onShare(b.dataset.s, {name: b.dataset.name});
         else if (b.dataset.copy) navigator.clipboard?.writeText(b.dataset.copy);
@@ -562,6 +563,7 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
         const full = s.lend_mode !== 'safe';
         if (sh.sharing) html += `<div class="o-meta">💬 ${esc(s.friends_chat ? L.roomChatOn : L.roomChatOff)} <button data-s="friendschat" data-on="${s.friends_chat ? '' : '1'}">${esc(L.lendSwitch)}</button></div>`;
         html += `<div class="o-meta">🤝 ${esc(full ? L.lendFull : L.lendSafe)} <button data-s="lendmode" data-mode="${full ? 'safe' : 'full'}">${esc(L.lendSwitch)}</button></div>`;
+        html += `<div class="o-meta">🧭 ${esc(s.idle_life ? L.idleLifeOn : L.idleLifeOff)} <button data-s="idlelife" data-on="${s.idle_life ? '' : '1'}">${esc(L.lendSwitch)}</button></div>`;
       }
       const au = s.lend_auto || {on: false, model: 'sonnet', effort: 'medium', minutes: 30}, opt = (list, v) => list.map(x => `<option${String(x) === String(v) ? ' selected' : ''}>${x}</option>`).join('');
       html += `<div class="o-meta o-auto">⚡ ${esc(L.autoLend)} <button data-s="autotoggle" data-on="${au.on ? 0 : 1}">${esc(au.on ? L.autoOn : L.autoOff)}</button>

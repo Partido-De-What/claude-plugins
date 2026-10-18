@@ -74,6 +74,7 @@ from github_data import GitHub
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from i18n import LANGS, lang_of, say, tr, use  # noqa: E402
+import idle_life  # noqa: E402
 TV_DIR = Path.home() / '.claude' / 'chatroom' / 'tv'                    # the lounge TV: <channel>/*.mp4|webm, youtube.json
 TV_YOUTUBE = {'YouTube · Minecraft parkour': ['0c4KWfPhgWA'], 'YouTube · Subway Surfers': ['L_fcrOyoWZ8']}
 SETTINGS_FILE = Path.home() / '.claude' / 'chatroom' / 'settings.json'   # the user's lasting choices, for every room
@@ -1087,6 +1088,8 @@ def cmd_post(room, a, text=None):
         print(say('chat.say.unread_for_you', ns=', '.join(f'#{x}' for x in missed[:8]), name=a.name))
     if kind == IDLE:
         print(say('chat.say.cmd_post.you_are_now_idle', name=a.name, IDLE_WAIT_MAX=IDLE_WAIT_MAX))
+        if idle_life.is_on(room, settings()):         # life in idle: say once how to see the office and choose a place
+            print(say('idle.hint', name=a.name))
         return
     if was_idle:
         print(say('chat.say.cmd_post.you_are_no_longer'))
@@ -1955,6 +1958,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                     first, _, last = str(args['range']).partition('-')
                     room.read_range(int(first.strip().lstrip('#')), int((last or first).strip().lstrip('#')))
                 else:
+                    idle_note(room, name)
                     room.read(name, args.get('focus', True))
             elif tool == 'chat_post':
                 ns.status, ns.idle, ns.finding, ns.reply = bool(args.get('status')), bool(args.get('idle')), bool(args.get('finding')), args.get('reply')
@@ -1967,6 +1971,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 if wait_cap and timeout > wait_cap:
                     timeout = wait_cap                # under the client's own limit: the answer always arrives
                 room.wait(name, timeout, bool(args.get('focus', True)), cancel)
+                idle_note(room, name)
             elif tool == 'board':
                 cmd_board(room, ns)
             elif tool == 'task':
@@ -2288,7 +2293,7 @@ def settings():
         s = {}
     from share import clean_avatar
     return {'lend_mode': 'safe' if s.get('lend_mode') == 'safe' else 'full', 'avatar': clean_avatar(s.get('avatar')),
-            'lend_auto': clean_lend_auto(s.get('lend_auto'))}
+            'lend_auto': clean_lend_auto(s.get('lend_auto')), 'idle_life': s.get('idle_life') is True}
 
 
 EFFORTS = ('minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
@@ -2305,6 +2310,11 @@ def clean_lend_auto(d):
     effort = str(d.get('effort', '')).strip().lower()
     return {'on': d.get('on') is True, 'model': re.sub(r'[^A-Za-z0-9.-]', '', str(d.get('model') or 'sonnet'))[:24] or 'sonnet',
             'effort': effort if effort in EFFORTS else 'medium', 'minutes': max(5, min(120, minutes))}
+
+
+def idle_switch():
+    """life in idle: the user's switch (off unless turned on)"""
+    return settings()['idle_life']
 
 
 def save_settings(**changes):
@@ -3285,6 +3295,11 @@ def cmd_serve(room, a):
                 body = {'checks': [{'key': k, 'text': t} for k, t in failures(room)],
                         'calls': {n: {'used': sum(v.values()), 'budget': budget} for n, v in room.counters().items()}}
                 return self.send(200, json.dumps(body, ensure_ascii=False), 'application/json; charset=utf-8')
+            if path == '/idle.json':                  # life in idle: where each idle agent is (the office walks the figures there)
+                on = idle_life.is_on(room, settings())
+                here = idle_life.places(room) if on else {}
+                return self.send(200, json.dumps({'on': on, 'places': {n: s['id'] for n, s in here.items()},
+                                                  'until': (int(time.time() // idle_life.SLOT) + 1) * idle_life.SLOT}), 'application/json')
             if path == '/research.json':              # the research of this room (read only; the viewer and the laboratory poll it every 2-3 s)
                 return self.send(200, json.dumps(research_json(room), ensure_ascii=False), 'application/json; charset=utf-8')
             if path.startswith('/arcade/'):           # the free games of the cabinet: their list, and each game of that list (no other file)
@@ -3426,7 +3441,7 @@ def cmd_serve(room, a):
                 lines = common.messages()
                 body = {'messages': lines[-40:], 'games': [m for m in lines if m.get('game')][-300:], 'scores': sharing.scoreboard(lines), 'me': me()['name'], 'share': host.status(),
                         'codex': ping_tool(room.roster()) == 'send_message', 'friends_chat': bool(room.config().get('friends_chat')),
-                        'room_chat': bool(guest['bridge'] and guest['bridge'].room_ok), 'lend_mode': settings()['lend_mode'], 'lend_auto': settings()['lend_auto'],
+                        'room_chat': bool(guest['bridge'] and guest['bridge'].room_ok), 'lend_mode': settings()['lend_mode'], 'lend_auto': settings()['lend_auto'], 'idle_life': settings()['idle_life'],
                         'bridge': b.status() if b else None, 'cloudflared': bool(sharing.cloudflared_cached()),
                         'installing': install['busy'], 'install_error': install['error'],
                         'people': (b.people if b else host.people()) if (b or host.pin) else []}
@@ -3545,12 +3560,26 @@ def cmd_serve(room, a):
                         room.edit_config(lambda c: c.update(friends_chat=bool(body.get('on'))))
                     elif act == 'lend_mode':
                         save_settings(lend_mode='safe' if body.get('mode') == 'safe' else 'full')
+                    elif act == 'idle_life':           # life in idle (experimental): off unless the user turns it on
+                        save_settings(idle_life=bool(body.get('on')))
                     elif act == 'install' and not install['busy']:
                         install['busy'], install['error'] = True, None
                         threading.Thread(target=install_cloudflared, daemon=True).start()
                 except ValueError as exc:
                     return self.send(400, str(exc), 'text/plain')
                 return self.send(200, json.dumps(host.status()), 'application/json')
+            if path in ('/idle_me', '/idle_spots'):  # life in idle: the user's position; the places of the user's own office
+                if not idle_switch():              # (do_POST has a local named settings: the module function by another name)
+                    return self.send(409, 'idle life is off', 'text/plain')
+                try:
+                    if path == '/idle_me':
+                        idle_life.save_user(room, body)
+                    else:
+                        idle_life.USER_SPOTS.parent.mkdir(parents=True, exist_ok=True)
+                        idle_life.USER_SPOTS.write_text(json.dumps(idle_life.clean_spots(body)), encoding='utf-8')
+                except (ValueError, TypeError, KeyError) as exc:
+                    return self.send(400, str(exc), 'text/plain')
+                return self.send(200, '{}', 'application/json')
             if path == '/settings':                # the viewer saves the figure's look
                 save_settings(avatar=sharing.clean_avatar(body.get('avatar')))
                 return self.send(200, '{}', 'application/json')
@@ -3676,7 +3705,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
-                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire'])
+                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -3770,6 +3799,7 @@ def main():
     p.add_argument('--finding', action='store_true', help='post: a finding the others should know now (no ping, no percentage); read --focus always shows it')
     p.add_argument('--reply', type=int, help='post: answer message #N; its author is tagged and gets the ping')
     p.add_argument('--range', help='read: messages A-B in full (your place in the chat does not move)')
+    p.add_argument('--map', action='store_true', help='look: also the map of the office (zones, free places, people)')
     p.add_argument('--focus', action='store_true', help='read, wait: in full only what concerns you, the rest as a one-line digest per author')
     p.add_argument('--port', type=int, default=8765)
     p.add_argument('--repo', default='', help='serve: the project folder the GitHub window on the office wall reads (gh and git run there); or "repo" in the room config')
@@ -3819,12 +3849,30 @@ def main():
         return room.read_range(first, last)
     if not a.name:
         sys.exit(say('chat.err.main.as_name_required'))
+    if a.command in ('look', 'go'):                       # life in idle (experimental): only when the user turned it on
+        if not idle_life.is_on(room, settings()):
+            sys.exit(say('idle.off'))
+        try:
+            print(idle_life.look(room, a.name, a.map) if a.command == 'look' else idle_life.go(room, a.name, ' '.join(a.pairs)))
+        except ValueError as exc:
+            sys.exit(f'error: {exc}')
+        return
     room.count(a.name, a.command)
     if a.command == 'post':
         return cmd_post(room, a)
     if a.command == 'read':
+        idle_note(room, a.name)
         return room.read(a.name, a.focus)
-    return room.wait(a.name, a.timeout, a.focus)         # wait caps the timeout: 110 s, or 540 s while idle
+    room.wait(a.name, a.timeout, a.focus)                # wait caps the timeout: 110 s, or 540 s while idle
+    idle_note(room, a.name)
+
+
+def idle_note(room, name):
+    """life in idle: the diary of a long break, once, when the agent reads or comes back from a wait"""
+    if idle_life.is_on(room, settings()):
+        line = idle_life.diary(room, name)
+        if line:
+            print(line)
 
 
 if __name__ == '__main__':

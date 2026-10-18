@@ -1,0 +1,442 @@
+{
+ "size": [
+  30,
+  20
+ ],
+ "zones": [
+  {
+   "key": "B",
+   "it": "Ufficio del boss",
+   "en": "Boss's office"
+  },
+  {
+   "key": "P",
+   "it": "Cabine telefoniche",
+   "en": "Phone booths"
+  },
+  {
+   "key": "M",
+   "it": "Sala riunioni",
+   "en": "Meeting room"
+  },
+  {
+   "key": "C",
+   "it": "Sala comune",
+   "en": "Common room"
+  },
+  {
+   "key": "E",
+   "it": "Ingresso",
+   "en": "Entrance"
+  },
+  {
+   "key": "A",
+   "it": "Caffetteria",
+   "en": "Café"
+  },
+  {
+   "key": "L",
+   "it": "Lounge",
+   "en": "Lounge"
+  },
+  {
+   "key": "G",
+   "it": "Angolo giochi",
+   "en": "Games corner"
+  },
+  {
+   "key": "S",
+   "it": "Angolo servizi",
+   "en": "Service corner"
+  },
+  {
+   "key": "I",
+   "it": "Postazione dell'assistente",
+   "en": "Assistant's desk"
+  },
+  {
+   "key": "Z",
+   "it": "Piazza",
+   "en": "Plaza"
+  },
+  {
+   "key": "O",
+   "it": "Sala regia",
+   "en": "Control room"
+  },
+  {
+   "key": "N",
+   "it": "Open space",
+   "en": "Open space"
+  }
+ ],
+ "spots": [
+  {
+   "id": 1,
+   "x": 3.05,
+   "z": 9.17,
+   "rot": 3.142,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 2,
+   "x": 2.15,
+   "z": 9.17,
+   "rot": 3.142,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 3,
+   "x": 2.15,
+   "z": 6.53,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 4,
+   "x": 3.05,
+   "z": 6.53,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 5,
+   "x": 5.37,
+   "z": 6.14,
+   "rot": -0.6,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 6,
+   "x": 6.35,
+   "z": 7.31,
+   "rot": -1.4,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 7,
+   "x": 5.37,
+   "z": 8.66,
+   "rot": -2.4,
+   "pose": "sofa",
+   "tag": "common",
+   "zone": "C"
+  },
+  {
+   "id": 8,
+   "x": -5.2,
+   "z": 9.2,
+   "rot": 1.571,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "E"
+  },
+  {
+   "id": 9,
+   "x": -0.8,
+   "z": 9.2,
+   "rot": -1.571,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "E"
+  },
+  {
+   "id": 10,
+   "x": -10.5,
+   "z": 3.9,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 11,
+   "x": -10.5,
+   "z": 4.75,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 12,
+   "x": -10.5,
+   "z": 5.6,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 13,
+   "x": -10.5,
+   "z": 6.45,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 14,
+   "x": -7.6,
+   "z": 1.88,
+   "rot": 0,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 15,
+   "x": -7.6,
+   "z": 3.32,
+   "rot": 3.142,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 16,
+   "x": -8.32,
+   "z": 2.6,
+   "rot": 1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 17,
+   "x": -6.88,
+   "z": 2.6,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 18,
+   "x": -7.6,
+   "z": 4.68,
+   "rot": 0,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 19,
+   "x": -7.6,
+   "z": 6.12,
+   "rot": 3.142,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 20,
+   "x": -8.32,
+   "z": 5.4,
+   "rot": 1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 21,
+   "x": -6.88,
+   "z": 5.4,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 22,
+   "x": -7.6,
+   "z": 7.48,
+   "rot": 0,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 23,
+   "x": -7.6,
+   "z": 8.92,
+   "rot": 3.142,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 24,
+   "x": -8.32,
+   "z": 8.2,
+   "rot": 1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 25,
+   "x": -6.88,
+   "z": 8.2,
+   "rot": -1.571,
+   "pose": "sit",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 26,
+   "x": -14.32,
+   "z": -1.35,
+   "rot": 1.571,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 27,
+   "x": -14.32,
+   "z": -2.25,
+   "rot": 1.571,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 28,
+   "x": -10.08,
+   "z": -2.25,
+   "rot": -1.571,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 29,
+   "x": -10.08,
+   "z": -1.35,
+   "rot": -1.571,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 30,
+   "x": -12.2,
+   "z": -3.7,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 31,
+   "x": -11.4,
+   "z": -3.6,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 32,
+   "x": -10.4,
+   "z": -3.6,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 33,
+   "x": -13.95,
+   "z": -3.82,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 34,
+   "x": -13.05,
+   "z": -3.82,
+   "rot": 0,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "L"
+  },
+  {
+   "id": 35,
+   "x": -14.17,
+   "z": -5.36,
+   "rot": 0.6,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "G"
+  },
+  {
+   "id": 36,
+   "x": -12.99,
+   "z": -5.15,
+   "rot": 0.2,
+   "pose": "sofa",
+   "tag": "coffee",
+   "zone": "G"
+  },
+  {
+   "id": 37,
+   "x": -13.6,
+   "z": 3.5,
+   "rot": -1.571,
+   "pose": "stand",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 38,
+   "x": -13.6,
+   "z": 8.1,
+   "rot": -1.571,
+   "pose": "stand",
+   "tag": "coffee",
+   "zone": "A"
+  },
+  {
+   "id": 39,
+   "x": -11.6,
+   "z": 8.6,
+   "rot": 0,
+   "pose": "stand",
+   "tag": "coffee",
+   "zone": "A"
+  }
+ ],
+ "grid": [
+  "ggggggsnnnooooonnnnbbbbb",
+  "ggggggnnnnooooonnnnbbbbb",
+  "ggggggnnnnooooonnnnbbbbb",
+  "ggggggnnnnooooonnnnbbbbb",
+  "llllllnnnnnnnnnnnnniiipp",
+  "llllllnnnnnnnnnnnnniiipp",
+  "llllllnnnnnnnnnnnnnnnnpp",
+  "llllllnnnnnnnnnnnnnnnnpp",
+  "aaaaaaazzzzzzzzzzzznnnnn",
+  "aaaaaaazzzzzzzzzzzzmmmmm",
+  "aaaaaaazzzzzcccccczmmmmm",
+  "aaaaaaaeeeeeccccccnmmmmm",
+  "aaaaaaaeeeeeccccccnmmmmm",
+  "aaaaaaaeeeeeccccccnmmmmm"
+ ]
+}
