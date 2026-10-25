@@ -21,9 +21,9 @@ In B e C Headroom e RTK non restano chiusi nei ruoli spawnati: diventano parte d
 
 free-claude-code (FCC) non si installa. Il suo codice si copia e si modifica dove serve, e FCC si cita nel README in fondo.
 
-**Licenza (punto da decidere, vedi D-LIC).** FCC è AGPL-3.0-only, il plugin è MIT. Copiare codice AGPL dentro un programma MIT lo farebbe diventare AGPL. Soluzione proposta: il motore spawn è **un programma separato** dentro il repo, in `plugins/chatroom/spawn/`, con il suo file LICENSE AGPL-3.0, gli avvisi di copyright di FCC e un `NOTICE` che dice cosa è stato preso e cosa cambiato. Il resto della chatroom resta MIT e parla col motore solo via processo e HTTP locale (come già fa il viewer), quindi resta un'opera separata. Non è un parere legale: è lo schema che la licenza stessa prevede per programmi distinti.
+**Licenza (D-LIC, decisa).** FCC è AGPL-3.0-only: tutto il plugin chatroom passa da MIT ad **AGPL-3.0-only**. Il codice di FCC si può quindi usare anche dentro la chatroom, nello stesso processo. Da fare: `LICENSE` AGPL-3.0, campo `license` in `plugin.json` e `.codex-plugin/plugin.json`, `NOTICE` con i crediti (FCC, Headroom, RTK) e con l'avviso MIT originale per il codice già rilasciato (il contributo di Nick, b61b24c, resta coperto dal suo avviso MIT, compatibile). I giochi dell'arcade GPL-3.0, zlib e WTFPL sono compatibili con AGPL-3.0. Le versioni 0.x già pubblicate restano MIT.
 
-**Ambiente.** FCC richiede Python 3.14.9. Il motore gira in un ambiente suo creato con uv (cartella configurabile: per Adrian `D:\chatroom-spawn\spawn-env`, di default `~/.claude/chatroom/spawn-env`), separato dal Python della chatroom (che resta solo libreria standard). Dipendenze: openai, httpx, pydantic, tiktoken, loguru, jsonschema, headroom-ai. Python, cache di uv e binario RTK (`rtk-oss` 1.1.0) stanno in `D:\chatroom-spawn\`.
+**Ambiente (D11, deciso): tutto il plugin su Python 3.14.** Un solo ambiente per chatroom e motore spawn (per Adrian `D:\chatroom-spawn\spawn-env`, di default `~/.claude/chatroom/env`), con Headroom, tiktoken, httpx, openai, pydantic, loguru, jsonschema importati direttamente dalla chatroom. L'MCP e gli script si avviano con `uv run --python 3.14`, così chi non ha la 3.14 se la vede scaricare da uv al primo avvio invece di ricevere un errore. Versioni bloccate in `uv.lock`, provate dalla suite. Headroom si importa all'avvio della chatroom e all'inizializzazione degli agenti (fa parte del tempo di avvio iniziale). RTK: binario `rtk-oss` 1.1.0 in `D:\chatroom-spawnin`. Verificato il 26/10: la chatroom attuale compila e parte su Python 3.14.7 senza modifiche.
 
 **Cosa prendiamo da FCC** (copiato e adattato):
 
@@ -48,6 +48,7 @@ Installazione (cambia il sistema, la faccio solo col tuo ok al momento):
 - Headroom: `uv pip install "headroom-ai[proxy,code]"` dentro `spawn-env`. Senza `[ml]` all'inizio: niente modello Kompress da Hugging Face (connessione lenta); JSON e codice compressi, la prosa no. Il modello si aggiunge dopo con un tasto.
 - RTK: `winget install rtk-ai.rtk` scegliendo l'edizione `rtk-oss` (solo Apache-2.0). Niente `rtk-proxy` (licenza BUSL).
 - Telemetria: `HEADROOM_TELEMETRY=off` sempre nell'ambiente del motore; RTK è già spento di default.
+- Senza Headroom la chatroom funziona lo stesso, ma in alto compare un piccolo avviso (che l'utente chiude con una ✕) che ricorda di installarlo, con il link "qui" che avvia l'installazione (con conferma). L'avviso ricompare finché Headroom manca, una volta per sessione del viewer.
 - Controllo all'avvio dello spawn: se mancano, la card "Prepara spawn" li mostra in rosso con il tasto "Installa" (che chiede conferma). Senza di loro la modalità A non parte, come per caveman.
 
 Uso per modo:
@@ -213,7 +214,7 @@ In fondo al README del plugin: "La modalità spawn adatta codice di free-claude-
 
 | Fase | Contenuto | Peso |
 |---|---|---|
-| F0 | Ambiente `spawn-env`, Headroom, RTK, scheletro del motore AGPL separato | 5% |
+| F0 | Porting a Python 3.14 e ambiente unico, `uv run` per MCP e script, `uv.lock`, licenza AGPL, Headroom e RTK, suite su 3.14 | 5% |
 | F1 | Chiavi (PKCE, provider), card Prepara spawn | 8% |
 | F2 | Adapter da FCC, limitatore centrale, errori, stream | 20% |
 | F3 | Catalogo, identità, ping, coda benchmark | 12% |
@@ -239,7 +240,8 @@ Questa scelta di modelli vale per la stanza 0.13 (eccezione alla regola generale
 
 ## 14. Decisioni di Adrian (26/10/2026)
 
-- **D-LIC** Motore spawn come programma separato AGPL-3.0 in `plugins/chatroom/spawn/` (LICENSE AGPL, NOTICE di FCC); il resto della chatroom resta MIT e parla col motore solo via processo e HTTP locale.
+- **D-LIC** Tutto il plugin passa ad AGPL-3.0-only (sezione 2).
+- **D11** Tutto il plugin su Python 3.14, un solo ambiente, librerie dentro la chatroom, avvio con `uv run --python 3.14`, `uv.lock`, suite su 3.14 prima di installare (sezione 2).
 - **D1** Shell e file solo ai ruoli che sceglie Adrian, sempre con RTK.
 - **D2** Sì alla chiave Artificial Analysis (gratuita, 100 richieste al giorno), inserita nella prima inizializzazione come gli altri provider.
 - **D3** No allo screenshot del sito AA: solo i nostri grafici.
