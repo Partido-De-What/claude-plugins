@@ -2002,12 +2002,12 @@ def panel_models(models, only=None):
 
 def panel(room, by, question, out=None, limit=None, only=None):
     """critiques or ideas from every free text model on OpenRouter at once (the smartest first), for the auditor's final
-    review or a brainstorm; works in any room, a research contract is not needed. The key stays in the environment
-    (OPENROUTER_API_KEY), never in the room. Requests start 3.2 s apart (20 a minute on free models) and run together;
+    review or a brainstorm; works in any room, a research contract is not needed. The key comes from the environment
+    (OPENROUTER_API_KEY) or from the spawn mode's stored keys, never from the room. The requests run together, paced by
+    the spawn limiter (20 a minute on free models, Retry-After, one probe after a failure) and sent by its adapter;
     each answer is written as it arrives. A model gets at most `deadline` seconds in all: the socket timeout alone never
     ends a reply that keeps trickling in"""
     import threading
-    import urllib.error
     import urllib.request
     deadline = 1500
     try:
@@ -2016,7 +2016,11 @@ def panel(room, by, question, out=None, limit=None, only=None):
         c = None
     if c is not None:
         _need(room, c, by, 'AUDITOR', 'PROPOSER')
-    key = os.environ.get('OPENROUTER_API_KEY')
+    from spawn import keys
+    from spawn.errors import ProviderError
+    from spawn.providers import complete
+    stored = keys.load('open_router')                 # the environment variable first (load_all puts it last), then the stored key
+    key = os.environ.get('OPENROUTER_API_KEY') or (stored or {}).get('key')
     if not key:
         raise ValueError(say('kernel.panel.set_openrouter_api_key'))
     if not question or not question.strip():
@@ -2026,7 +2030,7 @@ def panel(room, by, question, out=None, limit=None, only=None):
     chosen = panel_models(json.loads(urllib.request.urlopen(req, timeout=60).read())['data'], only)[:limit]
     path = Path(out) if out else (_dir(room) if c is not None else room.dir) / f"panel-{time.strftime('%m%d-%H%M')}.md"
     path.write_text(say('kernel.panel.panel_free_models_on', strip=question.strip()), encoding='utf-8')
-    lock, answers = threading.Lock(), []
+    lock, answers, stop = threading.Lock(), [], threading.Event()
 
     def write(i, m, text):
         size = _params_b(m)
@@ -2041,39 +2045,18 @@ def panel(room, by, question, out=None, limit=None, only=None):
                 f.write(f"## {i + 1}. {m['id']}{f' ({size:g}B)' if size else ''}\n\n{text}\n\n")
 
     def ask(i, m):
-        time.sleep(3.2 * i)
         if len(question) / 3.5 > 0.9 * int(m.get('context_length') or 1 << 30):    # rough tokens: skip what cannot fit
             return write(i, m, say('kernel.panel.no_answer', __name__='ContextTooLong', str_exc=f"context {m.get('context_length')}"))
-        text, efforts = None, ['xhigh', 'high']           # the most reasoning the model takes
-        for attempt in range(5):
-            body = json.dumps({'model': m['id'], 'messages': [{'role': 'user', 'content': question}],
-                               'reasoning': {'effort': efforts[0]}}).encode()
-            r = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=body,
-                                       headers={**auth, 'Content-Type': 'application/json'})
-            try:
-                data = json.loads(urllib.request.urlopen(r, timeout=600).read())
-            except urllib.error.HTTPError as exc:
-                if exc.code == 400 and len(efforts) > 1:
-                    efforts.pop(0)
-                    continue
-                if exc.code in (429, 500, 502, 503, 504) and attempt < 4:     # busy upstream: wait and ask again
-                    time.sleep(min(120, float(exc.headers.get('Retry-After') or 60)))
-                    continue
-                text = say('kernel.panel.no_answer', __name__=f'HTTP {exc.code}', str_exc=exc.read().decode('utf-8', 'replace')[:200])
-                break
-            except Exception as exc:                      # one model failing never stops the panel
-                text = say('kernel.panel.no_answer', __name__=type(exc).__name__, str_exc=str(exc)[:200])
-                break
-            if data.get('choices'):
-                msg = data['choices'][0]['message']
-                text = (msg.get('content') or '').strip() or (msg.get('reasoning') or '').strip()
-                break
-            err = data.get('error') or {}                 # a 200 that carries the provider's error instead of a reply
-            if err.get('code') in (429, 500, 502, 503, 504) and attempt < 4:
-                time.sleep(60)
-                continue
-            text = say('kernel.panel.no_answer', __name__=f"error {err.get('code')}", str_exc=str(err.get('message') or data)[:200])
-            break
+        # the room's limiter paces the requests (20 a minute on free models, Retry-After in seconds or as a date, one probe
+        # after a failure) and the adapter drops the reasoning effort when a model refuses it
+        try:
+            got = complete('open_router', m['id'], [{'role': 'user', 'content': question}], key=key, effort='xhigh', stop=stop,
+                           max_tokens=int((m.get('top_provider') or {}).get('max_completion_tokens') or 16384))
+            text = (got['text'] or '').strip() or (got['reasoning'] or '').strip()
+        except ProviderError as exc:
+            text = say('kernel.panel.no_answer', __name__=f'{exc.kind} {exc.status or ""}'.strip(), str_exc=exc.detail[:200])
+        except Exception as exc:                          # one model failing never stops the panel
+            text = say('kernel.panel.no_answer', __name__=type(exc).__name__, str_exc=str(exc)[:200])
         write(i, m, text or say('kernel.panel.no_answer', __name__='Empty', str_exc=''))
 
     threads = [threading.Thread(target=ask, args=(i, m), daemon=True) for i, m in enumerate(chosen)]
@@ -2084,6 +2067,7 @@ def panel(room, by, question, out=None, limit=None, only=None):
         t.join(max(0.0, end - time.time()))
         if t.is_alive():                                  # still talking at the deadline: recorded as no answer
             write(i, m, say('kernel.panel.no_answer', __name__='Timeout', str_exc=f'{deadline} s'))
+    stop.set()                                        # the ones still waiting in the limiter give up
     if c is not None:
         _log(room, by, 'panel', {'models': [m['id'] for m in chosen], 'file': str(path)})
     return say('kernel.panel.panel_of_free_models', len_answers=len(answers), path=path)

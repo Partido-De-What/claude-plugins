@@ -25,7 +25,7 @@ WINDOW = 60.0
 # requests per minute, in flight at once, and whether the provider counts per model ('model') or per key ('key').
 # shortcut: published free-tier figures as of 10/2026, a 429 with Retry-After still corrects them; when a provider
 # publishes per-model limits in its model list, read them from there.
-FREE_LIMITS = {'open_router': (20, 4, 'key'), 'nvidia_nim': (40, 4, 'key'), 'groq': (30, 4, 'model'), 'gemini': (10, 2, 'model'),
+FREE_LIMITS = {'open_router': (20, 16, 'key'), 'nvidia_nim': (40, 4, 'key'), 'groq': (30, 4, 'model'), 'gemini': (10, 2, 'model'),
                'mistral': (60, 2, 'key'), 'cerebras': (30, 4, 'model'), 'sambanova': (20, 2, 'model'), 'cohere': (20, 2, 'key'),
                'cloudflare': (300, 4, 'key'), 'huggingface': (30, 2, 'key')}
 DEFAULT = (20, 2, 'key')
@@ -78,13 +78,18 @@ class Limiter:
                     return probe
                 self.cond.wait(min(max(wait, 0.01), 1.0))
 
-    def _done(self, lane, probe, error):
+    def _done(self, lane, probe, error, neutral=False):
+        """neutral: an answer that says nothing of the lane (402, 400...): it only frees the slot. A success closes the
+        episode only when it is the probe's (a request admitted before the failure proves nothing about now)"""
         with self.cond:
             lane.inflight -= 1
             if probe:
                 lane.probe = False
-            if error is None:
-                lane.failures, lane.last_error = 0, None
+            if neutral:
+                pass
+            elif error is None:
+                if probe or not lane.failures:
+                    lane.failures, lane.last_error = 0, None
             elif probe or not lane.failures:            # the first failure opens the episode, the probe's failure prolongs it
                 lane.failures += 1
                 lane.last_error = error.kind
@@ -105,7 +110,7 @@ class Limiter:
             except Exception as exc:
                 err = errors.from_exception(exc) if not isinstance(exc, errors.ProviderError) else exc
                 if err.kind != 'stream_cut' and err.kind not in errors.RETRYABLE:
-                    self._done(lane, probe, None)    # not the lane's fault: it stays open
+                    self._done(lane, probe, None, neutral=not probe)    # not the lane's fault; a probe that got an answer reopens it
                     raise err
                 self._done(lane, probe, err)
                 if err.kind == 'stream_cut':
@@ -185,6 +190,11 @@ def _prova():
         raise AssertionError('no error after 10 attempts')
     except errors.ProviderError as e:
         assert e.kind == 'overloaded' and len(n) == ATTEMPTS
+    lane6 = lim._lane('mistral', 'k6', 'a')               # another request's 402 or late success does not close an open episode
+    lane6.failures, lane6.ready_at, lane6.inflight = 1, t[0] + 100, 2
+    lim._done(lane6, False, None, neutral=True)
+    lim._done(lane6, False, None)
+    assert lane6.failures == 1 and lane6.inflight == 0
     snap = lim.snapshot()
     assert snap['groq']['down'] is True and 'k' not in str(snap).replace('groq', '')
     # three roles on one key: during an episode only one probe goes, the others wait for its answer
