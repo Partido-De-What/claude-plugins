@@ -3,6 +3,7 @@
 
 import {poolRack} from './office-games.js';
 import {drawStrip, drawChart, summary} from './office-timeline.js';
+import {soundOn} from './office-tv.js';
 
 const CSS = `
 #office { position: fixed; inset: 0 auto 0 0; width: 100vw; background: #1b1d27; z-index: 1; overflow: hidden;
@@ -730,7 +731,7 @@ export function unlockAudio() {
 }
 /** the two-note chime (E5 then E6) when someone starts waiting for you */
 export function chime() {
-  if (!audio || audio.state !== 'running') return;
+  if (!audio || audio.state !== 'running' || !soundOn()) return;      // silent while the mixer's general switch is off (the default)
   for (const [f, at] of [[659.25, 0], [1318.5, 0.16]]) {
     const o = audio.createOscillator(), g = audio.createGain(), t0 = audio.currentTime + at;
     o.type = 'triangle'; o.frequency.value = f;

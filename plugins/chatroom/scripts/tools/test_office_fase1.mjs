@@ -98,9 +98,11 @@ const tvAt = (store, tag) => {
 const camera = {matrixWorld: {elements: Array.from({length: 16}, (_, i) => (i === 10 ? -1 : 0))}};
 {
   const fresh = await tvAt({}, 'fresh');
-  test('volumes: the defaults are low (master 0.3, TV and arcade 0.5)', () => (near(fresh.mixLevel('tv'), 0.15) && near(fresh.mixLevel('arcade'), 0.15) && near(fresh.mixLevel('radio'), 0.3) ? '' : `tv ${fresh.mixLevel('tv')} arcade ${fresh.mixLevel('arcade')} radio ${fresh.mixLevel('radio')}`));
+  test('volumes: a new page is silent (0.13, sound only from the mixer)', () => (['tv', 'arcade', 'radio', 'lofi'].every(k => fresh.mixLevel(k) === 0) && !fresh.soundOn() ? '' : `tv ${fresh.mixLevel('tv')} radio ${fresh.mixLevel('radio')}`));
+  const on = await tvAt({'chatroom.mix.v2': '{"mute":{}}'}, 'on');
+  test('volumes: switched on, the defaults are low (master 0.3, TV and arcade 0.5)', () => (near(on.mixLevel('tv'), 0.15) && near(on.mixLevel('arcade'), 0.15) && near(on.mixLevel('radio'), 0.3) ? '' : `tv ${on.mixLevel('tv')} arcade ${on.mixLevel('arcade')} radio ${on.mixLevel('radio')}`));
   const old = await tvAt({'chatroom.mix': '{"master":0.8,"tv":0.7,"mute":{}}'}, 'old');
-  test('volumes: the levels saved under the old key are not read (a one-time reset)', () => (near(old.mixLevel('tv'), 0.15) ? '' : `tv ${old.mixLevel('tv')}`));
+  test('volumes: the levels saved under the old key are not read (a one-time reset, silent)', () => (old.mixLevel('tv') === 0 ? '' : `tv ${old.mixLevel('tv')}`));
   const v2 = await tvAt({'chatroom.mix.v2': '{"master":0.8,"mute":{}}'}, 'v2');
   test('volumes: the levels saved under chatroom.mix.v2 are read', () => (near(v2.mixLevel('tv'), 0.4) ? '' : `tv ${v2.mixLevel('tv')}`));
   const area = {x0: -14.8, z0: -4.3, x1: -8.7, z1: 0.8}, src0 = {x: -12, z: -0.5}, gain = d => fresh.hear(area, src0, {x: area.x1 + d, z: -0.5}, camera, 4)[0];

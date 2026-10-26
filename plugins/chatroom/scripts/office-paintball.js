@@ -17,6 +17,7 @@
 
 import {boxGeo, WEAPONS, GUNS, GUN_ICONS} from './office-guns.js';
 import {ZOMBIES, ZT, ZT_LIST, ZGEO, waveMix} from './office-zombies.js';
+import {soundOn} from './office-tv.js';
 export {WEAPONS, GUNS, ZOMBIES, ZT};
 
 export const RULES = {hp: 100, respawn: 3, splatsPerKind: 48, bolts: 96, shots: 12, recoil: 1.6, reload: 1.3};
@@ -106,7 +107,7 @@ function noise(c) {
 }
 /** one short sound: a tone sliding from f0 to f1 and/or a burst of noise, panned left/right and quieter with distance */
 function blip({f0 = 0, f1 = 0, type = 'sine', dur = 0.1, gain = 0.2, nz = 0, nzF = 1500, pan = 0, vib = 0}) {
-  const c = ac(); if (!c || gain < 0.002) return;
+  const c = ac(); if (!c || gain < 0.002 || !soundOn()) return;      // the mixer's general switch
   const t = c.currentTime, out = c.createGain(); out.gain.setValueAtTime(gain, t); out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   let node = out;
   if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = clamp(pan, -1, 1); out.connect(p); p.connect(c.destination); node = out; } else out.connect(c.destination);

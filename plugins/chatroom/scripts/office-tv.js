@@ -62,9 +62,12 @@ export function hear(area, src, me, camera, reach = 0) {
 // the mixer: a general level and one per source (tv, radio, lofi; the arcade has no slider, only its default), each with its own mute, remembered.
 // The key has a version: 0.12 lowered the defaults, and the levels saved under the old key 'chatroom.mix' are not read (a one-time reset)
 const MIX_KEY = 'chatroom.mix.v2';
-const MIX = {master: 0.3, tv: 0.5, arcade: 0.5, radio: 1, lofi: 1, mute: {}};
+// 0.13: a page that never saved its levels starts silent (the general mute on): sound comes back only from the mixer; saved levels stay as they are
+const MIX = {master: 0.3, tv: 0.5, arcade: 0.5, radio: 1, lofi: 1, mute: {master: true}};
 try { Object.assign(MIX, JSON.parse(localStorage.getItem(MIX_KEY) || '{}')); } catch (e) {}
 export const mixLevel = kind => (MIX.mute.master ? 0 : MIX.master) * (MIX.mute[kind] ? 0 : MIX[kind] ?? 1);
+/** the general switch of the mixer: the sounds that do not go through it (the chime, the games) ask this first */
+export const soundOn = () => !MIX.mute.master && MIX.master > 0;
 /** move a speaker's gain and side smoothly; the mixer's level for its kind applies on top */
 function steer(nodes, g, p, kind) {
   nodes.gain.gain.setTargetAtTime(g * mixLevel(kind), ac.currentTime, 0.12);

@@ -33,6 +33,8 @@ const css = `
 .o-game-menu h3 { margin: 0 0 4px; font-size: 16px; }
 `;
 
+import {soundOn} from './office-tv.js';
+
 // ------------------------------------------------------------------ pool: physics shared by every side
 const R = 10, POCKET = 19, RAIL = 34;
 const POCKETS = [[RAIL, RAIL], [W / 2, RAIL - 4], [W - RAIL, RAIL], [RAIL, H - RAIL], [W / 2, H - RAIL + 4], [W - RAIL, H - RAIL]];
@@ -592,7 +594,7 @@ export function createGames({root, t, me, sendShot, onResult}) {
   // pool: aim from the cue ball toward the mouse (a ghost ball shows where it first touches), hold to load the shot, let go: the cue strikes
   let ac = null;                                                                // sound: a click for ball on ball, a thud for a cushion, a plop for a pocket
   const sound = (k, v) => {
-    if (!ac || ac.state !== 'running') return;
+    if (!ac || ac.state !== 'running' || !soundOn()) return;            // the mixer's general switch
     const o = ac.createOscillator(), gn = ac.createGain(), now = ac.currentTime;
     o.type = k === 'hit' ? 'triangle' : 'sine'; o.frequency.setValueAtTime(k === 'hit' ? 900 + Math.min(1, v / 10) * 500 : k === 'rail' ? 170 : 460, now);
     if (k === 'pot') o.frequency.exponentialRampToValueAtTime(90, now + 0.2);
