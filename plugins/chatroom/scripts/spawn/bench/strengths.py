@@ -112,15 +112,20 @@ def _frontier(value, values, better):
     return round(max(0.0, min(1.0, f)), 4)
 
 
-def annotate(scores_by_model, glossary):
+def annotate(scores_by_model, glossary, leaders=None):
     """{canonical: [{'bench', 'value', 'source', 'date', 'independent'}]} -> {canonical: {'scores', 'strengths', 'areas_best'}}.
-    bench è un id del glossario (lookup) o il nome della fonte se il glossario non lo conosce: ambito "other"."""
+    bench è un id del glossario (lookup) o il nome della fonte se il glossario non lo conosce: ambito "other".
+    leaders: {bench: [valori]} dei migliori di una classifica che non sono nel catalogo: contano in posizione, numero di
+    modelli e frontiera, così una nicchia misurata su un solo modello nostro ha comunque la sua gara"""
     gl = {b['id']: b for b in glossary['benchmarks']}
     best = {m: _best(s) for m, s in scores_by_model.items()}
     columns = {}
     for m, by in best.items():
         for bench, s in by.items():
             columns.setdefault(bench, []).append((m, float(s['value'])))
+    for bench, values in (leaders or {}).items():
+        if bench in columns:                              # un leader conta solo dove un modello nostro è misurato
+            columns[bench] += [(None, float(v)) for v in values]
     out = {}
     for m, by in best.items():
         scores, items = [], []
@@ -131,7 +136,7 @@ def annotate(scores_by_model, glossary):
             value = float(s['value'])
             rank = 1 + sum(1 for _, v in col if (v > value if better == 'higher' else v < value))
             f = _frontier(value, vals, better)
-            scores.append({**s, 'frontier': f})
+            scores += [{**x, 'frontier': _frontier(float(x['value']), vals, better)} for x in scores_by_model[m] if x['bench'] == bench]
             area = g.get('area', 'other')
             if area not in NOT_STRENGTHS and len(col) >= MIN_MODELS:
                 items.append({'bench': bench, 'area': area, 'value': value, 'source': s.get('source', ''), 'rank': rank,
@@ -183,12 +188,17 @@ def _prova():
     assert any(x['bench'] == 'swe-bench-pro' for x in out['delta']['scores'])                         # ma resta tra i punteggi
     w = {x['bench']: x['weight'] for x in b['strengths']}
     assert w['aa-omniscience'] == round(0.6 * 1.0 + 0.4 * (1 - 1 / 3), 4), w                          # 0.6 x frontiera + 0.4 x (1 - rank/N)
+    cg = annotate({'mistral-large-4': [s('cybergym-e2e-aa', 82)]}, g, leaders={'cybergym-e2e-aa': [79, 78], 'other': [1]})
+    x = cg['mistral-large-4']['strengths'][0]
+    assert (x['rank'], x['of'], x['trophy'], x['area']) == (1, 3, True, 'other'), x               # CyberGym 82 davanti a 79 e 78 (#530)
+    assert not annotate({'m': [s('cybergym-e2e-aa', 70)]}, g, leaders={'cybergym-e2e-aa': [82, 79]})['m']['strengths'][0]['trophy']
     da = annotate({k: [s('design-arena-website', v)] for k, v in (('a', 1300), ('b', 1200), ('c', 1100))}, g)
     assert da['a']['strengths'][0]['area'] == 'design' and da['a']['strengths'][0]['trophy']          # famiglia Design Arena
     sw = lambda f, rank, n, ind: round((0.6 * f + 0.4 * (1 - rank / n)) * (1.0 if ind else DECLARED), 4)
     assert DECLARED == 0.7 and sw(1.0, 1, 3, False) == round(0.7 * (0.6 + 0.4 * 2 / 3), 4)
-    gp = next(x for x in b['scores'] if x['bench'] == 'gpqa-diamond')
-    assert gp['independent'] and gp['value'] == 79                                                   # indipendente prima del dichiarato
+    gp = next(x for x in b['strengths'] if x['bench'] == 'gpqa-diamond')
+    assert gp['value'] == 79                                                                         # indipendente prima del dichiarato
+    assert sorted(x['value'] for x in b['scores'] if x['bench'] == 'gpqa-diamond') == [79, 85]       # ma tutte le fonti restano
     om = {m: next(x for x in out[m]['scores'] if x['bench'] == 'aa-omniscience')['frontier'] for m in ('alfa', 'beta', 'gamma')}
     assert om == {'alfa': 0.0, 'beta': 1.0, 'gamma': 0.5}, om                                        # valori negativi: tra peggiore e migliore
     assert next(x for x in a['strengths'] if x['bench'] == 'niche-bench')['area'] == 'other'         # fuori glossario: ambito other

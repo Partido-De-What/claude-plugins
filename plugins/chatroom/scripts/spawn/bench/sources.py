@@ -88,6 +88,60 @@ def parse_openrouter(benchmarks, model_id, date=None):
     return [{**x, 'source': src, 'date': date, 'independent': True} for x in out]
 
 
+OR_BENCH_URL = 'https://openrouter.ai/api/v1/benchmarks'
+OR_BENCH_SOURCES = ('artificial-analysis', 'openrouter', 'design-arena')
+OR_TYPES = {'gpqa_diamond': 'gpqa-diamond', 'tau_bench_verified_airline': 'tau-bench-verified-airline'}
+
+
+def fetch_or_benchmarks(key, timeout=30):
+    """le tre fonti di /benchmarks di OpenRouter (con la chiave Bearer; senza risponde 401; 30 al minuto, 500 al giorno)"""
+    import httpx
+    out = {}
+    for src in OR_BENCH_SOURCES:
+        r = httpx.get(OR_BENCH_URL, params={'source': src}, headers={'Authorization': f'Bearer {key}'}, timeout=timeout)
+        r.raise_for_status()
+        out[src] = r.json()
+    return out
+
+
+def parse_or_benchmarks(payloads, glossary):
+    """{slug: {'name', 'aa', 'scores'}} dalle risposte di /benchmarks (source -> {data, meta}), come parse_aa, da
+    accoppiare al catalogo con match(). Lo slug è model_permaslug senza la data in coda (google/gemini-4-argon-20261013)"""
+    num = lambda v: float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+    out = {}
+    for src, payload in (payloads or {}).items():
+        meta = (payload or {}).get('meta') or {}
+        date = str(meta.get('as_of') or '')[:10] or time.strftime('%Y-%m-%d')
+        page = meta.get('source_url') if str(meta.get('source_url', '')).startswith('https://') else 'https://openrouter.ai/rankings'
+        for r in (payload or {}).get('data') or []:
+            if not isinstance(r, dict) or not isinstance(r.get('model_permaslug'), str):
+                continue
+            slug = re.sub(r'-\d{8}$', '', r['model_permaslug'].strip().lower())[:120]
+            rows = []
+            if src == 'artificial-analysis':
+                rows = [(bench, num(r.get(k))) for k, bench in OR_AA.items()]
+            elif src == 'openrouter' and num(r.get('accuracy')) is not None:
+                t = str(r.get('benchmark_type', ''))
+                rows = [(OR_TYPES.get(t) or lookup(t.replace('_', '-'), glossary) or 'or-' + re.sub(r'[^a-z0-9]+', '-', t.lower())[:50],
+                         num(r['accuracy']) * 100)]
+            elif src == 'design-arena' and r.get('category'):
+                cat = re.sub(r'[^a-z0-9]+', '-', str(r['category']).lower()).strip('-')[:30]
+                rows = [(('design-arena-agents-' if r.get('arena') == 'agents' else 'design-arena-') + cat, num(r.get('elo')))]
+            m = out.setdefault(slug, {'name': str(r.get('display_name') or slug)[:120], 'aa': None, 'scores': []})
+            for bench, v in rows:
+                if v is not None and not any(x['bench'] == bench for x in m['scores']):   # la prima riga (la più recente) vince
+                    m['scores'].append({'bench': bench, 'value': round(v, 4), 'source': page, 'date': date, 'independent': True})
+                    if bench == 'aa-intelligence-index':
+                        m['aa'] = v
+    return out
+
+
+def or_bench_scores(key, canonicals, glossary, payloads=None):
+    """la fonte /benchmarks per la coda veloce: {canonical: [score]}"""
+    ob = parse_or_benchmarks(fetch_or_benchmarks(key) if payloads is None else payloads, glossary)
+    return {c: ob[slug]['scores'] for c, slug in match(ob, canonicals).items()}
+
+
 def _tokens(name):
     return frozenset(t for t in re.split(r'[^a-z0-9]+', str(name).lower()) if t and t not in VARIANT_WORDS)
 
@@ -99,13 +153,16 @@ def match(aa, canonicals):
     from_identity = {}
     try:
         from ..catalog.identity import canonical_id
-    except ImportError:
-        canonical_id = lambda s: s
+    except ImportError:                                  # lanciato come script (_prova)
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'catalog'))
+        from identity import canonical_id
     for slug in aa:
         from_identity.setdefault(canonical_id(slug), []).append(slug)
     by_tokens = {}
     for slug in aa:
-        by_tokens.setdefault(_tokens(slug), []).append(slug)
+        by_tokens.setdefault(_tokens(canonical_id(slug)), []).append(slug)
     best = lambda slugs: max(slugs, key=lambda s: (aa[s]['aa'] is not None, aa[s]['aa'] or 0, s))
     out = {}
     for c in canonicals:
@@ -155,6 +212,21 @@ def _prova():
     o = {x['bench']: x['value'] for x in parse_openrouter(orb, 'moonshotai/kimi-k3.1-pro:free', '2026-10-26')}
     assert o == {'aa-intelligence-index': 55.1, 'design-arena-website': 1322.0, 'design-arena-agents-agenticslides-html': 1200.0}, o
     assert parse_openrouter(orb, 'a/b:free')[0]['source'] == 'https://openrouter.ai/a/b' and parse_openrouter(None, 'x') == []
+    import json
+    from pathlib import Path
+    real = Path(r'E:\claudecode pesante\claude-plugins-dev-tools\cantiere013\prove\payload')   # risposte vere salvate dal LEAD (#548)
+    if real.is_dir():
+        pl = {s: json.loads((real / f"or_benchmarks_{s.replace('artificial-analysis', 'aa').replace('-', '_')}.json").read_text(encoding='utf-8'))
+              for s in OR_BENCH_SOURCES}
+        ob = parse_or_benchmarks(pl, g)
+        argon = ob['google/gemini-4-argon']
+        assert {x['bench'] for x in argon['scores']} >= {'gpqa-diamond'} and all(0 < x['value'] <= 100 for x in argon['scores'] if x['bench'] == 'gpqa-diamond')
+        assert any(x['bench'].startswith('design-arena-') for v in ob.values() for x in v['scores'])
+        assert ob['anthropic/claude-opus-5.5']['aa'] == 57.6 and argon['scores'][0]['date'].startswith('2026-10-')
+        got = or_bench_scores(None, ['claude-opus-5-5', 'gemini-4-argon', 'nessuno'], g, payloads=pl)
+        assert set(got) == {'claude-opus-5-5', 'gemini-4-argon'}, set(got)
+        aa_real = parse_aa(json.loads((real / 'aa_models.json').read_text(encoding='utf-8')), g)
+        assert len(aa_real) > 600 and aa_real['claude-opus-5-5']['aa'] == 57.6
     got = aa_scores(None, ['glm-5-3', 'kimi-k3'], g, payload=payload)
     assert list(got) == ['glm-5-3'] and got['glm-5-3'] == aa['glm-5-3']['scores']
     print('sources ok')
