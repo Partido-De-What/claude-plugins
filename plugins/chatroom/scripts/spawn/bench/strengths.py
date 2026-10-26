@@ -18,8 +18,38 @@ def norm(name):
     return re.sub(r'[^a-z0-9²τ]+', '', str(name or '').lower())
 
 
+def extra_path():
+    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'glossary_extra.json'   # i benchmark che il ricercatore ha trovato
+
+
 def load_glossary(path=GLOSSARY):
-    return json.loads(Path(path).read_text(encoding='utf-8'))
+    """il glossario; quello del plugin con in coda i benchmark nuovi del ricercatore (stessa forma, senza alias)"""
+    g = json.loads(Path(path).read_text(encoding='utf-8'))
+    if Path(path) == GLOSSARY:
+        try:
+            extra = json.loads(extra_path().read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            extra = []
+        for b in extra if isinstance(extra, list) else []:
+            if isinstance(b, dict) and b.get('area') in g['_meta']['areas'] and lookup(b.get('id'), g) is None:
+                g['benchmarks'].append({**b, 'aliases': []})
+    return g
+
+
+def add_extra(news):
+    """aggiunge al glossario esteso i benchmark nuovi (già controllati da researcher.accept); un id già noto non entra"""
+    g = load_glossary()
+    fresh = [{k: b[k] for k in ('id', 'name', 'area', 'unit', 'better', 'url', 'it', 'en')} for b in news if lookup(b['id'], g) is None]
+    if fresh:
+        try:
+            old = json.loads(extra_path().read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            old = []
+        extra_path().parent.mkdir(parents=True, exist_ok=True)
+        tmp = extra_path().with_suffix('.tmp')
+        tmp.write_text(json.dumps((old if isinstance(old, list) else []) + fresh, ensure_ascii=False, indent=1), encoding='utf-8')
+        tmp.replace(extra_path())
+    return len(fresh)
 
 
 def check_glossary(d):

@@ -186,8 +186,10 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
         if not out.is_file():
             continue
         try:
-            got, _news = researcher.accept(out, g, asked=set(e['models']))   # shortcut: i benchmark nuovi restano "other", senza descrizione
+            got, news = researcher.accept(out, g, asked=set(e['models']))
             researcher.mark_studied(e['models'])
+            if strengths.add_extra(news):
+                g = strengths.load_glossary()             # i benchmark nuovi col loro ambito e la loro descrizione
             for c, s in got.items():
                 scores.setdefault(c, []).extend(s)
             out.replace(out.with_suffix('.done.json'))
@@ -218,12 +220,20 @@ def _prova_update(tmp):
     e = study(room)
     assert e['models'] == ['deepseek-v4-flash', 'glm-5-3', 'kimi-k3'] and Path(e['prompt']).is_file()
     res = {'models': [{'canonical': 'glm-5-3', 'scores': [{'bench': 'swe-bench-pro', 'value': 40, 'source': 'https://example.org/a',
-                                                           'date': '2026-10-01', 'independent': True}]}]}
+                                                           'date': '2026-10-01', 'independent': True},
+                                                          {'bench': 'niche-x', 'value': 7, 'source': 'https://example.org/n',
+                                                           'date': '2026-10-01', 'independent': True}]}],
+           'new_benchmarks': [{'id': 'niche-x', 'name': 'Niche X', 'area': 'code', 'unit': '%', 'better': 'higher',
+                               'url': 'https://example.org/n', 'it': 'una prova di nicchia', 'en': 'a niche test'}]}
     Path(e['out']).write_text(json.dumps(res), encoding='utf-8')
     cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, aa_payload={'data': []})
     glm = next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')
     assert any(s['bench'] == 'swe-bench-pro' for s in glm['scores']) and glm['state'] == 'complete' and glm['aa'] == 61
     assert Path(e['out']).with_suffix('.done.json').is_file() and cat['providers']['researcher']['ok']
+    from spawn.bench import strengths
+    g = strengths.load_glossary()
+    assert strengths.lookup('niche-x', g) == 'niche-x' and strengths.check_glossary(g) == [] and strengths.extra_path().is_relative_to(Path(tmp))
+    assert strengths.add_extra([{'id': 'niche-x', 'name': 'n', 'area': 'code', 'unit': '%', 'better': 'higher', 'url': 'https://a.b/c', 'it': 'x', 'en': 'x'}]) == 0
     assert cat['providers']['artificial_analysis']['count'] == 3                               # AA non riletto nelle 24 ore
     assert study(room) is None                                                                   # D6: tutti studiati
     lists['open_router'].append({'id': 'thinkingmachines/inkling:free', 'name': 'Inkling', 'free': True})
