@@ -2748,7 +2748,7 @@ def cmd_alerts(room, a):
                 return
         # the chat and the lend log are read again only when one of them changed: a long chat parsed every second
         # kept a CPU core 20% busy for each room watched
-        sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl'))
+        sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl', room.dir / 'spawn' / 'study.jsonl'))
         if sig == last and a.follow and (not a.messages or time.time() - checked <= 60):   # the checks still run each 60 s
             time.sleep(1)
             continue
@@ -2764,7 +2764,7 @@ def cmd_alerts(room, a):
                     if not m.get('kind') and m.get('from') not in room.config().get('self_names', []):
                         print(watch_line(m, users), flush=True)
             room.set_cursor(name, new[-1]['n'])
-        for line in lend_lines(room):
+        for line in lend_lines(room) + study_lines(room):
             print(line, flush=True)
         if a.messages and time.time() - checked > 60:   # the lead also hears about what is going wrong, once each
             checked = time.time()
@@ -2788,6 +2788,27 @@ def _stamp(path):
         return st.st_mtime_ns, st.st_size
     except OSError:
         return None
+
+
+def study_lines(room):
+    """the benchmark studies the spawn catalog asks for (ROOM/spawn/study.jsonl, catalog.study), not yet announced to the
+    lead, who runs each with a Haiku agent; the next catalog update reads its result"""
+    log, seen = room.dir / 'spawn' / 'study.jsonl', room.dir / 'spawn' / 'study.seen'
+    if not log.exists():
+        return []
+    done = int(seen.read_text() or 0) if seen.exists() else 0
+    lines = []
+    for x in log.read_text(encoding='utf-8').splitlines():
+        try:
+            lines.append(json.loads(x))
+        except ValueError:
+            lines.append(None)                # a line being written: counted, so it is not announced twice
+    if len(lines) != done:
+        seen.write_text(str(len(lines)))
+    # shortcut: the line is in English, a protocol line for the lead like LEND's head; its text moves to locales in F8
+    return [f"STUDY #{r.get('id')}: spawn now one agent with model haiku (Agent tool; Codex: spawn_agent) and pass it the prompt "
+            f"in {r.get('prompt')} unchanged; it writes {r.get('out')}. The next catalog update reads it."
+            for r in lines[done:] if isinstance(r, dict) and r.get('prompt')]
 
 
 def lend_lines(room):
