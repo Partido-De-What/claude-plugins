@@ -23,7 +23,7 @@ import httpx
 from spawn import errors
 from spawn.providers import catalog
 
-ATTRIBUTION = {'HTTP-Referer': 'https://github.com/ArtyomITA', 'X-Title': 'Agents Chatroom'}
+ATTRIBUTION = {'HTTP-Referer': 'https://github.com/ArtyomITA/claude-plugins', 'X-OpenRouter-Title': 'Chatroom (ArtyomITA)'}
 CONNECT, READ = 10.0, 180.0
 EFFORTS = ('minimal', 'low', 'medium', 'high', 'xhigh', 'max')
 VOCAB = {'all': {e: e for e in EFFORTS},
@@ -396,11 +396,12 @@ def list_models(provider, key=None, client=None):
 def _prova():
     """no network: a fake provider (httpx.MockTransport) streams answers and refusals. python -m spawn.providers.openai_compat"""
     sse = lambda *chunks: ''.join(f'data: {json.dumps(c)}\n\n' for c in chunks) + 'data: [DONE]\n\n'
-    seen = []
+    seen, seen_headers = [], []
 
     def answer(request):
         body = json.loads(request.content) if request.content else {}
         seen.append(body)
+        seen_headers.append(request.headers)
         model = body.get('model', '')
         if request.url.path.endswith('/models'):
             return httpx.Response(200, json={'data': [
@@ -434,6 +435,7 @@ def _prova():
              effort='high', key='k', session_id='room-ROLE', on_delta=lambda kind, t: deltas.append(kind), client=client)
     b = seen[-1]
     assert b['max_tokens'] == 100 and b['reasoning'] == {'effort': 'high'} and b['provider'] == {'data_collection': 'deny', 'require_parameters': True}
+    assert seen_headers[-1]['x-openrouter-title'] == 'Chatroom (ArtyomITA)' and seen_headers[-1]['http-referer'].endswith('/claude-plugins')
     assert b['session_id'] == 'room-ROLE' and b['stream_options'] == {'include_usage': True} and msgs[0]['name'] == 'sys'
     m = r['message']
     assert m['content'] == 'Hello' and m['reasoning'] == 'let me think' and r['finish'] == 'tool_calls' and r['usage']['prompt_tokens'] == 12
