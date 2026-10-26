@@ -224,6 +224,11 @@ def sheet(cat, canonical, lang='en'):
         blocks.append({'t': 'more', 'label': say('spawn.sheet.versions', n=len(same)),
                        'rows': [{'key': x['canonical'], 'label': x.get('name') or x['canonical'], 'value': f"AA {x['aa']:g}" if x.get('aa') is not None else 'AA n.d.',
                                  'actions': [{'id': 'sheet', 'label': say('spawn.cat.sheet')}]} for x in same]})
+    maker, mine = canonical.split('/')[0], _line(canonical)
+    near = sorted({_line(x['canonical']) for x in cat.get('models', []) if x['canonical'].split('/')[0] == maker} - {mine})
+    blocks.append({'t': 'more', 'label': say('spawn.sheet.lineOf', line=mine), 'rows': [{'key': canonical, 'label': say('spawn.sheet.lineMove'),
+        'fields': [{'name': 'line', 'type': 'select', 'options': near}] if near else [],
+        'actions': ([{'id': 'move', 'label': say('spawn.sheet.move')}] if near else []) + [{'id': 'split', 'label': say('spawn.sheet.split'), 'confirm': say('spawn.sheet.splitConfirm', model=canonical)}]}]})
     return {'title': m.get('name') or canonical, 'icon': '🧾', 'blocks': blocks}
 
 
@@ -449,6 +454,19 @@ def card_action(room, card, action, key, values):
             picked = list(dict.fromkeys([*(card.get('state') or {}).get('picked', []), key]))
             cards.post(room, 'SPAWN', 'create_role', create_role(cat, picked), say('spawn.role.createPlain'))
             return {**(card.get('state') or {}), 'note': say('spawn.role.formPosted')}
+    if card['type'] == 'model_sheet':
+        cat = _load_catalog()
+        if action == 'sheet':
+            d = sheet(cat, key, lang)
+            cards.post(room, 'SPAWN', 'model_sheet', d, say('spawn.sheet.plain', name=d['title']))
+            return {**(card.get('state') or {}), 'note': say('spawn.cat.opened', name=d['title'])}
+        if action in ('move', 'split'):                # the line override of CATALOGO (lines_override.json), never in the code
+            from spawn.catalog import catalog as c
+            fn = getattr(c, 'move_line' if action == 'move' else 'split_line', None)
+            if not fn:
+                raise ValueError(say('spawn.err.noOverride'))
+            fn(key, values.get('line', '')) if action == 'move' else fn(key)
+            return {**sheet(_load_catalog(), key, lang), 'note': say('spawn.sheet.moved' if action == 'move' else 'spawn.sheet.splitDone', model=key, line=values.get('line', ''))}
     from spawn import runner
     if card['type'] == 'create_role' and action == 'create':
         name, canonical = values.get('name', '').strip().upper(), values.get('model', '')

@@ -1644,5 +1644,13 @@
  "spawn.sheet.versions": {
   "one": "altra versione di questa linea ({n})",
   "other": "altre versioni di questa linea ({n})"
- }
+ },
+ "spawn.sheet.lineOf": "Linea: {line}",
+ "spawn.sheet.lineMove": "Linea sbagliata?",
+ "spawn.sheet.move": "Sposta in questa linea",
+ "spawn.sheet.split": "Separa in una linea a sé",
+ "spawn.sheet.splitConfirm": "Separo {model} in una linea a sé?",
+ "spawn.sheet.moved": "{model} ora è nella linea {line}.",
+ "spawn.sheet.splitDone": "{model} ora è una linea a sé.",
+ "spawn.err.noOverride": "Spostare le linee non è ancora disponibile."
 }
