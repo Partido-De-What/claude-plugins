@@ -1537,6 +1537,8 @@
  "spawn.prep.save": "Save and check",
  "spawn.prep.skip": "Skip",
  "spawn.prep.skipConfirm": "Skip {name}? Its free models will not be used until you add its key.",
+ "spawn.prep.skipRest": "Skip all the others",
+ "spawn.prep.skipRestConfirm": "Skip the {n} providers still without a key? You can set each one up later.",
  "spawn.prep.check": "Check again",
  "spawn.prep.toolOk": "installed",
  "spawn.prep.headroomMissing": "missing: what the agents read is not compressed",

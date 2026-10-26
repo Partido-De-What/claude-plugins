@@ -101,6 +101,7 @@ def prepare(keys_status, tools, skipped, full=False):
         blocks += [{'t': 'text', 'text': say(k, names=', '.join(v))} for k, v in (('spawn.prep.done', done), ('spawn.prep.away', away)) if v]
     blocks += [{'t': 'rows', 'rows': todo[:SHOWN] if more else todo}, {'t': 'rows', 'rows': trows},
                {'t': 'actions', 'items': ([] if full else [{'id': 'more', 'label': say('spawn.prep.more', n=more) if more else say('spawn.prep.all')}])
+                + ([{'id': 'skip_rest', 'label': say('spawn.prep.skipRest'), 'confirm': say('spawn.prep.skipRestConfirm', n=missing)}] if missing else [])
                 + [{'id': 'start', 'label': say('spawn.prep.start'), 'disabled': not ready}]}]
     return {'title': say('spawn.prep.title'), 'icon': '🔑', 'blocks': blocks, 'full': full,
             'note': say('spawn.prep.ready') if ready else say('spawn.prep.left', n=missing)}
@@ -422,6 +423,8 @@ def card_action(room, card, action, key, values):
             note = say(f'spawn.prep.{keys.check(key)[0]}')
         elif action == 'skip':
             skipped.add(key)
+        elif action == 'skip_rest':                       # every provider still without a key, at once
+            skipped |= {pid for pid, p in keys.status().items() if not p.get('keys')}
         elif action == 'login':
             url = keys.pkce_start(_viewer_url(room) + '/spawn/oauth')[0]
             return {**prepare(keys.status(), tools_state(), skipped, full), 'open': url}

@@ -1537,6 +1537,8 @@
  "spawn.prep.save": "Salva e verifica",
  "spawn.prep.skip": "Salta",
  "spawn.prep.skipConfirm": "Salto {name}? I suoi modelli gratis non si usano finché non metti la chiave.",
+ "spawn.prep.skipRest": "Salta tutti gli altri",
+ "spawn.prep.skipRestConfirm": "Salto i {n} provider ancora senza chiave? Restano configurabili dopo, uno per uno.",
  "spawn.prep.check": "Verifica di nuovo",
  "spawn.prep.toolOk": "installato",
  "spawn.prep.headroomMissing": "manca: quello che leggono gli agenti non viene compresso",
