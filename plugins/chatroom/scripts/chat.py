@@ -3784,6 +3784,7 @@ def main():
     p.add_argument('--next-intent', dest='next_intent', help='research verdict: the one next thing to search or try')
     p.add_argument('--json', help='research propose-idea/direction/verdict: a JSON file or text (else stdin)')
     p.add_argument('--question', help='research panel: the question for the free models (a file or text)')
+    p.add_argument('--models', help='research panel: free model ids to ask, in this order, comma separated (default: all, smartest first)')
     p.add_argument('--keep', help='research init: folders of the worktree the kernel never cleans (data the evaluator needs), comma separated')
     p.add_argument('--result-file', dest='result_file', action='store_const', const=True, default=None,
                    help='research init/amend: the sealed evaluator writes "METRIC: value" to $CHATROOM_RESULT; only that counts')
