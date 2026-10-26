@@ -8,7 +8,7 @@ import shutil
 import time
 from pathlib import Path
 
-from i18n import lang_of, say
+from i18n import lang_of, say, use
 
 HERE = Path(__file__).resolve().parent.parent
 TOP = 15                                         # models in the catalog card and in the AA chart
@@ -50,9 +50,13 @@ def tools_state():
     return {'headroom': importlib.util.find_spec('headroom') is not None, 'rtk': bool(rtk)}
 
 
-def prepare(keys_status, tools, skipped):
+SHOWN = 6                                        # providers still to set up drawn whole; the others behind "N more"
+
+
+def prepare(keys_status, tools, skipped, full=False):
     """the setup card: every free provider (link, offer, key field, verify, skip), then Headroom and RTK; spawn starts
-    only when every provider has a verified (or at least saved) key or was skipped, and Headroom and RTK are there"""
+    only when every provider has a verified (or at least saved) key or was skipped, and Headroom and RTK are there.
+    Short on a phone: the ready and the skipped ones in one line each, at most SHOWN to do unless full"""
     rows, missing = [], 0
     for pid, p in keys_status.items():
         states = [k.get('state') for k in p.get('keys', [])]
@@ -79,10 +83,18 @@ def prepare(keys_status, tools, skipped):
     if not tools.get('headroom'):
         trows[0]['actions'] = [{'id': 'install_headroom', 'label': say('spawn.prep.install'), 'confirm': say('viewer.hrConfirm')}]
     ready = not missing and all(tools.get(t) for t in ('headroom', 'rtk'))
-    return {'title': say('spawn.prep.title'), 'icon': '🔑', 'blocks': [
-        {'t': 'text', 'text': say('spawn.prep.intro')}, {'t': 'rows', 'rows': rows}, {'t': 'rows', 'rows': trows},
-        {'t': 'actions', 'items': [{'id': 'start', 'label': say('spawn.prep.start'), 'disabled': not ready}]}],
-        'note': say('spawn.prep.ready') if ready else say('spawn.prep.left', n=missing)}
+    done = [r['label'] for r in rows if r['state'] == 'ok']
+    away = [r['label'] for r in rows if r['key'] in skipped and r['state'] != 'ok']
+    todo = rows if full else [r for r in rows if r['state'] != 'ok' and r['key'] not in skipped]
+    more = len(todo) - SHOWN if not full and len(todo) > SHOWN else 0
+    blocks = [{'t': 'text', 'text': say('spawn.prep.intro')}]
+    if not full:
+        blocks += [{'t': 'text', 'text': say(k, names=', '.join(v))} for k, v in (('spawn.prep.done', done), ('spawn.prep.away', away)) if v]
+    blocks += [{'t': 'rows', 'rows': todo[:SHOWN] if more else todo}, {'t': 'rows', 'rows': trows},
+               {'t': 'actions', 'items': ([] if full else [{'id': 'more', 'label': say('spawn.prep.more', n=more) if more else say('spawn.prep.all')}])
+                + [{'id': 'start', 'label': say('spawn.prep.start'), 'disabled': not ready}]}]
+    return {'title': say('spawn.prep.title'), 'icon': '🔑', 'blocks': blocks, 'full': full,
+            'note': say('spawn.prep.ready') if ready else say('spawn.prep.left', n=missing)}
 
 
 # ------------------------------------------------------------------ Catalogo, Scheda, Confronto
@@ -122,7 +134,8 @@ def catalog(cat):
     blocks = [{'t': 'text', 'text': say('spawn.cat.intro', n=len(models))}]
     if bars:
         blocks.append({'t': 'bars', 'title': say('spawn.cat.aaChart'), 'unit': '', 'items': bars})
-    blocks += [{'t': 'rows', 'rows': rows}, {'t': 'actions', 'items': [{'id': 'study', 'label': say('spawn.cat.study')}]}]
+    blocks += [{'t': 'rows', 'rows': rows}, {'t': 'actions', 'items': [{'id': 'update', 'label': say('spawn.cat.update')},
+                                                                         {'id': 'study', 'label': say('spawn.cat.study')}]}]
     return {'title': say('spawn.cat.title'), 'icon': '📚', 'blocks': blocks}
 
 
@@ -241,9 +254,25 @@ def replace_card(cat, role):
             + ([{'t': 'bars', 'title': say('spawn.cat.aaChart'), 'items': bars}] if bars else []) + [{'t': 'rows', 'rows': rows}]}
 
 
+def _speak(room):
+    """this thread speaks the room's language (the runner and the server call these from threads of their own)"""
+    use(lang_of(room.config()), here=True)
+    return lang_of(room.config())
+
+
+def _viewer_url(room):
+    """the address of this room's viewer, from the registry it stamps every 5 s (the OpenRouter login comes back there)"""
+    from activity import REGISTRY
+    try:
+        return json.loads(REGISTRY.read_text(encoding='utf-8'))[str(Path(room.dir).resolve())]['url']
+    except (OSError, ValueError, KeyError, TypeError):
+        raise ValueError(say('spawn.err.noViewer'))
+
+
 def post_prepare(room, author='SPAWN'):
     """the Prepara spawn card in the chat (/spawn, chat.py spawn): (n, id)"""
     import cards
+    _speak(room)
     from spawn import keys
     return cards.post(room, author, 'prepare_spawn', prepare(keys.status(), tools_state(), set(_setup().get('skipped', []))), say('spawn.prep.plain'))
 
@@ -251,6 +280,7 @@ def post_prepare(room, author='SPAWN'):
 def post_create(room, author='SPAWN', picked=()):
     """the Crea ruolo card in the chat: (n, id)"""
     import cards
+    _speak(room)
     return cards.post(room, author, 'create_role', create_role(_load_catalog(), picked), say('spawn.role.createPlain'))
 
 
@@ -258,22 +288,44 @@ def post_replace(room, name):
     """the Sostituisci card of a role, in the chat (the runner calls it when a role runs out of tokens)"""
     import cards
     from spawn import runner
+    _speak(room)
     role = runner.roles(room).get(name)
     if not role:
         raise ValueError(say('spawn.err.noRole', name=name))
     return cards.post(room, 'SPAWN', 'replace', replace_card(_load_catalog(), role), say('spawn.role.replacePlain', name=name))
 
 
+def refresh_catalog(room, cid, force=False):
+    """the catalog's round (network: the lists of the providers with a key, AA once a day, the researcher's results) in a
+    thread; when it ends the card shows the new catalog (cards.json, read by the page within 3 s), or why it failed"""
+    import threading
+    import cards
+
+    def run():
+        from spawn.catalog import catalog as c
+        try:
+            cat = c.update(room.dir, force)
+        except Exception as exc:                   # a network or a file error: the card says it, the room goes on
+            _speak(room)
+            return cards._save(room, cid, {**(cards.states(room).get(cid) or {}), 'error': say('spawn.cat.updateFailed', why=str(exc)[:200])})
+        _speak(room)
+        cards._save(room, cid, {**catalog(cat), 'note': say('spawn.cat.updated', n=sum(1 for m in cat.get('models', []) if _free(m)))})
+    threading.Thread(target=run, daemon=True).start()
+
+
 # ------------------------------------------------------------------ clicks
 def card_action(room, card, action, key, values):
     """the answer to a click on a spawn card: the card's new data (cards.py saves it as its state)"""
     import cards
-    lang = lang_of(room.config())
+    lang = _speak(room)
     if card['type'] == 'prepare_spawn':
         from spawn import keys
         setup = _setup()
         skipped = set(setup.get('skipped', []))
+        full = bool((card.get('state') or {}).get('full') or (card.get('data') or {}).get('full')) or action == 'more'
         note = ''
+        if action == 'more':
+            return prepare(keys.status(), tools_state(), skipped, True)
         if action == 'save':
             if not values.get('key', '').strip():
                 raise ValueError(say('spawn.err.noKey'))
@@ -287,19 +339,20 @@ def card_action(room, card, action, key, values):
         elif action == 'skip':
             skipped.add(key)
         elif action == 'login':
-            url = keys.pkce_start(f"http://127.0.0.1:{room.config().get('_port', 8765)}/spawn/oauth")[0]
-            return {**prepare(keys.status(), tools_state(), skipped), 'open': url}
+            url = keys.pkce_start(_viewer_url(room) + '/spawn/oauth')[0]
+            return {**prepare(keys.status(), tools_state(), skipped, full), 'open': url}
         elif action == 'install_headroom':
             import chat
             chat.start_headroom_install()
             note = say('viewer.hrBusy')
         elif action == 'start':
             n, cid = cards.post(room, 'SPAWN', 'catalog', catalog(_load_catalog()), say('spawn.cat.plain'))
+            refresh_catalog(room, cid)
             note = say('spawn.prep.started', n=n)
         else:
             raise ValueError(say('spawn.err.action', action=action))
         _save_setup({**setup, 'skipped': sorted(skipped)})
-        return {**prepare(keys.status(), tools_state(), skipped), 'note': note} if note else prepare(keys.status(), tools_state(), skipped)
+        return {**prepare(keys.status(), tools_state(), skipped, full), 'note': note} if note else prepare(keys.status(), tools_state(), skipped, full)
     if card['type'] == 'catalog':
         cat = _load_catalog()
         if action == 'sheet':
@@ -313,8 +366,13 @@ def card_action(room, card, action, key, values):
                 cards.post(room, 'SPAWN', 'compare', d, d['title'])
                 return {**(card.get('state') or {}), 'picked': [], 'note': ''}
             return {**(card.get('state') or {}), 'picked': picked, 'note': say('spawn.cat.pickMore')}
+        if action == 'update':
+            refresh_catalog(room, card['id'], force=True)
+            return {**(card.get('state') or {}), 'note': say('spawn.cat.updating'), 'error': ''}
         if action == 'study':
-            return {**(card.get('state') or {}), 'note': say('spawn.cat.studyAsked')}
+            from spawn.catalog import catalog as c
+            asked = c.study(room.dir, lang)
+            return {**(card.get('state') or {}), 'note': say('spawn.cat.studyAsked', id=asked['id'], n=len(asked['models'])) if asked else say('spawn.cat.studyNone')}
         if action == 'role':
             picked = list(dict.fromkeys([*(card.get('state') or {}).get('picked', []), key]))
             cards.post(room, 'SPAWN', 'create_role', create_role(cat, picked), say('spawn.role.createPlain'))

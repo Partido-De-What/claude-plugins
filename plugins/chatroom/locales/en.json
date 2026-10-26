@@ -1570,7 +1570,7 @@
  "spawn.cat.study": "Study the new ones",
  "spawn.cat.opened": "The sheet of {name} is in the chat.",
  "spawn.cat.pickMore": "Pick one more model to compare.",
- "spawn.cat.studyAsked": "Asked the lead to study the models not studied yet.",
+ "spawn.cat.studyAsked": "The study of {n} models not studied yet is asked (STUDY #{id} in the lead's relay).",
  "spawn.sheet.plain": "Sheet of {name}: scores with their source, strong points, routes.",
  "spawn.sheet.independent": "independent",
  "spawn.sheet.declared": "declared by the maker",
@@ -1616,5 +1616,21 @@
  "spawn.role.smallCtx": "smaller context",
  "spawn.role.choose": "Choose",
  "spawn.role.replaced": "{name} now runs on {model} ({provider}).",
- "viewer.pagerTip": "has no tokens left: click to choose the replacement"
+ "viewer.pagerTip": "has no tokens left: click to choose the replacement",
+ "spawn.prep.done": "Ready: {names}",
+ "spawn.prep.away": "Skipped (you can set them up later): {names}",
+ "spawn.prep.more": {
+  "one": "{n} more provider to set up",
+  "other": "{n} more providers to set up"
+ },
+ "spawn.prep.all": "Show all the providers",
+ "spawn.err.noViewer": "The viewer of this room is not running: start it and try again.",
+ "spawn.cat.update": "Update",
+ "spawn.cat.updating": "Updating the catalog (the lists of the providers with a key, Artificial Analysis once a day)…",
+ "spawn.cat.updated": {
+  "one": "Catalog updated: {n} model.",
+  "other": "Catalog updated: {n} models."
+ },
+ "spawn.cat.updateFailed": "The catalog was not updated: {why}",
+ "spawn.cat.studyNone": "Every model of the catalog was already studied."
 }

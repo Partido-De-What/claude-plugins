@@ -1570,7 +1570,7 @@
  "spawn.cat.study": "Studia i nuovi",
  "spawn.cat.opened": "La scheda di {name} è in chat.",
  "spawn.cat.pickMore": "Scegli un altro modello da confrontare.",
- "spawn.cat.studyAsked": "Chiesto al lead di studiare i modelli non ancora studiati.",
+ "spawn.cat.studyAsked": "Chiesto lo studio di {n} modelli non ancora studiati (STUDY #{id} nel relay del lead).",
  "spawn.sheet.plain": "Scheda di {name}: punteggi con la fonte, punti forti, strade.",
  "spawn.sheet.independent": "indipendente",
  "spawn.sheet.declared": "dichiarato dal produttore",
@@ -1616,5 +1616,21 @@
  "spawn.role.smallCtx": "contesto più piccolo",
  "spawn.role.choose": "Scegli",
  "spawn.role.replaced": "{name} ora gira su {model} ({provider}).",
- "viewer.pagerTip": "senza token: clicca per scegliere il sostituto"
+ "viewer.pagerTip": "senza token: clicca per scegliere il sostituto",
+ "spawn.prep.done": "Pronti: {names}",
+ "spawn.prep.away": "Saltati (configurabili dopo): {names}",
+ "spawn.prep.more": {
+  "one": "altro {n} provider da configurare",
+  "other": "altri {n} provider da configurare"
+ },
+ "spawn.prep.all": "Mostra tutti i provider",
+ "spawn.err.noViewer": "Il viewer di questa stanza non è acceso: avvialo e riprova.",
+ "spawn.cat.update": "Aggiorna",
+ "spawn.cat.updating": "Aggiorno il catalogo (le liste dei provider con chiave, Artificial Analysis una volta al giorno)…",
+ "spawn.cat.updated": {
+  "one": "Catalogo aggiornato: {n} modello.",
+  "other": "Catalogo aggiornato: {n} modelli."
+ },
+ "spawn.cat.updateFailed": "Il catalogo non è stato aggiornato: {why}",
+ "spawn.cat.studyNone": "Tutti i modelli del catalogo sono già stati studiati."
 }
