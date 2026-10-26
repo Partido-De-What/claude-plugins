@@ -287,7 +287,8 @@ def role_state(roles):
     for name, r in sorted(roles.items()):
         u, route = r.get('usage') or {}, r.get('route') or {}
         bits = [r.get('canonical') or route.get('model_id', ''), route.get('adapter', ''), say(f"spawn.role.st.{r.get('state', 'service')}"),
-                say('spawn.role.usage', i=u.get('in', 0), o=u.get('out', 0)) if u else '', r.get('error') or '']
+                say('spawn.role.usage', i=u.get('in', 0), o=u.get('out', 0)) if u else '', say('spawn.role.compact') if r.get('compact') else '',
+                r.get('error') or '']
         rows.append({'key': name, 'label': ('📟 ' if r.get('state') == 'notokens' else '') + name, 'value': ' · '.join(b for b in bits if b),
                      'state': STATE_DOT.get(r.get('state'), 'wait'), 'actions': [{'id': 'replace', 'label': say('spawn.role.replace')}]})
     return {'title': say('spawn.role.stateTitle'), 'icon': '🛰', 'blocks': [{'t': 'rows', 'rows': rows} if rows else {'t': 'text', 'text': say('spawn.role.none')},
@@ -449,7 +450,7 @@ def card_action(room, card, action, key, values):
         if action == 'study':
             from spawn.catalog import catalog as c
             asked = c.study(room.dir, lang)
-            return {**(card.get('state') or {}), 'note': say('spawn.cat.studyAsked', id=asked['id'], n=len(asked['models'])) if asked else say('spawn.cat.studyNone')}
+            return {**(card.get('state') or {}), 'note': say('spawn.cat.studyAsked', k=len(asked), n=sum(len(e['models']) for e in asked if e['kind'] == 'model')) if asked else say('spawn.cat.studyNone')}
         if action == 'role':
             picked = list(dict.fromkeys([*(card.get('state') or {}).get('picked', []), key]))
             cards.post(room, 'SPAWN', 'create_role', create_role(cat, picked), say('spawn.role.createPlain'))

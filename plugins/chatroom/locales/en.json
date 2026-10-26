@@ -1570,7 +1570,7 @@
  "spawn.cat.study": "Study the new ones",
  "spawn.cat.opened": "The sheet of {name} is in the chat.",
  "spawn.cat.pickMore": "Pick one more model to compare.",
- "spawn.cat.studyAsked": "The study of {n} models not studied yet is asked (STUDY #{id} in the lead's relay).",
+ "spawn.cat.studyAsked": "The study of {n} models not studied yet is asked ({k} studies in the lead's relay, the leaderboards included).",
  "spawn.sheet.plain": "Sheet of {name}: scores with their source, strong points, routes.",
  "spawn.sheet.independent": "independent",
  "spawn.sheet.declared": "declared by the maker",
@@ -1652,5 +1652,6 @@
  "spawn.sheet.splitConfirm": "Make {model} a line of its own?",
  "spawn.sheet.moved": "{model} is now in the line {line}.",
  "spawn.sheet.splitDone": "{model} is now a line of its own.",
- "spawn.err.noOverride": "Moving lines is not available yet."
+ "spawn.err.noOverride": "Moving lines is not available yet.",
+ "spawn.role.compact": "compact prompt"
 }
