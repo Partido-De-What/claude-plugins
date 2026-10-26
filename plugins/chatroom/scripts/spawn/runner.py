@@ -30,6 +30,7 @@ from pathlib import Path
 
 from spawn import errors
 
+ATTEMPTS_WITH_ALTERNATIVE = 3
 CTX_SHARE, DEFAULT_CTX, MAX_TOKENS, WAIT, BRAKE, JOIN_READ, TURN = 0.8, 32768, 4096, 540, 30, 30, 2000   # TURN: what a turn adds to the input, roughly
 NAME = re.compile(r'[A-Z][A-Z0-9_]{1,19}\Z')
 STATES = ('service', 'switch', 'notokens', 'stopped')
@@ -250,6 +251,9 @@ class Runner(threading.Thread):
         if self.complete:
             return self.complete(*a, **kw)
         from spawn.providers import complete
+        import inspect
+        if 'attempts' not in inspect.signature(complete).parameters:   # shortcut: until PORTE's complete(attempts=) lands (#611)
+            kw.pop('attempts', None)
         return complete(*a, **kw)
 
     def system(self, role):
@@ -291,9 +295,12 @@ class Runner(threading.Thread):
             role = update(self.room, self.name, compact=compact)
         defs = tool_defs(role, self.room, compact) if tools else None
         mt = max_tokens or role.get('max_tokens') or MAX_TOKENS
+        here = f"{r['adapter']}:{r['model_id']}"        # another free host of the model: give this one 3 tries, not the limiter's 10
+        alt = role.get('canonical') and best_route(self.room, role['canonical'], self.name, exclude=(here, *role.get('tried', [])))
         return self._complete(r['adapter'], r['model_id'], h, tools=defs, max_tokens=mt, effort=role.get('effort'),
                               session_id=f"{self.name}-{r['adapter']}", stop=self.stop,
-                              tokens=tokens(h) + (tokens(defs) if defs else 0) + mt)   # the limiter waits until the host's tokens a minute hold it
+                              tokens=tokens(h) + (tokens(defs) if defs else 0) + mt,   # the limiter waits until the host's tokens a minute hold it
+                              attempts=ATTEMPTS_WITH_ALTERNATIVE if alt else None)
 
     def over(self):
         """the role left the room (chat.py remove) or the user or the lead closed it (CLOSED): the thread ends"""
@@ -588,6 +595,7 @@ def _prova():
             assert p == 'open_router' and msgs[0]['role'] == 'system' and 'caveman ultra' in msgs[0]['content'] and 'Italian' in msgs[0]['content']
             names = {t['function']['name'] for t in tools}
             assert kw['tokens'] > kw['max_tokens'] > 0                                       # the input estimate goes to the limiter
+            assert kw['attempts'] == ATTEMPTS_WITH_ALTERNATIVE                               # kilo serves the same model: 3 tries, then change door
             assert kw['session_id'] == 'ARCH-open_router' and names >= {'chat_post', 'chat_wait', 'board', 'task'} and not names & {'shell', 'research'}
             assert seen[1][2][0] == msgs[0] and seen[1][2][-1]['role'] == 'tool'          # the same system bytes, the tool's answer carried
             assert roles(room)['ARCH']['usage'] == {'in': 20, 'out': 6, 'cost': 0.0}, roles(room)['ARCH']['usage']
