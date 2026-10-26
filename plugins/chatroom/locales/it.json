@@ -1754,5 +1754,13 @@
  "spawnv.lim.rpm": "{n} richieste/min",
  "spawnv.lim.rpd": "{n} richieste/giorno",
  "spawnv.lim.tpm": "{n} token/min",
- "spawnv.lim.tpd": "{n} token/giorno"
+ "spawnv.lim.tpd": "{n} token/giorno",
+ "spawnv.why.payment": "l'host vuole crediti a pagamento",
+ "spawnv.why.quota": "quota gratis finita per oggi",
+ "spawnv.why.rate": "troppe richieste, riprova più tardi",
+ "spawnv.why.notFound": "l'host non ha più questo modello",
+ "spawnv.why.auth": "chiave rifiutata",
+ "spawnv.why.slow": "troppo lento",
+ "spawnv.why.down": "host in difficoltà",
+ "spawnv.why.noHost": "nessun host gratis"
 }

@@ -93,7 +93,7 @@ def _maker(m):
 
 def _probe(m):
     p = m.get('probe') or {}
-    return {'ok': p.get('ok'), 'ms': p.get('ms'), 'error': p.get('error'), 'host': p.get('host'), 'at': p.get('at')} if p else None
+    return {'ok': p.get('ok'), 'ms': p.get('ms'), 'error': p.get('error'), 'host': p.get('host'), 'at': p.get('at'), 'tries': p.get('tries') or {}} if p else None
 
 
 def _profile(m, lang):

@@ -1754,5 +1754,13 @@
  "spawnv.lim.rpm": "{n} requests/min",
  "spawnv.lim.rpd": "{n} requests/day",
  "spawnv.lim.tpm": "{n} tokens/min",
- "spawnv.lim.tpd": "{n} tokens/day"
+ "spawnv.lim.tpd": "{n} tokens/day",
+ "spawnv.why.payment": "the host wants paid credits",
+ "spawnv.why.quota": "free quota used up for today",
+ "spawnv.why.rate": "too many requests, try later",
+ "spawnv.why.notFound": "the host no longer has this model",
+ "spawnv.why.auth": "key refused",
+ "spawnv.why.slow": "too slow",
+ "spawnv.why.down": "host in trouble",
+ "spawnv.why.noHost": "no free host"
 }

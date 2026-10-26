@@ -184,8 +184,13 @@
   }
 
   const probeDot = p => `<span class="sv-dot ${!p ? '' : p.ok ? 'ok' : /rate|quota|overload/.test(p.error || '') ? 'warn' : 'bad'}" style="margin-right:8px"></span>`;
-  const why = p => String(p.error || '').replace(/_/g, ' ');
+  const WHY = {payment: () => I18N.text('spawnv.why.payment'), quota: () => I18N.text('spawnv.why.quota'), rate_limit: () => I18N.text('spawnv.why.rate'),
+               busy: () => I18N.text('spawnv.why.rate'), not_found: () => I18N.text('spawnv.why.notFound'), auth: () => I18N.text('spawnv.why.auth'),
+               forbidden: () => I18N.text('spawnv.why.auth'), timeout: () => I18N.text('spawnv.why.slow'), upstream: () => I18N.text('spawnv.why.down'),
+               overloaded: () => I18N.text('spawnv.why.down'), no_host: () => I18N.text('spawnv.why.noHost')};
+  const why = p => (WHY[p.error] || (() => String(p.error || '').replace(/_/g, ' ')))();
   const probeText = p => !p ? I18N.text('spawnv.probe.none') : p.ok ? I18N.text('spawnv.probe.ok', {ms: p.ms}) : I18N.text('spawnv.probe.bad', {why: why(p)});
+  const tried = (m, host) => { const t = ((m.probe || {}).tries || {})[host]; return t ? (t === 'ok' ? {ok: true, ms: m.probe.ms} : {ok: false, error: t}) : null; };
   const LIMS = [['rpm', n => I18N.text('spawnv.lim.rpm', {n})], ['rpd', n => I18N.text('spawnv.lim.rpd', {n})],
                 ['tpm', n => I18N.text('spawnv.lim.tpm', {n})], ['tpd', n => I18N.text('spawnv.lim.tpd', {n})]];
   const limits = x => x ? [...LIMS.filter(([k]) => x[k] != null).map(([k, f]) => f(Number(x[k]).toLocaleString())), x.note].filter(Boolean).join(' · ') : '';
@@ -243,7 +248,8 @@
     const more = SV.more === 'all' ? m.others.map(bench).join('') || `<div class="sv-empty">${esc(I18N.text('spawnv.noOthers'))}</div>`
       : SV.more === 'cmp' ? compare()
       : SV.more === 'ver' ? m.versions.map(v => `<div class="sv-row" data-m="${esc(v.c)}"><div class="n"><span>${esc(v.name)}</span><span class="aa">${v.aa == null ? '' : 'AA ' + Math.round(v.aa)}</span></div></div>`).join('')
-      : SV.more === 'hosts' ? m.hosts.map(h => `<div class="sv-host"><span class="sv-dot ${h.down ? 'bad' : h.up ? 'ok' : ''}"></span><b>${esc(h.adapter)}</b><span>${esc(h.model_id)}</span>
+      : SV.more === 'hosts' ? m.hosts.map(h => `<div class="sv-host">${probeDot(tried(m, h.adapter))}<b>${esc(h.adapter)}</b><span>${esc(h.model_id)}</span>
+          <span>${tried(m, h.adapter) ? esc(probeText(tried(m, h.adapter))) : ''}</span>
           <span>${h.ping_ms ? h.ping_ms + ' ms' : ''}</span><span>${h.left != null && h.limit ? esc(I18N.text('spawnv.quota', {left: h.left, limit: h.limit})) : ''}</span>
           <span class="lim">${esc(limits(lim[h.adapter]))}</span></div>`).join('')
           + `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px"><span class="sub" style="color:var(--sv-mute)">${esc(I18N.text('spawnv.line', {line: m.line}))}</span>

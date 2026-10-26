@@ -360,7 +360,7 @@ def probe(complete=None, only=None, workers=8):
     got = {}
 
     def one(m):
-        res = {'ok': False, 'error': 'no_host'}
+        res, tries = {'ok': False, 'error': 'no_host'}, {}
         for r in [r for r in m['routes'] if r.get('free')][:4]:
             t0, stop = time.time(), threading.Event()
             timer = threading.Timer(PROBE_WAIT, stop.set)
@@ -368,13 +368,15 @@ def probe(complete=None, only=None, workers=8):
             try:
                 complete(r['adapter'], r['model_id'], PROBE_ASK, max_tokens=64, attempts=1, stop=stop)
                 res = {'ok': True, 'ms': int((time.time() - t0) * 1000), 'host': r['adapter']}
+                tries[r['adapter']] = 'ok'
                 break
             except Exception as exc:                       # the next host; the last error is the one kept
                 kind = getattr(exc, 'kind', type(exc).__name__)
                 res = {'ok': False, 'host': r['adapter'], 'error': 'busy' if kind == 'stopped' else kind}
+                tries[r['adapter']] = res['error']
             finally:
                 timer.cancel()
-        return m['canonical'], {**res, 'at': time.time()}
+        return m['canonical'], {**res, 'tries': tries, 'at': time.time()}      # tries: each host's answer, 'ok' or why not
 
     def flush():
         # shortcut: load, set, save; an update() running at the same time can lose this batch, a second "Prova" fixes it
