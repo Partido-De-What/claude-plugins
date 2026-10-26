@@ -149,15 +149,28 @@ def best_route(room, canonical, name=None, exclude=()):
 _ENC = []
 
 
+def _encoder():
+    """cl100k_base from the copy in spawn/data (never downloaded), as free-claude-code does
+    (Adattato da free-claude-code (Alishahryar1), AGPL-3.0-only, commit 707b6dd: src/free_claude_code/core/token_estimation.py;
+    the tokenizer data is OpenAI tiktoken's, MIT, spawn/data/TIKTOKEN-LICENSE); None: 4 characters a token"""
+    try:
+        from tiktoken import Encoding
+        from tiktoken.load import load_tiktoken_bpe
+        ranks = load_tiktoken_bpe(str(Path(__file__).parent / 'data' / 'cl100k_base.tiktoken'),
+                                  expected_hash='223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7')
+        return Encoding(name='cl100k_base', mergeable_ranks=ranks,
+                        pat_str=r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}++|\p{N}{1,3}+| ?[^\s\p{L}\p{N}]++[\r\n]*+|\s++$|\s*[\r\n]|\s+(?!\S)|\s""",
+                        special_tokens={'<|endoftext|>': 100257, '<|fim_prefix|>': 100258, '<|fim_middle|>': 100259,
+                                        '<|fim_suffix|>': 100260, '<|endofprompt|>': 100276})
+    except Exception:
+        return None
+
+
 def tokens(messages):
     """an estimate of the tokens of a history: tiktoken's cl100k when it loads, else 4 characters a token"""
     text = json.dumps(messages, ensure_ascii=False)
     if not _ENC:
-        try:
-            import tiktoken
-            _ENC.append(tiktoken.get_encoding('cl100k_base'))
-        except Exception:
-            _ENC.append(None)
+        _ENC.append(_encoder())
     return len(_ENC[0].encode(text, disallowed_special=())) if _ENC[0] else len(text) // 4
 
 
@@ -171,13 +184,16 @@ def tool_defs(role, room=None):
     research room (mode C) also the research kernel's tool, whose roles the kernel enforces"""
     import chat
     out = []
-    for t in chat.MCP_TOOLS:
-        if t['name'] == 'research' and not research_room(room):
+    for t in chat.MCP_TOOLS:                      # every call carries these bytes: first sentence only, no property texts, no check
+        if t['name'] == 'check' or (t['name'] == 'research' and not research_room(room)):
             continue
         params = copy.deepcopy(t['inputSchema'])
         for k in ('room', 'as'):
             params['properties'].pop(k, None)
-        out.append({'type': 'function', 'function': {'name': t['name'], 'description': t['description'], 'parameters': params}})
+        for v in params['properties'].values():
+            v.pop('description', None)
+        out.append({'type': 'function', 'function': {'name': t['name'], 'description': t['description'].split(': ')[0].split('. ')[0][:160],
+                                                     'parameters': params}})
     return out + ([SHELL] if 'shell' in role.get('tools', []) else [])
 
 
@@ -290,8 +306,12 @@ class Runner(threading.Thread):
                 try:
                     self.step(role)
                 except errors.ProviderError as e:
+                    if self.stop.is_set():                # stopped during a call: the limiter's 'stopped' is no fault of the host
+                        break
                     self.fail(role, e)
             except Exception as e:                        # a bug, or a failure while handling one: the role stops and says why
+                if self.stop.is_set():
+                    break
                 kind = e.kind if isinstance(e, errors.ProviderError) else type(e).__name__
                 update(self.room, self.name, state='stopped', error=f'{kind}: {str(e)[:200]}')
                 self.room.append(self.name, _say(self.room, 'stopped', name=self.name, kind=kind, provider=role['route']['adapter']))
@@ -582,6 +602,7 @@ def _prova():
             no = run_tool(room, roles(room)['ARCH'], {'function': {'name': 'shell', 'arguments': '{"command": "echo x"}'}}, threading.Event())
             assert no.startswith('error'), no                                               # no shell unless the user gave it
             assert 'sk-' not in json.dumps(roles(room))
+            assert _encoder() is not None and tokens([{'role': 'user', 'content': 'hello world'}]) > 0      # cl100k from spawn/data, offline
             # the host by quota (T31): a fake limiter that says what the providers' headers said
             from spawn.limiter import LIMITER
             ra, rb, rc, rd = ({'adapter': a, 'model_id': f'q-{a}', 'ctx': 100000, 'free': True, 'tools': True, 'ping': {'ok': True, 'ms': ms}}
