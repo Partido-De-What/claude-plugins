@@ -32,7 +32,9 @@ FREE = {
                'env': 'COHERE_API_KEY', 'offer': 'trial key', 'verify': ('https://api.cohere.com/v1/models?page_size=1', 'models', (401, 498))},
     'cloudflare': {'all_free': True, 'name': 'Cloudflare Workers AI', 'base': 'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
                    'signup': 'https://dash.cloudflare.com/profile/api-tokens', 'env': 'CLOUDFLARE_API_TOKEN', 'offer': 'daily free neurons',
-                   'extra': ('account_id',), 'verify': ('https://api.cloudflare.com/client/v4/user/tokens/verify', 'result', (401,))},
+                   'extra': ('account_id',), 'verify': ('https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify', 'result', (401,)),
+                   # an account token (the dashboard's default) is only known to its account's endpoint; a user token to /user
+                   'verify_fallback': ('https://api.cloudflare.com/client/v4/user/tokens/verify', 'result', (401,))},
     'huggingface': {'all_free': True, 'name': 'Hugging Face', 'base': 'https://router.huggingface.co/v1', 'signup': 'https://huggingface.co/settings/tokens',
                     'env': 'HUGGINGFACE_API_KEY', 'offer': 'monthly credits', 'verify': ('https://huggingface.co/api/whoami-v2', 'name', (401,))},
     'siliconflow': {'name': 'SiliconFlow', 'base': 'https://api.siliconflow.com/v1', 'signup': 'https://cloud.siliconflow.com/account/ak',

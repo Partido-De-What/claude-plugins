@@ -188,10 +188,21 @@ def verify(provider, key, extra=None, client=None):
     """('verified' | 'rejected' | 'unverified', reason): one GET on an endpoint that needs the key, never a completion.
     A failure is 'unverified' unless the provider says plainly the key is wrong. client: an httpx.Client (tests)"""
     p = catalog.get(provider)
-    probe = p.get('verify')
-    if not probe:
+    if not p.get('verify'):
         return 'unverified', 'no_probe'
+    out = _probe(provider, p['verify'], key, extra, client)
+    if out[0] == 'rejected' and p.get('verify_fallback'):          # Cloudflare: an account token, else a user token
+        second = _probe(provider, p['verify_fallback'], key, extra, client)
+        out = second if second[0] != 'unverified' else out
+    return out
+
+
+def _probe(provider, probe, key, extra, client):
     path, field, rejected = probe
+    try:
+        path = path.format(**(extra or {}))
+    except (KeyError, IndexError):
+        return 'unverified', 'missing_extra'
     url = path if path.startswith('https://') else catalog.base_url(provider, extra).rstrip('/') + path
     headers = {'Accept': 'application/json', **catalog.auth_headers(provider, key)}
     try:
@@ -366,9 +377,16 @@ def _prova():
         remove('groq', 0)
         assert [k['slot'] for k in load_all('groq')] == [1]
 
+        cf_urls = []
+
         def answer(request):
             u = str(request.url)
             auth = request.headers.get('authorization', '') + request.headers.get('x-goog-api-key', '')
+            if 'cloudflare' in u:
+                cf_urls.append((u, auth))
+                ok = ('acct-token' in auth and '/accounts/abc123/' in u) or ('user-token' in auth and '/user/' in u)
+                return httpx.Response(200, json={'result': {'status': 'active'}, 'success': True}) if ok else \
+                    httpx.Response(401, json={'success': False, 'errors': [{'code': 1000, 'message': 'Invalid API Token'}]})
             if u.endswith('/auth/keys'):
                 b = json.loads(request.content)
                 ok = b['code'] == 'good-code' and base64.urlsafe_b64encode(hashlib.sha256(b['code_verifier'].encode()).digest()).rstrip(b'=').decode() == seen['challenge']
@@ -388,6 +406,12 @@ def _prova():
         assert verify('mistral', 'wrong', client=client)[0] == 'unverified'        # positive evidence only
         assert verify('gemini', 'bad', client=client)[0] == 'rejected' and verify('gemini', 'good', client=client)[0] == 'verified'
         assert verify('kilo', 'good', client=client) == ('unverified', 'no_probe')
+        # Cloudflare: an account token answers only on its account's endpoint, a user token only on /user
+        assert verify('cloudflare', 'acct-token', {'account_id': 'abc123'}, client) == ('verified', 'ok')
+        assert verify('cloudflare', 'user-token', {'account_id': 'abc123'}, client) == ('verified', 'ok')
+        assert verify('cloudflare', 'wrong', {'account_id': 'abc123'}, client)[0] == 'rejected'
+        assert verify('cloudflare', 'acct-token', None, client) == ('unverified', 'missing_extra')
+        assert [u for u in cf_urls if 'acct-token' in u[1]][0][0].endswith('/accounts/abc123/tokens/verify')
         assert check('groq', 1, client)[0] == 'rejected' and status()['groq']['keys'] == [{'slot': 1, 'state': 'rejected', 'why': 'http_401', 'ts': status()['groq']['keys'][0]['ts']}]
         assert 'gsk_test2' not in json.dumps(status()) and 'cf_token' not in json.dumps(status())
         url, state = pkce_start('http://127.0.0.1:8777/spawn/oauth')
