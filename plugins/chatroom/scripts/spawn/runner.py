@@ -270,6 +270,16 @@ class Runner(threading.Thread):
                    for m in self.room.messages()[-200:])
 
     def run(self):
+        role = roles(self.room).get(self.name) or {}
+        if self.complete is None and (role.get('route') or {}).get('adapter') == 'open_router':
+            try:                                          # OpenRouter's daily free requests into the limiter: one GET /key
+                from spawn import keys
+                from spawn.limiter import LIMITER
+                k = keys.load('open_router')
+                if k:
+                    LIMITER.refresh_openrouter(k['key'])
+            except Exception:
+                pass
         while not self.stop.is_set() and not self.over():
             role = roles(self.room).get(self.name)
             if not role or role.get('state') in ('notokens', 'stopped'):
@@ -602,6 +612,14 @@ def _prova():
                     assert e.kind == 'quota'
             finally:
                 del LIMITER.routes, LIMITER.route
+            import spawn.limiter as limiter_mod                                              # the same choice with PORTE's real limiter
+            real_lim, limiter_mod.LIMITER = limiter_mod.LIMITER, limiter_mod.Limiter()
+            try:
+                limiter_mod.LIMITER.observe('kilo', 'k', 'q-kilo', {'x-ratelimit-remaining-requests': '90', 'x-ratelimit-limit-requests': '100'})
+                limiter_mod.LIMITER.observe('open_router', 'k', 'q-open_router', {'x-ratelimit-remaining-requests': '5', 'x-ratelimit-limit-requests': '100'})
+                assert best_route(room, 'q', 'BETA')['adapter'] == 'kilo', limiter_mod.LIMITER.routes()
+            finally:
+                limiter_mod.LIMITER = real_lim
             update(room, 'ARCH', state='service', route={**r1, 'ctx': 100000})        # a failure inside fail(): the handover fails too
             script[:] = [errors.ProviderError('context', 400), errors.ProviderError('payment', 402)]
             box['runner'] = r2 = Runner(room, 'ARCH', fake)
