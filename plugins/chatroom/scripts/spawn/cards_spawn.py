@@ -67,7 +67,9 @@ def prepare(keys_status, tools, skipped, full=False):
     rows, missing = [], 0
     for pid, p in keys_status.items():
         states = [k.get('state') for k in p.get('keys', [])]
-        state = 'ok' if 'verified' in states else 'warn' if states and 'rejected' not in states else 'bad' if states else 'wait'
+        saved = any(k.get('why') == 'no_probe' for k in p.get('keys', []))   # a provider with no key check: saved = configured
+        state = ('ok' if 'verified' in states or (saved and 'rejected' not in states)
+                 else 'warn' if states and 'rejected' not in states else 'bad' if states else 'wait')
         if pid in skipped and state != 'ok':
             state, value = 'warn', say('spawn.prep.skipped')
         else:
