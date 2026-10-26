@@ -1969,42 +1969,124 @@ def status(room):
 
 
 # ---------------------------------------------------------------------------------------------------------- panel
-def panel(room, by, question, out=None, limit=12):
-    """critiques or ideas from every free model on OpenRouter at once (the biggest first), for the auditor's final review
-    or a brainstorm. The key stays in the environment (OPENROUTER_API_KEY), never in the room"""
+def _params_b(m):
+    """total parameters in billions from the model id ('550b-a55b' -> 550, 'lfm-2.5-2.6b' -> 2.6), else from the
+    description ('41B active parameters out of 975B total' -> 975, 'the 33B-A3B category' -> 33); None if not written"""
+    found = [float(x) for x in re.findall(r'(?<![a-z\d.])(\d+(?:\.\d+)?)b(?![a-z])', m.get('id', '').lower())]
+    if not found:
+        d = m.get('description') or ''
+        found = [float(x) for x in re.findall(r'(\d+(?:\.\d+)?)\s*B(?: total|-A\d)', d)]
+    return max(found) if found else None
+
+
+def panel_models(models, only=None):
+    """the free text models, smartest first: stealth models, then by total parameters (ids without a size sit at 100B),
+    then by context. `only` (ids) picks and orders them by hand"""
+    def free(m):
+        p = m.get('pricing', {})
+        return all(str(p.get(k, '')) in ('0', '0.0') for k in ('prompt', 'completion'))
+
+    def text(m):
+        arch = m.get('architecture', {})
+        return ('text' in arch.get('output_modalities', ['text']) and 'text' in arch.get('input_modalities', ['text'])
+                and not re.search(r'safety|guard|lyria|embed|rerank', m.get('id', ''), re.I) and m.get('id') != 'openrouter/free')
+
+    pool = [m for m in models if free(m) and text(m)]
+    if only:
+        by_id = {m['id']: m for m in pool}
+        return [by_id[i] for i in only if i in by_id]
+    rank = lambda m: ('stealth' not in (m.get('name', '') + m.get('description', '')).lower(),
+                      -(_params_b(m) or 100), -int(m.get('context_length') or 0))
+    return sorted(pool, key=rank)
+
+
+def panel(room, by, question, out=None, limit=None, only=None):
+    """critiques or ideas from every free text model on OpenRouter at once (the smartest first), for the auditor's final
+    review or a brainstorm; works in any room, a research contract is not needed. The key stays in the environment
+    (OPENROUTER_API_KEY), never in the room. Requests start 3.2 s apart (20 a minute on free models) and run together;
+    each answer is written as it arrives. A model gets at most `deadline` seconds in all: the socket timeout alone never
+    ends a reply that keeps trickling in"""
+    import threading
+    import urllib.error
     import urllib.request
-    c, st = _state(room)
-    _need(room, c, by, 'AUDITOR', 'PROPOSER')
+    deadline = 1500
+    try:
+        c, _ = _state(room)
+    except ValueError:                                    # a plain room: no roles to check, no research log
+        c = None
+    if c is not None:
+        _need(room, c, by, 'AUDITOR', 'PROPOSER')
     key = os.environ.get('OPENROUTER_API_KEY')
     if not key:
         raise ValueError(say('kernel.panel.set_openrouter_api_key'))
     if not question or not question.strip():
         raise ValueError(say('kernel.panel.a_panel_needs_a'))
-    req = urllib.request.Request('https://openrouter.ai/api/v1/models', headers={'Authorization': f'Bearer {key}'})
-    models = json.loads(urllib.request.urlopen(req, timeout=60).read())['data']
-    free = [m for m in models if str(m.get('pricing', {}).get('prompt')) in ('0', '0.0') and str(m.get('pricing', {}).get('completion')) in ('0', '0.0')]
-    size = lambda m: (int(m.get('context_length') or 0), m.get('id', ''))
-    free.sort(key=lambda m: ('stealth' not in (m.get('name', '') + m.get('description', '')).lower(), -size(m)[0]))
-    path = Path(out) if out else _dir(room) / f"panel-{time.strftime('%m%d-%H%M')}.md"
-    head = (say('kernel.panel.panel_free_models_on', strip=question.strip()))
-    path.write_text(head, encoding='utf-8')
-    answers = []
-    for m in free[:limit]:
-        body = json.dumps({'model': m['id'], 'messages': [{'role': 'user', 'content': question}],
-                           'reasoning': {'effort': 'high'}}).encode()
-        r = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=body,
-                                   headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'})
-        try:
-            data = json.loads(urllib.request.urlopen(r, timeout=300).read())
-            text = data['choices'][0]['message'].get('content') or ''
-        except Exception as exc:                          # one model failing never stops the panel
-            text = say('kernel.panel.no_answer', __name__=type(exc).__name__, str_exc=str(exc)[:200])
-        answers.append(f"## {m['id']}\n\n{text.strip()}\n")
-        with open(path, 'a', encoding='utf-8') as f:     # each answer saved as it comes: a stopped panel keeps what it got
-            f.write(answers[-1] + '\n')
-        time.sleep(3.2)                                   # 20 requests a minute on free models
-    _log(room, by, 'panel', {'models': [m['id'] for m in free[:limit]], 'file': str(path)})
-    return (say('kernel.panel.panel_of_free_models', len_answers=len(answers), path=path))
+    auth = {'Authorization': f'Bearer {key}'}
+    req = urllib.request.Request('https://openrouter.ai/api/v1/models', headers=auth)
+    chosen = panel_models(json.loads(urllib.request.urlopen(req, timeout=60).read())['data'], only)[:limit]
+    path = Path(out) if out else (_dir(room) if c is not None else room.dir) / f"panel-{time.strftime('%m%d-%H%M')}.md"
+    path.write_text(say('kernel.panel.panel_free_models_on', strip=question.strip()), encoding='utf-8')
+    lock, answers = threading.Lock(), []
+
+    def write(i, m, text):
+        size = _params_b(m)
+        loop = re.search(r'(.{1,8}?)\1{50,}', text, re.S)  # a small model stuck repeating itself: keep what came before
+        if loop:
+            text = text[:loop.start()].rstrip() + ' [...] (degenerated into an endless repetition: cut here)'
+        with lock:                                        # each answer saved as it comes: a stopped panel keeps what it got
+            if m['id'] in answers:
+                return
+            answers.append(m['id'])
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write(f"## {i + 1}. {m['id']}{f' ({size:g}B)' if size else ''}\n\n{text}\n\n")
+
+    def ask(i, m):
+        time.sleep(3.2 * i)
+        if len(question) / 3.5 > 0.9 * int(m.get('context_length') or 1 << 30):    # rough tokens: skip what cannot fit
+            return write(i, m, say('kernel.panel.no_answer', __name__='ContextTooLong', str_exc=f"context {m.get('context_length')}"))
+        text, efforts = None, ['xhigh', 'high']           # the most reasoning the model takes
+        for attempt in range(5):
+            body = json.dumps({'model': m['id'], 'messages': [{'role': 'user', 'content': question}],
+                               'reasoning': {'effort': efforts[0]}}).encode()
+            r = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=body,
+                                       headers={**auth, 'Content-Type': 'application/json'})
+            try:
+                data = json.loads(urllib.request.urlopen(r, timeout=600).read())
+            except urllib.error.HTTPError as exc:
+                if exc.code == 400 and len(efforts) > 1:
+                    efforts.pop(0)
+                    continue
+                if exc.code in (429, 500, 502, 503, 504) and attempt < 4:     # busy upstream: wait and ask again
+                    time.sleep(min(120, float(exc.headers.get('Retry-After') or 60)))
+                    continue
+                text = say('kernel.panel.no_answer', __name__=f'HTTP {exc.code}', str_exc=exc.read().decode('utf-8', 'replace')[:200])
+                break
+            except Exception as exc:                      # one model failing never stops the panel
+                text = say('kernel.panel.no_answer', __name__=type(exc).__name__, str_exc=str(exc)[:200])
+                break
+            if data.get('choices'):
+                msg = data['choices'][0]['message']
+                text = (msg.get('content') or '').strip() or (msg.get('reasoning') or '').strip()
+                break
+            err = data.get('error') or {}                 # a 200 that carries the provider's error instead of a reply
+            if err.get('code') in (429, 500, 502, 503, 504) and attempt < 4:
+                time.sleep(60)
+                continue
+            text = say('kernel.panel.no_answer', __name__=f"error {err.get('code')}", str_exc=str(err.get('message') or data)[:200])
+            break
+        write(i, m, text or say('kernel.panel.no_answer', __name__='Empty', str_exc=''))
+
+    threads = [threading.Thread(target=ask, args=(i, m), daemon=True) for i, m in enumerate(chosen)]
+    for t in threads:
+        t.start()
+    end = time.time() + 3.2 * len(chosen) + deadline
+    for i, (t, m) in enumerate(zip(threads, chosen)):
+        t.join(max(0.0, end - time.time()))
+        if t.is_alive():                                  # still talking at the deadline: recorded as no answer
+            write(i, m, say('kernel.panel.no_answer', __name__='Timeout', str_exc=f'{deadline} s'))
+    if c is not None:
+        _log(room, by, 'panel', {'models': [m['id'] for m in chosen], 'file': str(path)})
+    return say('kernel.panel.panel_of_free_models', len_answers=len(answers), path=path)
 
 
 # ---------------------------------------------------------------------------------------------------------- cli
@@ -2108,7 +2190,7 @@ def _cmd(room, a):
         return print(expand(room, rest[0]))
     if act == 'panel':
         q = Path(a.question).read_text(encoding='utf-8') if getattr(a, 'question', None) and Path(a.question).is_file() else getattr(a, 'question', None)
-        return post(panel(room, a.name or 'LEAD', q, a.out))
+        return post(panel(room, a.name or 'LEAD', q, a.out, only=split(getattr(a, 'models', None)) or None))
     if act == 'status':
         return print(status(room))
     sys.exit(say('kernel._cmd.research_init_amend_roles'))
