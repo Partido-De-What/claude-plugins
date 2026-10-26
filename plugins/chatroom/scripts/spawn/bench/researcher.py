@@ -18,12 +18,12 @@ from pathlib import Path
 import jsonschema
 
 try:
-    from .strengths import lookup
+    from .strengths import lookup, resolve_bench, load_glossary
     from ..catalog.identity import canonical_id, no_size
 except ImportError:                                      # lanciato come script (_prova)
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'catalog'))
-    from strengths import lookup
+    from strengths import lookup, resolve_bench, load_glossary
     from identity import canonical_id, no_size
 
 TEMPLATE = Path(__file__).resolve().parents[3] / 'templates' / 'bench_researcher.md'
@@ -121,6 +121,10 @@ def mark_boards(ids, today=None):
     _boards_path().write_text(json.dumps(read), encoding='utf-8')
 
 
+def _known_glossary(path):
+    return load_glossary(path)                                 # il glossario del plugin più quello esteso dei ricercatori
+
+
 def prepare(models, out, glossary_path, areas, lang='it', minutes=MINUTES, skip=(), board=None):
     """models: {canonical: [nomi dei provider]}. Scrive il prompt in out.prompt.md e ne dà il percorso, o None se non
     c'è niente da fare: per un modello solo se non è già studiato (D6); per una classifica (board: una voce di BOARDS)
@@ -134,6 +138,7 @@ def prepare(models, out, glossary_path, areas, lang='it', minutes=MINUTES, skip=
     lines = '\n'.join(f'- {clean(c)}: ' + ', '.join(clean(n) for n in list(names)[:8]) for c, names in todo.items())
     values = {'MODELS': lines, 'OUT': str(out), 'GLOSSARY': str(glossary_path), 'AREAS': ', '.join(areas),
               'MINUTES': str(minutes), 'LANGUAGE': 'Italian' if lang == 'it' else 'English', 'SKIP': ', '.join(skip) or '-',
+              'KNOWN': ', '.join(b['id'] for b in _known_glossary(glossary_path)['benchmarks']),
               **({'BOARD': board['name'], 'BOARD_URL': board['url'], 'BOARD_BENCHES': board['benches']} if board else {})}
     tpl = (BOARD_TEMPLATE if board else TEMPLATE).read_text(encoding='utf-8')
     text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), tpl)
@@ -201,7 +206,8 @@ def accept(path, glossary, asked=None):
     except jsonschema.ValidationError as exc:
         raise ValueError(f'risultato del ricercatore fuori schema: {exc.message[:200]}')
     areas = set(glossary['_meta']['areas'])
-    news = [b for b in data.get('new_benchmarks', []) if b['area'] in areas and lookup(b['id'], glossary) is None]
+    news = [b for b in data.get('new_benchmarks', []) if b['area'] in areas and resolve_bench(b['id'], glossary) == b['id']
+            and lookup(b['id'], glossary) is None]               # un "nuovo" che è un noto con un altro nome non entra
     today = time.strftime('%Y-%m-%d')
     dated = lambda x: {**x, 'date': x.get('date') or x.get('seen') or today, **({} if x.get('date') else {'seen': x.get('seen') or today})}
     out = {}
@@ -212,12 +218,12 @@ def accept(path, glossary, asked=None):
         for s in m['scores']:
             if not math.isfinite(s['value']):
                 raise ValueError(f"valore non finito per {s['bench']}")
-            out.setdefault(c, []).append({**dated(s), 'bench': lookup(s['bench'], glossary) or s['bench']})
+            out.setdefault(c, []).append({**dated(s), 'bench': resolve_bench(s['bench'], glossary)})
     leaders = []
     for x in data.get('leaders', []):
         if not math.isfinite(x['value']):
             raise ValueError(f"valore non finito per {x['bench']}")
-        leaders.append({**dated(x), 'bench': lookup(x['bench'], glossary) or x['bench'], 'model': re.sub(r'[\x00-\x1f<>`]', ' ', x['model'])[:80]})
+        leaders.append({**dated(x), 'bench': resolve_bench(x['bench'], glossary), 'model': re.sub(r'[\x00-\x1f<>`]', ' ', x['model'])[:80]})
     return out, news, leaders
 
 

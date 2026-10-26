@@ -207,6 +207,24 @@ def refresh(cat, provider_ids, list_models, now=None, force=False):
     return cat
 
 
+def _who(name):
+    """chi è un modello, a meno delle parole di variante (preview, max, high...) e dell'ordine: per riconoscere lo stesso
+    modello scritto da due classifiche"""
+    try:
+        from ..bench.sources import _tokens
+    except ImportError:
+        from sources import _tokens
+    return _tokens(canonical_id(name))
+
+
+def merge_leaders(cat, leaders):
+    """i migliori delle classifiche nel catalogo, per benchmark: lo stesso modello una volta sola (l'ultima lettura vince,
+    anche se scritto diverso), al massimo 5"""
+    for x in leaders:
+        row = [y for y in cat.setdefault('leaders', {}).get(x['bench'], []) if _who(y['model']) != _who(x['model'])]
+        cat['leaders'][x['bench']] = (row + [{k: x[k] for k in ('model', 'value', 'source', 'date') if k in x}])[-5:]
+
+
 def add_scores(cat, scores, glossary, partial=False, studied=()):
     """scores: {canonical: [score]} (dalle fonti o dal ricercatore). Un punteggio della stessa fonte per lo stesso
     benchmark sostituisce il vecchio. Stato: complete quando le fonti veloci hanno finito e il ricercatore lo ha
@@ -223,8 +241,10 @@ def add_scores(cat, scores, glossary, partial=False, studied=()):
         models[c]['scores'] = [s for s in models[c]['scores'] if (s['bench'], s['source']) not in keep] + list(new)
     raw = {c: [{k: s[k] for k in ('bench', 'value', 'source', 'date', 'independent', 'seen') if k in s} for s in m['scores']]
            for c, m in models.items() if m['scores']}
-    lead = {b: [x['value'] for x in xs if not any(s['bench'] == b for s in models.get(canonical_id(x['model']), {}).get('scores', []))]
-            for b, xs in (cat.get('leaders') or {}).items()}     # un leader che è già nel catalogo conta una volta sola
+    who = {_who(c): c for c in models}                    # un leader che è già nel catalogo conta una volta sola,
+    lead = {b: [x['value'] for x in xs                     # anche se la classifica lo chiama diverso (Mistral Large 4 Preview)
+                if not any(s['bench'] == b for s in models.get(who.get(_who(x['model'])), {}).get('scores', []))]
+            for b, xs in (cat.get('leaders') or {}).items()}
     notes = annotate(raw, glossary, leaders=lead)
     for c, m in models.items():
         n = notes.get(c)
@@ -372,9 +392,7 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
             got, news, leaders = researcher.accept(out, g, asked=set(e['models']))
             if e.get('kind', 'model') == 'model':
                 researcher.mark_studied(e['models'])
-            for x in leaders:                             # i 3 migliori di ogni classifica, l'ultima lettura per nome vince
-                row = [y for y in cat.setdefault('leaders', {}).get(x['bench'], []) if y['model'] != x['model']]
-                cat['leaders'][x['bench']] = (row + [{k: x[k] for k in ('model', 'value', 'source', 'date')}])[-5:]
+            merge_leaders(cat, leaders)
             if strengths.add_extra(news):
                 g = strengths.load_glossary()             # i benchmark nuovi col loro ambito e la loro descrizione
             for c, s in got.items():
@@ -470,6 +488,32 @@ def _prova_update(tmp):
     assert load_override()['move'] == {} and override_path().is_relative_to(Path(tmp))
 
 
+def _prova_veri(strengths, researcher):
+    """i 4 file veri della prova dal vivo (#627): una sola colonna CyberGym, Kimi K3.1 Pro 94.7 primo, Mistral Large 4 secondo"""
+    real = Path(r'E:\claudecode pesante\claude-plugins-dev-tools\cantiere013\prove\payload\research')
+    if not real.is_dir():
+        return
+    g = strengths.load_glossary()
+    three = ['mistral-large-4', 'nemotron-3-ultra-550b-a55b', 'glm-5-3']
+    card = lambda c: {'canonical': c, 'name': c, 'routes': [{'adapter': 'x', 'model_id': c, 'free': True}], 'scores': [], 'aa': None,
+                      'strengths': [], 'areas_best': [], 'state': 'pending'}
+    cat, scores = {'models': [card(c) for c in three]}, {}
+    for f in ('m1', 'b1', 'b2', 'b11'):
+        got, news, leaders = researcher.accept(real / f'{f}.json', g, asked=set(three))
+        merge_leaders(cat, leaders)
+        for c, v in got.items():
+            scores.setdefault(c, []).extend(v)
+    benches = {s['bench'] for v in scores.values() for s in v}
+    assert 'cybergym-e2e-aa' in benches and not {'cybergym-e2e', 'vals-vibe-code-bench-v1-1', 'finance-agent'} & benches, sorted(benches)
+    assert {'finance-agent-v2', 'finance-agent-v2-1'} <= benches                              # due versioni, due id
+    cat = add_scores(cat, scores, g)
+    m = next(x for x in cat['models'] if x['canonical'] == 'mistral-large-4')
+    cg = next(x for x in m['strengths'] if x['bench'] == 'cybergym-e2e-aa')
+    assert (cg['rank'], cg['trophy'], cg['area']) == (2, False, 'security') and max(y['value'] for y in cat['leaders']['cybergym-e2e-aa']) == 94.7, cg
+    assert cg['of'] == 4, (cg, cat['leaders']['cybergym-e2e-aa'])                               # Kimi, Mistral, MiMo, GPT-6 Luna: Mistral una volta
+    assert {x['area'] for x in m['strengths'] if x['bench'] in ('vibe-code-bench', 'finance-agent-v2-1')} <= {'code', 'agents'}
+
+
 def _prova():
     import tempfile
     ms = [{'canonical': c} for c in ('glm-5-2', 'qwen3-8-flash', 'glm-5-3', 'qwen3-coder', 'glm-5', 'qwen3-8', 'gemma-4-31b-it', 'gemma-4-26b-a4b-it')]
@@ -489,7 +533,9 @@ def _prova():
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bench'))
     import strengths
+    import researcher
     g = strengths.load_glossary()
+    _prova_veri(strengths, researcher)
     real = Path.home() / '.claude' / 'chatroom' / 'spawn' / 'catalog.json'
     before = real.stat().st_mtime_ns if real.exists() else None             # quello vero (prove dal vivo del LEAD) non si tocca
     with tempfile.TemporaryDirectory() as tmp:

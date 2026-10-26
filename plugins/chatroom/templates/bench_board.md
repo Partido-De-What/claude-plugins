@@ -6,6 +6,7 @@ file, never run code.
 THE LEADERBOARD: {{BOARD}} — {{BOARD_URL}}
 It holds these benchmarks (use these ids; a benchmark of the board that is not here gets an id of your own, lowercase
 with dashes, described under "new_benchmarks"): {{BOARD_BENCHES}}
+The known benchmark ids (use exactly these when a column is one of them, with no prefix or suffix of the source): {{KNOWN}}
 
 THE MODELS of the room (canonical id, then the names providers use for it):
 {{MODELS}}

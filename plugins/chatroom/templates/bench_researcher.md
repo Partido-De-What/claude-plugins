@@ -9,8 +9,10 @@ THE MODEL (canonical id, then the names providers use for it):
 ALREADY KNOWN, DO NOT SPEND TIME ON THEM: the room reads these by itself from the Artificial Analysis API and from
 OpenRouter, for every model: {{SKIP}}; and speed, latency and price. Look for everything else.
 
-THE GLOSSARY of known benchmarks, with their ids and aliases: {{GLOSSARY}}. Use its ids when a score belongs to one of
-them. Niche benchmarks that are not there are what you are here for: give each an id of your own (lowercase, dashes)
+THE KNOWN BENCHMARKS, by id (their aliases and descriptions are in {{GLOSSARY}}): {{KNOWN}}.
+Use exactly one of these ids when a score belongs to one of them, whatever the page calls it (CyberGym E2E on AA is
+cybergym-e2e-aa, Vals Vibe Code Bench is vibe-code-bench), with no prefix or suffix of the source. A different version
+of a known benchmark (finance-agent-v2 next to finance-agent-v2-1) is a new id that keeps the version. Niche benchmarks that are not there are what you are here for: give each an id of your own (lowercase, dashes)
 and describe it under "new_benchmarks".
 
 THE SOURCES, all of them, in this order (open each page; skip one only when it does not exist for this model):

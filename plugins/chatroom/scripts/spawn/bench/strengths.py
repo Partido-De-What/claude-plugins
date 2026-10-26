@@ -92,6 +92,29 @@ def entry(bench, glossary):
         (b for b in glossary['benchmarks'] if b.get('family') and str(bench).startswith(b['id'] + '-')), {})
 
 
+SOURCE_PREFIXES, SOURCE_SUFFIXES = ('vals-', 'aa-', 'benchlm-', 'or-'), ('-aa', '-vals')
+
+
+def resolve_bench(bench, glossary):
+    """l'id del glossario (o del glossario esteso) per un id scritto da un ricercatore: com'è, poi senza il prefisso o il
+    suffisso della fonte (vals-vibe-code-bench-v1-1, cybergym-e2e-aa): la versione resta (finance-agent-v2 non è v2-1).
+    Un id che non porta a niente resta com'è: è un benchmark nuovo"""
+    bench = str(bench)
+    tries = [bench]
+    for p in SOURCE_PREFIXES:
+        if bench.startswith(p):
+            tries.append(bench[len(p):])
+    for t in list(tries):
+        for sx in SOURCE_SUFFIXES:
+            if t.endswith(sx):
+                tries.append(t[:-len(sx)])
+    for t in tries:
+        hit = lookup(t, glossary)
+        if hit:
+            return hit
+    return bench
+
+
 def _best(scores):
     """un punteggio per benchmark: prima l'indipendente, poi il più recente"""
     out = {}
