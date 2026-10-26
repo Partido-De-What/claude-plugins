@@ -93,6 +93,12 @@ def match(aa, canonicals):
     return out
 
 
+def aa_scores(key, canonicals, glossary, payload=None):
+    """la fonte AA per la coda veloce (catalog.fast_scores): {canonical: [score]} dei modelli del catalogo che AA conosce"""
+    aa = parse_aa(fetch_aa(key) if payload is None else payload, glossary)
+    return {c: aa[slug]['scores'] for c, slug in match(aa, canonicals).items()}
+
+
 def _prova():
     import strengths
     g = strengths.load_glossary()
@@ -121,6 +127,8 @@ def _prova():
     assert m == {'glm-5-3': 'glm-5-3', 'claude-sonnet-4-5': 'claude-4-5-sonnet'}, m
     m = match({k: v for k, v in aa.items() if k != 'glm-5-3'}, ['glm-5-3'])
     assert m == {'glm-5-3': 'glm-5-3-reasoning'}, m                             # solo la variante: la prende
+    got = aa_scores(None, ['glm-5-3', 'kimi-k3'], g, payload=payload)
+    assert list(got) == ['glm-5-3'] and got['glm-5-3'] == aa['glm-5-3']['scores']
     print('sources ok')
 
 

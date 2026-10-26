@@ -1,17 +1,17 @@
 """I 10 punti forti di ogni modello, dai punteggi raccolti dalle fonti e dal glossario (scripts/bench_glossary.json).
 
-Per ogni benchmark i modelli misurati vanno in classifica; la frontiera è il migliore. Un punteggio vale tanto quanto
-è vicino alla frontiera, per 1.0 se misurato da una fonte indipendente (Artificial Analysis, una classifica pubblica)
-e per 0.8 se dichiarato dal produttore. I punti forti di un modello sono i suoi punteggi più forti, al massimo 3 per
-ambito e 10 in tutto; gli indici (ambito "index") vanno nel grafico AA, non tra i punti forti. Trofeo 🏆: primo in un
-benchmark dove almeno 3 modelli sono misurati (primo da solo non è una gara). Funzioni pure: niente rete, niente file
-tranne il glossario."""
+Per ogni benchmark i modelli misurati vanno in classifica; la frontiera è il migliore. La forza di un punteggio è
+0.6 x (vicinanza alla frontiera) + 0.4 x (1 - posizione/modelli misurati), per 1.0 se misurato da una fonte
+indipendente (Artificial Analysis, una classifica pubblica) e per 0.7 se dichiarato dal produttore (piano 4.2). I punti
+forti di un modello sono i suoi punteggi più forti, al massimo 3 per ambito e 10 in tutto, solo su benchmark con almeno 3
+modelli confrontabili (gli altri restano tra i punteggi); gli indici (ambito "index") vanno nel grafico AA, non tra i
+punti forti. Trofeo 🏆: primo in uno di questi benchmark. Funzioni pure: niente rete, niente file tranne il glossario."""
 import json
 import re
 from pathlib import Path
 
 GLOSSARY = Path(__file__).resolve().parents[2] / 'bench_glossary.json'
-TOP, PER_AREA, TROPHY_MIN, DECLARED = 10, 3, 3, 0.8
+TOP, PER_AREA, MIN_MODELS, DECLARED = 10, 3, 3, 0.7
 
 
 def norm(name):
@@ -95,10 +95,10 @@ def annotate(scores_by_model, glossary):
             f = _frontier(value, vals, better)
             scores.append({**s, 'frontier': f})
             area = g.get('area', 'other')
-            if area != 'index':
+            if area != 'index' and len(col) >= MIN_MODELS:
                 items.append({'bench': bench, 'area': area, 'value': value, 'source': s.get('source', ''), 'rank': rank,
-                              'of': len(col), 'trophy': rank == 1 and len(col) >= TROPHY_MIN,
-                              'weight': round(f * (1.0 if s.get('independent') else DECLARED), 4)})
+                              'of': len(col), 'trophy': rank == 1,
+                              'weight': round((0.6 * f + 0.4 * (1 - rank / len(col))) * (1.0 if s.get('independent') else DECLARED), 4)})
         items.sort(key=lambda x: (-x['trophy'], -x['weight'], x['bench']))
         picked, per = [], {}
         for it in items:
@@ -128,7 +128,8 @@ def _prova():
                                               s('aa-omniscience', -10), s('niche-bench', 3)],
         'beta': [s(b, 60) for b in code] + [s('gpqa-diamond', 85, False, '2026-10-10', 'vendor'), s('gpqa-diamond', 79),
                                               s('aa-ttft', 2.0), s('aa-omniscience', 20)],
-        'gamma': [s('livecodebench', 30), s('gpqa-diamond', 40), s('aa-ttft', 1.0), s('aa-omniscience', 5)],
+        'gamma': [s(b, 30) for b in code] + [s('gpqa-diamond', 40), s('aa-ttft', 1.0), s('aa-omniscience', 5), s('niche-bench', 1)],
+        'delta': [s('niche-bench', 2), s('swe-bench-pro', 50)],
     }
     out = annotate(data, g)
     a, b = out['alfa'], out['beta']
@@ -139,11 +140,15 @@ def _prova():
     assert ttft['rank'] == 1 and ttft['trophy'] and ttft['of'] == 3                                   # lower è meglio
     lcb = next(x for x in a['strengths'] if x['bench'] == 'livecodebench')
     assert lcb['trophy'] and lcb['of'] == 3
-    two = [x for x in a['strengths'] if x['area'] == 'code' and x['of'] == 2]
-    assert two and not any(x['trophy'] for x in two) and all(x['rank'] == 1 for x in two)             # primo su 2: niente trofeo
+    assert not any(x['bench'] == 'swe-bench-pro' for x in out['delta']['strengths'])                # 1 modello solo: non è un punto forte
+    assert any(x['bench'] == 'swe-bench-pro' for x in out['delta']['scores'])                         # ma resta tra i punteggi
+    w = {x['bench']: x['weight'] for x in b['strengths']}
+    assert w['aa-ttft'] == round(0.6 * 0.25 + 0.4 * (1 - 3 / 3), 4), w                                # 0.6 x frontiera + 0.4 x (1 - rank/N)
+    sw = lambda f, rank, n, ind: round((0.6 * f + 0.4 * (1 - rank / n)) * (1.0 if ind else DECLARED), 4)
+    assert DECLARED == 0.7 and sw(1.0, 1, 3, False) == round(0.7 * (0.6 + 0.4 * 2 / 3), 4)
     gp = next(x for x in b['scores'] if x['bench'] == 'gpqa-diamond')
     assert gp['independent'] and gp['value'] == 79                                                   # indipendente prima del dichiarato
-    om = {m: next(x for x in out[m]['scores'] if x['bench'] == 'aa-omniscience')['frontier'] for m in out}
+    om = {m: next(x for x in out[m]['scores'] if x['bench'] == 'aa-omniscience')['frontier'] for m in ('alfa', 'beta', 'gamma')}
     assert om == {'alfa': 0.0, 'beta': 1.0, 'gamma': 0.5}, om                                        # valori negativi: tra peggiore e migliore
     assert next(x for x in a['strengths'] if x['bench'] == 'niche-bench')['area'] == 'other'         # fuori glossario: ambito other
     assert len(a['strengths']) <= TOP and a['areas_best'][0] in ('code', 'efficiency', 'science'), a['areas_best']
