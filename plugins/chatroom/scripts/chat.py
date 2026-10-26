@@ -72,6 +72,8 @@ from pathlib import Path
 from github_data import GitHub
 
 HERE = Path(__file__).resolve().parent
+PLUGIN_DIR = HERE.parent                                                # pyproject.toml and uv.lock: the room's one environment
+ENV_DIR = Path(os.environ.get('UV_PROJECT_ENVIRONMENT') or Path.home() / '.claude' / 'chatroom' / 'env')
 sys.path.insert(0, str(HERE))
 from i18n import LANGS, lang_of, say, tr, use  # noqa: E402
 import idle_life  # noqa: E402
@@ -2472,6 +2474,9 @@ def fill_prompt(room, name, template='agent_prompt.md'):
                        'METRIC_SOURCE': (tr(lang, 'prompt.metricFile') if c.get('metric_source') == 'file'
                                          else tr(lang, 'prompt.metricOutput', metric=c['metric']))})
     text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), path.read_text(encoding='utf-8'))
+    py = Path(sys.executable).as_posix()
+    if sys.version_info >= (3, 14) and ' ' not in py:     # the environment's own Python: no relaunch per call (bash and PowerShell alike)
+        text = text.replace(f'python "{values["CHAT"]}"', f'{py} "{values["CHAT"]}"')
     left = sorted(set(re.findall(r'\{\{([A-Z_]+)\}\}', text)))
     if left:
         raise ValueError(say('chat.err.fill_prompt.the_template_has_fields', template=template, left=", ".join(left)))
@@ -3210,7 +3215,9 @@ def cmd_serve(room, a):
                 f = HERE.parent / 'locales' / f'{m[1]}.json'
                 return self.send(200, f.read_bytes(), 'application/json; charset=utf-8') if f.is_file() else self.send(404, say('chat.say.do_GET.no_such_language'), 'text/plain')
             if path == '/settings.json':              # the user's lasting choices: how far a lent helper goes, the figure's look
-                return self.send(200, json.dumps(settings(), ensure_ascii=False), 'application/json; charset=utf-8')
+                import importlib.util                  # headroom: the viewer warns while it is missing
+                return self.send(200, json.dumps({**settings(), 'headroom': importlib.util.find_spec('headroom') is not None},
+                                                 ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/tv/search':                  # the TV's search: YouTube titles through yt-dlp (nothing is downloaded)
                 q = urllib.parse.parse_qs(self.path.partition('?')[2]).get('q', [''])[0].strip()[:100]
                 if not q:
@@ -3875,5 +3882,19 @@ def idle_note(room, name):
             print(line)
 
 
+def relaunch():
+    """started by a Python older than 3.14: the same command again in the room's environment, through uv (which fetches
+    Python 3.14 and the locked packages the first time). Without uv it goes on here, as before 0.13"""
+    if sys.version_info >= (3, 14) or os.environ.get('CHATROOM_RELAUNCHED') or not shutil.which('uv'):
+        return
+    env = {**os.environ, 'CHATROOM_RELAUNCHED': '1', 'UV_PROJECT_ENVIRONMENT': str(ENV_DIR)}
+    try:
+        sys.exit(subprocess.run(['uv', 'run', '--quiet', '--python', '3.14', '--project', str(PLUGIN_DIR), '--frozen',
+                                 'python', *sys.argv], env=env).returncode)
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
 if __name__ == '__main__':
+    relaunch()
     main()
