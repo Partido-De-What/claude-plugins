@@ -302,6 +302,11 @@ class Runner(threading.Thread):
         else:
             update(self.room, self.name, state='notokens', tried=tried)
             self.room.append(self.name, _say(self.room, 'notokens', name=self.name, model=role['canonical']))
+            try:                                          # the Sostituisci card in the chat at once (VETRINA's cards_spawn.py)
+                from spawn import cards_spawn
+                cards_spawn.post_replace(self.room, self.name)
+            except ImportError:
+                pass
 
 
 # ------------------------------------------------------------------ what the cards and serve call
