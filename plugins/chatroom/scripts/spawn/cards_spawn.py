@@ -354,6 +354,14 @@ def refresh_catalog(room, cid, force=False):
 
     def run():
         from spawn.catalog import catalog as c
+        try:                                       # OpenRouter's free requests of the day into the routes' quota (PORTE, T30): one GET /key
+            from spawn import keys
+            from spawn.limiter import LIMITER
+            k = keys.load('open_router')
+            if k:
+                LIMITER.refresh_openrouter(k['key'])
+        except Exception:                          # a plus: the catalog goes on without it
+            pass
         try:
             cat = c.update(room.dir, force)
         except Exception as exc:                   # a network or a file error: the card says it, the room goes on
