@@ -40,7 +40,8 @@ Never ask the user to paste a key in the chat or in this conversation, and never
 
 When the card is complete, `python "CHAT" spawn create --room "ROOM"` posts the Crea ruolo card: the user picks the model
 from the catalog (scores, charts, ten strengths, free hosts, latency), names the role, writes its mission, and gives it the
-shell only if they want to (the shell runs in the role's own folder, through RTK). Suggest names and missions from the
+shell only if they want to (the shell starts in the role's own folder, through RTK; the folder is where it starts, not a
+wall: a role with the shell can reach what the user's account reaches, so say so when the user gives it). Suggest names and missions from the
 request, but the user chooses the models.
 
 ## 4. While the roles work
