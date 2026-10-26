@@ -194,7 +194,7 @@ export function roleEvents(before, after) {
   return out;
 }
 /** the rows of the departures board: [role, model, host, state key] in fixed widths, upper case; `rows` at most, the last says how many more */
-export const COLS = [9, 16, 11, 14];                                // the state column holds CHANGING GATE
+export const COLS = [9, 17, 12, 14];                                // NEMOTRON-3-ULTRA, OPEN_ROUTER and CHANGING GATE fit whole
 const fit = (s, w) => String(s ?? '').toUpperCase().slice(0, w - 1).padEnd(w);            // one space between columns
 export function boardRows(roles, rows, lg) {
   const all = roles.map(r => fit(r.name, COLS[0]) + fit(r.model, COLS[1]) + fit(r.host || r.provider, COLS[2]) + fit(TXT(r.state, {}, lg), COLS[3]));

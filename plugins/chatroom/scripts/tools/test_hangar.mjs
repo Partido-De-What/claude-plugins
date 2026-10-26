@@ -48,7 +48,7 @@ test('board rows: fixed widths, upper case, the state in words, the last row say
   return rows.length === 6 && rows.every(r => r.length === W) && rows[0].startsWith('R0') && rows[0].includes('KIMI-K3') && rows[0].includes('NOTOKENS')
     && rows[5].includes('MORE{"N":4}') && H.boardRows(roles.slice(0, 2), 6, 'en').length === 2 ? '' : JSON.stringify(rows);
 });
-test('the state column holds the longest state of both languages (CHANGING GATE, CAMBIO PORTA)', () => (H.COLS[3] - 1 >= 'CHANGING GATE'.length && H.COLS.reduce((a, b) => a + b, 0) === 50 ? '' : String(H.COLS)));
+test('the state column holds the longest state of both languages (CHANGING GATE, CAMBIO PORTA)', () => (H.COLS[3] - 1 >= 'CHANGING GATE'.length && H.COLS[1] - 1 >= 'NEMOTRON-3-ULTRA'.length && H.COLS[2] - 1 >= 'OPEN_ROUTER'.length && H.COLS.reduce((a, b) => a + b, 0) <= 52 ? '' : String(H.COLS)));
 test('the board sleeps between midnight and one, a few seconds every ten minutes', () => {
   const at = (h, m, s) => new Date(2026, 9, 26, h, m, s);
   return H.asleep(at(0, 20, 3)) && !H.asleep(at(0, 21, 3)) && !H.asleep(at(0, 20, 9)) && !H.asleep(at(1, 0, 0)) && !H.asleep(at(12, 0, 0)) ? '' : 'wrong hours';
