@@ -28,9 +28,19 @@ SECRET = re.compile(r'sk-or-v1-|sk-ant-|\bsk-[A-Za-z0-9_-]{20,}|\bnvapi-|\bgsk_[
 CARD_TYPES = {'demo': None, 'model_sheet': None, 'compare': None, **dict.fromkeys(('prepare_spawn', 'catalog', 'create_role', 'role_state', 'replace'), 'spawn.cards_spawn')}
 
 
-def _check_text(what, value):
-    """nothing that looks like a key ever reaches the chat or cards.json"""
-    if SECRET.search(json.dumps(value, ensure_ascii=False)):
+SECRET_FIELDS = ('key', 'token', 'secret', 'password')   # fields whose value never comes back, whatever its shape
+
+
+def _check_text(what, value, typed=()):
+    """nothing that looks like a key ever reaches the chat or cards.json: a known key shape, a key saved on this computer
+    (spawn.keys, when it is there), or what was just typed in a key field"""
+    dump = json.dumps(value, ensure_ascii=False)
+    try:
+        from spawn import keys
+        saved = keys.scrub(dump) != dump
+    except ImportError:                                     # the plugin without the spawn mode: the shapes alone
+        saved = False
+    if SECRET.search(dump) or saved or any(len(t) >= 12 and t in dump for t in typed):
         raise ValueError(f'{what} looks like it holds a key: refused')
     return value
 
@@ -66,7 +76,7 @@ def _save(room, cid, state):
 
     def run():
         d = states(room)
-        d[cid] = state
+        d[cid] = _check_text('the card state', state)        # every writer of cards.json passes here (a thread too)
         write_atomic(room.dir / 'cards.json', json.dumps(d, ensure_ascii=False))
     room.locked(run)
 
@@ -99,7 +109,7 @@ def action(room, body):
         if not isinstance(answer, dict):
             raise ValueError('the card did not answer')
         new = {**old, **answer}
-    _check_text('the answer', new)                          # a module that echoes a key never writes it anywhere
+    _check_text('the answer', new, [v for k, v in values.items() if any(w in k.lower() for w in SECRET_FIELDS)])   # a module that echoes a key never writes it anywhere
     _save(room, cid, new)
     return new
 
@@ -148,6 +158,17 @@ def _prova():
         except ValueError:
             pass
         assert 'sk-or-v1-' not in (room.dir / 'cards.json').read_text(encoding='utf-8') + room.chat.read_text(encoding='utf-8')
+        fake.card_action = lambda room, card, act, key, values: {'blocks': [{'t': 'text', 'text': 'got ' + values.get('key', '')}]}
+        try:
+            action(room, {'id': cid, 'action': 'echo', 'values': {'key': 'csk-' + 'd' * 40}})     # a key of a shape SECRET does not know
+            raise AssertionError('a typed key came back in the answer')
+        except ValueError:
+            pass
+        try:
+            _save(room, cid, {'note': 'sk-or-v1-' + 'e' * 40})
+            raise AssertionError('_save wrote a key')
+        except ValueError:
+            pass
         assert action(room, {'id': cid, 'action': 'dismiss'})['dismissed'] is True and states(room)[cid]['blocks']
         assert action(room, {'id': cid, 'action': 'reopen'})['dismissed'] is False
         assert not room.wakes(m, 'A') and not room.concerns(m, 'A'), 'a card wakes or concerns an agent'

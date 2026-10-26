@@ -35,9 +35,11 @@ def _save_setup(d):
 
 
 def glossary():
+    """the plugin's glossary with the benchmarks the researcher found (spawn.bench.strengths)"""
+    from spawn.bench import strengths
     try:
-        g = json.loads((HERE / 'bench_glossary.json').read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        g = strengths.load_glossary()
+    except (OSError, ValueError, KeyError):
         g = {}
     return {b['id']: b for b in g.get('benchmarks', []) if isinstance(b, dict) and b.get('id')}, (g.get('_meta') or {}).get('areas') or {}
 
@@ -307,7 +309,10 @@ def refresh_catalog(room, cid, force=False):
             cat = c.update(room.dir, force)
         except Exception as exc:                   # a network or a file error: the card says it, the room goes on
             _speak(room)
-            return cards._save(room, cid, {**(cards.states(room).get(cid) or {}), 'error': say('spawn.cat.updateFailed', why=str(exc)[:200])})
+            try:
+                return cards._save(room, cid, {**(cards.states(room).get(cid) or {}), 'error': say('spawn.cat.updateFailed', why=str(exc)[:200])})
+            except ValueError:                     # the error's text held something like a key: said without it
+                return cards._save(room, cid, {**(cards.states(room).get(cid) or {}), 'error': say('spawn.cat.updateFailed', why=type(exc).__name__)})
         _speak(room)
         cards._save(room, cid, {**catalog(cat), 'note': say('spawn.cat.updated', n=sum(1 for m in cat.get('models', []) if _free(m)))})
     threading.Thread(target=run, daemon=True).start()
