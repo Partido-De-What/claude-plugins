@@ -18,9 +18,9 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 try:
-    from .identity import canonical_id
+    from .identity import canonical_id, line_key
 except ImportError:                                      # lanciato come script (_prova)
-    from identity import canonical_id
+    from identity import canonical_id, line_key
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from research import _params_b                            # noqa: E402  la taglia dall'id ('550b-a55b' -> 550), come il panel
@@ -33,6 +33,22 @@ ROUTE_KEYS = ('ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price
 def order(m):
     """prima chi ha l'indice AA più alto, poi i modelli n.d. dal più grande (parametri dall'id), poi per nome"""
     return (-(m['aa'] if m.get('aa') is not None else -1), -(m.get('params_b') or 0), m['canonical'])
+
+
+def lines(models):
+    """le schede per linea (identity.line_key): [{'line', 'newest': scheda, 'older': [schede, dalla più nuova]}], nell'ordine
+    in cui arriva la versione più nuova di ogni linea (models già in ordine). Le card mostrano newest e, chiuse,
+    le older come "versioni precedenti (N)": restano tutte sceglibili"""
+    groups = {}
+    for m in models:
+        key, version = line_key(m['canonical'])
+        groups.setdefault(key or m['canonical'], []).append((version, m))
+    out = []
+    for key, ms in groups.items():
+        ms.sort(key=lambda x: x[0], reverse=True)
+        out.append({'line': key, 'newest': ms[0][1], 'older': [m for _, m in ms[1:]]})
+    pos = {id(m): i for i, m in enumerate(models)}
+    return sorted(out, key=lambda g: pos[id(g['newest'])])
 
 
 def catalog_path():
@@ -248,6 +264,11 @@ def _prova_update(tmp):
 
 def _prova():
     import tempfile
+    ms = [{'canonical': c} for c in ('glm-5-2', 'qwen3-8-flash', 'glm-5-3', 'qwen3-coder', 'glm-5', 'qwen3-8', 'gemma-4-31b-it', 'gemma-4-26b-a4b-it')]
+    got = {g['line']: (g['newest']['canonical'], [m['canonical'] for m in g['older']]) for g in lines(ms)}
+    assert got == {'glm': ('glm-5-3', ['glm-5-2', 'glm-5']), 'qwen-flash': ('qwen3-8-flash', []), 'qwen-coder': ('qwen3-coder', []),
+                   'qwen': ('qwen3-8', []), 'gemma-31b-it': ('gemma-4-31b-it', []), 'gemma-26b-a4b-it': ('gemma-4-26b-a4b-it', [])}, got
+    assert [g['line'] for g in lines(ms)][:2] == ['qwen-flash', 'glm']              # l'ordine del catalogo, per la versione nuova
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bench'))
     import strengths

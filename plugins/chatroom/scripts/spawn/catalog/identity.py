@@ -28,6 +28,29 @@ def canonical_id(model_id):
     return base
 
 
+def line_key(canonical):
+    """(linea, versione) di una chiave comune: la linea è il nome senza i numeri di versione ma con i qualificatori e la
+    taglia (coder, flash, mini, super, vl, 31b, a12b...), la versione la tupla dei numeri tolti. glm-5, glm-5-2, glm-5-3
+    sono una linea; qwen3-coder, qwen3-8, qwen3-8-flash tre; gemma-4-31b-it e gemma-4-26b-a4b-it due. Nel dubbio una
+    parola resta nella linea: due modelli si uniscono solo se tutto il resto del nome è uguale. La versione è
+    ((numeri), (date)): una data (4 cifre o più: 2512, 0731, 20251101) conta solo a parità di numeri, così
+    deepseek-v4-1-flash-1017 è più nuovo di deepseek-v4-flash-0731 e mistral-large-4-0 di mistral-large-2512"""
+    words, version, dates = [], [], []
+    for t in str(canonical or '').split('-'):
+        if t.isdigit():
+            (dates if len(t) >= 4 else version).append(int(t))
+            continue
+        m = re.fullmatch(r'([a-z]+)(\d+)', t)             # qwen3, k3, o3, v4: nome attaccato alla versione
+        if m and m[1] != 'v':
+            words.append(m[1])
+            version.append(int(m[2]))
+        elif m:
+            version.append(int(m[2]))                     # v4 di deepseek-v4-flash
+        elif t:
+            words.append(t)
+    return '-'.join(words), (tuple(version), tuple(dates))
+
+
 def merge(records):
     """{canonical: [record, ...]} dai record della scoperta ({'adapter', 'model_id', ...}), nell'ordine in cui arrivano"""
     out = {}
@@ -63,6 +86,24 @@ def _prova():
     m = merge([{'adapter': 'open_router', 'model_id': 'z-ai/glm-5.3'}, {'adapter': 'siliconflow', 'model_id': 'zai-org/GLM-5.3'},
                {'adapter': 'groq', 'model_id': 'qwen/qwen3.6-27b'}, {'adapter': 'x', 'model_id': ' '}])
     assert [len(v) for v in m.values()] == [2, 1] and 'glm-5-3' in m, m
+    lines = [  # #456 di Adrian, poi id veri di docs/adapter-modelli.md: ogni gruppo una linea
+        ('glm-5', 'glm-5-2', 'glm-5-3'), ('nemotron-3-super-120b-a12b', 'nemotron-3-5-super-120b-a12b'),
+        ('deepseek-v4-flash', 'deepseek-v4-1-flash'), ('claude-opus-4-5', 'claude-opus-5-5', 'claude-opus-5'),
+        ('kimi-k2-6', 'kimi-k3'), ('qwen3-6-27b', 'qwen3-8-27b'), ('gemini-3-5-flash', 'gemini-3-8-flash'), ('o3-mini', 'o4-mini')]
+    for group in lines:
+        keys = {line_key(canonical_id(x))[0] for x in group}
+        assert len(keys) == 1, (group, keys)
+    apart = [('qwen3-coder', 'qwen3-8', 'qwen3-8-flash'), ('nemotron-3-super-120b-a12b', 'nemotron-3-ultra-550b-a55b'),
+             ('gemma-4-31b-it', 'gemma-4-26b-a4b-it'), ('glm-5-3', 'glm-5-3-flash', 'glm-5-turbo'),
+             ('gemini-3-5-flash', 'gemini-3-5-flash-lite'), ('gpt-oss-120b', 'gpt-oss-20b'), ('kimi-k3', 'kimi-k3-1-pro', 'kimi-k2-7-code'),
+             ('claude-opus-5-5', 'claude-opus-latest'), ('nemotron-3-5-super-vl', 'nemotron-3-5-super'), ('llama-3-3-70b-instruct', 'llama-3-1-8b-instruct')]
+    for group in apart:
+        keys = [line_key(canonical_id(x))[0] for x in group]
+        assert len(set(keys)) == len(keys), (group, keys)
+    assert line_key('glm-5-3') == ('glm', ((5, 3), ())) and line_key('glm-5-3') > line_key('glm-5-2') > line_key('glm-5')
+    assert line_key('deepseek-v4-1-flash') == ('deepseek-flash', ((4, 1), ())) and line_key('qwen3-coder') == ('qwen-coder', ((3,), ()))
+    assert line_key('deepseek-v4-1-flash-1017') > line_key('deepseek-v4-flash-0731') and line_key('mistral-large-4-0') > line_key('mistral-large-2512')
+    assert line_key('kimi-k3') > line_key('kimi-k2-0905') > line_key('kimi-k2') and line_key('') == ('', ((), ()))
     print('identity ok')
 
 
