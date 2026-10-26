@@ -132,6 +132,110 @@ def fast_scores(sources, timeout=FAST_TIMEOUT):
     return out, partial
 
 
+AA_MAX_AGE = 24 * 3600                                    # D2: 100 richieste al giorno, una basta
+
+
+def _studies(room_dir):
+    try:
+        lines = (Path(room_dir) / 'spawn' / 'study.jsonl').read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return []
+    return [json.loads(x) for x in lines if x.strip()]
+
+
+def study(room_dir, lang='it'):
+    """il tasto "Studia": il prompt del ricercatore per i modelli del catalogo non ancora studiati (D6), e una riga in
+    ROOM/spawn/study.jsonl ({id, prompt, out, models}) che il relay del lead mostra come STUDY. None se non c'è nulla da
+    studiare. Il risultato in out lo accetta il prossimo update(room_dir)"""
+    from spawn.bench import researcher, strengths
+    cat = load()
+    models = {m['canonical']: [r['model_id'] for r in m['routes']] for m in cat['models']}
+    n = len(_studies(room_dir)) + 1
+    out = Path(room_dir) / 'spawn' / 'study' / f'{n}.json'
+    g = strengths.load_glossary()
+    prompt = researcher.prepare(models, out, strengths.GLOSSARY, list(g['_meta']['areas']), lang)
+    if prompt is None:
+        return None
+    entry = {'id': n, 'prompt': str(prompt), 'out': str(out), 'models': sorted(set(models) - set(researcher.studied()))}
+    with (Path(room_dir) / 'spawn' / 'study.jsonl').open('a', encoding='utf-8') as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    return entry
+
+
+def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None):
+    """il giro completo, da chiamare in un thread (la card Catalogo, Prepara spawn): le liste dei provider che hanno una
+    chiave, la fonte veloce Artificial Analysis una volta al giorno (con la sua chiave, D2), i risultati del ricercatore
+    arrivati nella stanza; poi punti forti e stato, e il file. Il risultato di un ricercatore fuori schema è messo da
+    parte (.bad.json) con il motivo nel catalogo, mai usato a metà"""
+    from spawn.bench import researcher, sources, strengths
+    from spawn.providers import catalog as providers
+    if list_models is None:
+        from spawn.providers import list_models
+    if load_key is None:
+        from spawn.keys import load as load_key
+    g, now = strengths.load_glossary(), time.time()
+    cat = refresh(load(), [p for p in providers.FREE if load_key(p)], list_models, now=now, force=force)
+    canon = [m['canonical'] for m in cat['models']]
+    aa, st = load_key('artificial_analysis'), cat['providers'].get('artificial_analysis') or {}
+    scores, partial = {}, False
+    if aa and canon and (force or not st.get('ok') or now - st.get('at', 0) > AA_MAX_AGE):
+        scores, partial = fast_scores({'aa': lambda: sources.aa_scores(aa['key'], canon, g, payload=aa_payload)})
+        cat['providers']['artificial_analysis'] = {'at': now, 'ok': not partial, 'count': len(scores)}
+    for e in _studies(room_dir) if room_dir else []:
+        out = Path(e['out'])
+        if not out.is_file():
+            continue
+        try:
+            got, _news = researcher.accept(out, g, asked=set(e['models']))   # shortcut: i benchmark nuovi restano "other", senza descrizione
+            researcher.mark_studied(e['models'])
+            for c, s in got.items():
+                scores.setdefault(c, []).extend(s)
+            out.replace(out.with_suffix('.done.json'))
+            cat['providers']['researcher'] = {'at': now, 'ok': True, 'count': len(got)}
+        except ValueError as exc:
+            out.replace(out.with_suffix('.bad.json'))
+            cat['providers']['researcher'] = {'at': now, 'ok': False, 'error': str(exc)[:200]}
+    cat = add_scores(cat, scores, g, partial=partial, studied=set(researcher.studied()))
+    save(cat)
+    return cat
+
+
+def _prova_update(tmp):
+    """update e study con provider, chiavi e AA finti, nella HOME finta di _prova"""
+    room = Path(tmp) / 'stanza'
+    lists = {'open_router': [{'id': 'z-ai/glm-5.3:free', 'name': 'GLM', 'free': True, 'tools': True},
+                             {'id': 'moonshotai/kimi-k3:free', 'name': 'Kimi', 'free': True, 'tools': True},
+                             {'id': 'deepseek/deepseek-v4-flash:free', 'name': 'DS', 'free': True}],
+             'groq': [{'id': 'qwen/qwen3.8-27b', 'name': 'Q', 'free': True}]}
+    keys = {'open_router': {'key': 'k'}, 'artificial_analysis': {'key': 'a'}}
+    payload = {'data': [{'slug': s, 'evaluations': {'artificial_analysis_intelligence_index': v, 'gpqa': v / 100}}
+                        for s, v in (('glm-5-3', 61), ('kimi-k3', 64), ('deepseek-v4-flash', 50))]}
+    asked = []
+    cat = update(room, list_models=lambda p: asked.append(p) or lists[p], load_key=keys.get, aa_payload=payload)
+    assert asked == ['open_router'] and len(cat['models']) == 3                                  # groq senza chiave: non letto
+    assert cat['models'][0]['canonical'] == 'kimi-k3' and cat['models'][0]['aa'] == 64 and cat['models'][0]['state'] == 'partial'
+    assert cat['providers']['artificial_analysis']['ok'] and cat['models'][0]['strengths']
+    e = study(room)
+    assert e['models'] == ['deepseek-v4-flash', 'glm-5-3', 'kimi-k3'] and Path(e['prompt']).is_file()
+    res = {'models': [{'canonical': 'glm-5-3', 'scores': [{'bench': 'swe-bench-pro', 'value': 40, 'source': 'https://example.org/a',
+                                                           'date': '2026-10-01', 'independent': True}]}]}
+    Path(e['out']).write_text(json.dumps(res), encoding='utf-8')
+    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, aa_payload={'data': []})
+    glm = next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')
+    assert any(s['bench'] == 'swe-bench-pro' for s in glm['scores']) and glm['state'] == 'complete' and glm['aa'] == 61
+    assert Path(e['out']).with_suffix('.done.json').is_file() and cat['providers']['researcher']['ok']
+    assert cat['providers']['artificial_analysis']['count'] == 3                               # AA non riletto nelle 24 ore
+    assert study(room) is None                                                                   # D6: tutti studiati
+    lists['open_router'].append({'id': 'thinkingmachines/inkling:free', 'name': 'Inkling', 'free': True})
+    cat = update(room, force=True, list_models=lambda p: lists[p], load_key=keys.get, aa_payload={'data': []})
+    e2 = study(room)
+    assert e2['id'] == 2 and e2['models'] == ['inkling']                                          # solo il nuovo
+    Path(e2['out']).write_text('{"models": [{"canonical": "glm-5-3", "scores": []}]}', encoding='utf-8')
+    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get)
+    assert not cat['providers']['researcher']['ok'] and 'non chiesto' in cat['providers']['researcher']['error']
+    assert Path(e2['out']).with_suffix('.bad.json').is_file()
+
+
 def _prova():
     import tempfile
     import sys
@@ -184,6 +288,8 @@ def _prova():
         assert all('frontier' in x and x['source'] for x in glm['scores'])
         save(cat)
         assert load()['models'][0]['canonical'] == 'glm-5-3' and not list(catalog_path().parent.glob('*.tmp'))
+        catalog_path().unlink()
+        _prova_update(tmp)
         big = {'canonical': 'nemotron-3-ultra-550b-a55b', 'aa': None, 'params_b': 550.0}
         small = {'canonical': 'lfm-2-5-2-6b', 'aa': None, 'params_b': 2.6}
         assert sorted([small, big, {'canonical': 'x', 'aa': 1, 'params_b': None}], key=order)[1:] == [big, small]
