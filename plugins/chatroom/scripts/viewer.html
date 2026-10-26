@@ -54,6 +54,10 @@
   .dot.on { background: #25d366; } .dot.late { background: #f5a623; }
   .dot.idle { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
   .chip.idle { opacity: .72; }
+  /* a role without tokens (0.13 spawn): a pager that blinks, light only, never a sound */
+  .pager { cursor: pointer; animation: pager 1s steps(2, jump-none) infinite; filter: drop-shadow(0 0 3px #ff3b30); }
+  @keyframes pager { 50% { opacity: .15; } }
+  @media (prefers-reduced-motion: reduce) { .pager { animation: none; } }
   .strip .count { margin-left: auto; }
 
   /* feed */
@@ -586,7 +590,7 @@ function header() {
     const cls = SELF.has(n) || age === null ? '' : sleeping ? 'idle' : age <= hb ? 'on' : 'late';
     const title = (p.role ? p.role + ' · ' : '') + (sleeping ? t().idleSince(sleeping.time, sleeping.n)
       : age === null ? t().notYet : `${t().lastMsg} ${t().ago(age)}`);
-    return `<span class="chip${sleeping ? ' idle' : ''}" title="${esc(title)}">${avatar(n)}<b style="color:${p.color}">${esc(n)}</b> ${mine.length}<span class="dot ${cls}"></span></span>`;
+    return `<span class="chip${sleeping ? ' idle' : ''}" title="${esc(title)}">${avatar(n)}<b style="color:${p.color}">${esc(n)}</b>${PAGER.has(n) ? ` <span class="pager" data-who="${esc(n)}" title="${esc(n + ' ' + t().pagerTip)}">📟</span>` : ''} ${mine.length}<span class="dot ${cls}"></span></span>`;
   }).join('') + `<span class="count">${esc(t().messages(all.length))}</span>`);
   // the "typing…" line: the freshest status of an agent still inside its timer and not idle
   const fresh = all.filter(m => isStatus(m) && !SELF.has(m.from) && !idle.has(m.from) && (now - stamp(m)) / 1000 <= hb);
@@ -706,6 +710,25 @@ function setScope(s) {
   $('box').placeholder = scope === 'other' && nConfig ? t().placeholder((nConfig.user_name || 'USER') + ' → ' + (nConfig.title || '')) : t().placeholder(config.user_name || 'USER');
 }
 $('scope').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (b) setScope(b.dataset.s); });
+/* 0.13 spawn: the roles without tokens (spawn.json of the room's runner) blink in the list; a click jumps to their Sostituisci card.
+   A room without roles answers 404: then it is asked again only after a minute */
+let PAGER = new Set(), pagerNext = 0;
+async function pollRoles() {
+  if (Date.now() < pagerNext) return;
+  try {
+    const r = await fetch('spawn.json', {cache: 'no-store'});
+    const roles = r.ok ? (await r.json()).roles || [] : [];
+    if (!roles.length) pagerNext = Date.now() + 60000;
+    const next = new Set(roles.filter(x => x.state === 'notokens').map(x => x.name));
+    if ([...next].join() !== [...PAGER].join()) { PAGER = next; header(); }
+  } catch (e) {}
+}
+function jumpReplace(name) {                     // the latest Sostituisci card of a role (the runner posts it at once)
+  const m = all.slice().reverse().find(x => x.kind === 'card' && x.card?.type === 'replace' && x.card.data?.role === name);
+  if (m) jumpTo(m.n);
+}
+$('strip').addEventListener('click', e => { const p = e.target.closest('.chip')?.querySelector('.pager'); if (p) jumpReplace(p.dataset.who); });   // the whole name is the target, not only the 📟
+window.addEventListener('chatroom:replace', e => jumpReplace(e.detail?.name));       // a click on its figure in the Hangar (office.js)
 window.chatroomScope = () => scope;
 window.chatroomRoom = () => ({n: (nRooms[nSel] || {}).n || 0, title: scope === 'other' ? (nRooms[nSel] || {}).title || '' : ''});
 setInterval(pollNeighbor, 3000);
@@ -1159,7 +1182,7 @@ window.chatroom = {
   jumpTo, snapshot: () => ({all, config}),
   tag(name) { box.value = (box.value && !/\s$/.test(box.value) ? box.value + ' ' : box.value) + '@' + name + ' '; box.focus(); },
 };
-I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); setInterval(poll, 1500); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); });
+I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); setInterval(poll, 1500); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); pollRoles(); setInterval(pollRoles, 5000); });
 </script>
 <script type="module" src="office.js"></script>
 </body>

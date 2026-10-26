@@ -25,7 +25,7 @@ DATA_MAX, BODY_MAX = 64 * 1024, 16 * 1024
 SECRET = re.compile(r'sk-or-v1-|sk-ant-|\bsk-[A-Za-z0-9_-]{20,}|\bnvapi-|\bgsk_[A-Za-z0-9]{20,}|\bAIza[0-9A-Za-z_-]{30,}|\bhf_[A-Za-z0-9]{30,}')
 # the module that answers each type of card (it defines card_action(room, card, action, key, values) -> new data, or raises
 # ValueError with what to tell the user); None: a card that only shows. A type not listed here cannot be posted.
-CARD_TYPES = {'demo': None}
+CARD_TYPES = {'demo': None, 'model_sheet': None, 'compare': None, **dict.fromkeys(('prepare_spawn', 'catalog', 'create_role', 'role_state', 'replace'), 'spawn.cards_spawn')}
 
 
 def _check_text(what, value):
