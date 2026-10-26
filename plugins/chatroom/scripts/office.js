@@ -2349,6 +2349,6 @@ ui.addExtra('zombie', '🧟', 'Zombie', () => paintball.zombies());
 applyMode(); applyQuality();
 drawSky(new Date().getHours()); drawClock();
 pollState();
-if (window.chatroom?.snapshot) { const s = window.chatroom.snapshot(); DATA.all = s.all; DATA.config = s.config; DATA.loaded = true; derive(); }
+if (window.chatroom?.snapshot) { const s = window.chatroom.snapshot(); DATA.all = s.all; DATA.config = s.config; DATA.loaded = true; derive(); ui.setLang(DATA.config.lang); }   // the room's language from the start, not at its first message
 requestAnimationFrame(frame);
 setTimeout(() => prewarm().catch(() => {}), 4000);
