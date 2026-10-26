@@ -1,4 +1,4 @@
-"""Il catalogo della modalità spawn: tutti i modelli di tutti i provider configurati, una scheda per modello con le sue
+"""Il catalogo della modalità spawn: tutti i modelli gratis (D12: la 0.13 usa solo modelli free) di tutti i provider configurati, una scheda per modello con le sue
 strade (provider e id), i punteggi con la fonte, i 10 punti forti. Si salva in ~/.claude/chatroom/spawn/catalog.json
 e il viewer lo serve com'è (GET /catalog.json, contratto #112 della stanza 0.13).
 
@@ -76,7 +76,7 @@ def refresh(cat, provider_ids, list_models, now=None, force=False):
             m['routes'] = [r for r in m['routes'] if r['adapter'] != pid]
         for item in listed:
             key = canonical_id(item.get('id'))
-            if not key:
+            if not key or item.get('free') is not True:  # D12: la 0.13 usa solo modelli gratis
                 continue
             m = models.setdefault(key, {'canonical': key, 'name': str(item.get('name') or item['id'])[:120], 'routes': [],
                                         'scores': [], 'aa': None, 'strengths': [], 'areas_best': [], 'state': 'pending',
@@ -156,16 +156,19 @@ def _prova():
             return lists[pid]
         cat = refresh(load(), ['open_router', 'siliconflow', 'nvidia_nim', 'groq'], list_models, now=1000.0)
         glm = next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')
-        assert len(glm['routes']) == 3 and {r['adapter'] for r in glm['routes']} == {'open_router', 'siliconflow'}, glm['routes']
+        assert len(glm['routes']) == 1 and glm['routes'][0]['model_id'] == 'z-ai/glm-5.3:free', glm['routes']     # D12: solo free
         assert next(r for r in glm['routes'] if r['model_id'].endswith(':free'))['free'] is True and glm['state'] == 'pending'
         assert cat['providers']['groq']['ok'] is False and 'giù' in cat['providers']['groq']['error'] and cat['providers']['nvidia_nim']['ok']
         save(cat)
         cat = refresh(load(), ['open_router', 'groq'], list_models, now=1000.0 + 3600)
         assert calls.count('open_router') == 1 and calls.count('groq') == 2                       # 12 ore: non riletto; un errore sì
+        lists['siliconflow'][0]['free'] = True                                                   # una seconda strada free
+        cat = refresh(cat, ['siliconflow'], list_models, now=1000.0 + MAX_AGE + 1)
+        assert len(next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')['routes']) == 2
         lists['open_router'] = lists['open_router'][1:]                                            # la :free sparisce
         cat = refresh(cat, ['open_router'], list_models, now=1000.0 + MAX_AGE + 1)
         glm = next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')
-        assert [r['model_id'] for r in glm['routes'] if r['adapter'] == 'open_router'] == ['z-ai/glm-5.3']
+        assert [r['adapter'] for r in glm['routes']] == ['siliconflow'], glm['routes']
         s = lambda b, v: {'bench': b, 'value': v, 'source': 'https://artificialanalysis.ai/models/x', 'date': '2026-10-26', 'independent': True}
         slow = lambda: time.sleep(3) or {'kimi-k3': [s('gpqa-diamond', 99)]}
         got, partial = fast_scores({'aa': lambda: {'glm-5-3': [s('aa-intelligence-index', 61), s('gpqa-diamond', 78)], 'kimi-k3': [s('gpqa-diamond', 70)],
