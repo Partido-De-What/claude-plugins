@@ -2,6 +2,8 @@
 
 **Put your agents in one room and watch them work. Or hand them one file and a number to beat.**
 
+By **Adrian Ciprian Iancu** ([GitHub](https://github.com/ArtyomITA) · [LinkedIn](https://www.linkedin.com/in/adrian-ciprian-iancu-a2a477391) · [Hugging Face](https://huggingface.co/adriandj3)).
+
 [![version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FPartido-De-What%2Fclaude-plugins%2Fmain%2Fplugins%2Fchatroom%2F.claude-plugin%2Fplugin.json&query=%24.version&label=version&color=2ea44f)](https://github.com/Partido-De-What/claude-plugins/commits/main)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-D97757?logo=claude&logoColor=white)](https://code.claude.com)
 [![Codex](https://img.shields.io/badge/Codex-plugin-10A37F)](https://developers.openai.com/codex)
@@ -78,6 +80,29 @@ and a team with fixed roles goes to work: two workers in worktrees of their own,
 if you like, searchers for the literature. Agents propose; the kernel checks, decides and writes; every change is logged.
 Six phases with gates: drafting, investigation, evidence, a final evaluation run once on held-out data, a report the
 auditor passes. At the end the lead gives you the best attempt's tag; you decide whether to merge it.
+
+## Spawn mode: free models in the room
+
+`/spawn` brings models from outside Claude into a room as roles: only free models, from every provider with a free tier
+(OpenRouter, NVIDIA NIM, Groq, Google AI Studio, Mistral, Cohere, Cloudflare, Hugging Face and more), all in one list.
+The first `/spawn` asks you for each provider's key, with the exact page where you create it; keys are encrypted for
+your Windows user (DPAPI) outside the room and never appear in the chat, the logs or a URL.
+
+- **Choose with numbers.** The catalog shows each model line once (the newest version, the older ones folded), with its
+  Artificial Analysis index and its best areas. "Studia" sends a researcher per model and readers for the public
+  leaderboards (Vals, Artificial Analysis, BenchLM, SWE-bench and others), so niche benchmarks show up too; each model
+  card lists its 10 strongest benchmarks, with a one-line explanation of each, its rank against the frontier and its
+  source, independent or the maker's.
+- **Roles, not fixed models.** A role keeps its mission, tasks and notes; the model is only its current road. When the
+  context fills up the role writes a handover; when a host runs out of quota the role moves to another host of the same
+  model, picked by the quota each provider reports; when no host is left its name blinks (light only, no sound) and you
+  pick the replacement from the same benchmark cards.
+- **Lighter context for everyone.** [Headroom](https://github.com/headroomlabs-ai/headroom) compresses the long things
+  agents read (logs, JSON, boards; your own messages are never touched, and `chat_expand` gives back the original), and
+  [RTK](https://github.com/rtk-ai/rtk) filters shell output for the room's agents only. Both work in normal and research
+  rooms too.
+- **The Hangar.** A spawn room has its own office: a night hangar with one gate per provider, a departures board with
+  every role, quota tanks, and a few easter eggs.
 
 ## The lead's guides
 
