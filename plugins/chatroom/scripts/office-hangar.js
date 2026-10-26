@@ -213,7 +213,7 @@ export function clean(d) {
   d = d && typeof d === 'object' ? d : {};
   return {
     providers: (Array.isArray(d.providers) ? d.providers : []).slice(0, 40).filter(p => p && p.id).map(p => ({id: s(p.id), name: s(p.name || p.id), quota: p.quota == null ? null : Math.max(0, Math.min(1, num(p.quota))), down: !!p.down})),
-    roles: (Array.isArray(d.roles) ? d.roles : []).slice(0, 40).filter(r => r && r.name).map(r => ({name: s(r.name), provider: s(r.provider), model: s(r.model, 60), host: s(r.host), state: ['service', 'switch', 'notokens'].includes(r.state) ? r.state : 'service',
+    roles: (Array.isArray(d.roles) ? d.roles : []).slice(0, 40).filter(r => r && r.name).map(r => ({name: s(r.name), provider: s(r.provider), model: s(String(r.model ?? '').split('/').pop(), 60), host: s(r.host), state: ['service', 'switch', 'notokens'].includes(r.state) ? r.state : 'service',
       trophy: r.trophy ? s(r.trophy) : null, aa: r.aa == null ? null : num(r.aa), strong: (Array.isArray(r.strong) ? r.strong : []).slice(0, 3).map(x => s(x, 24))})),
     saved: {headroom: num(d.saved?.headroom), rtk: num(d.saved?.rtk), caveman: num(d.saved?.caveman)},
     press: num(d.press), funnel: num(d.funnel), router: s(d.router, 60),
