@@ -37,13 +37,13 @@ PROFILES_SCHEMA = {
     'type': 'object', 'required': ['profiles'], 'additionalProperties': False,
     'properties': {'profiles': {'type': 'array', 'maxItems': 100, 'items': {
         'type': 'object', 'required': ['canonical', 'it', 'en', 'status'], 'additionalProperties': False,
-        'properties': {'canonical': _TXT(140), 'it': _TXT(400), 'en': _TXT(400),
+        'properties': {'canonical': _TXT(140), 'it': _TXT(600), 'en': _TXT(600),
                        'status': {'enum': ['current', 'preview', 'deprecated', 'unknown']}, 'successor': _TXT(140),
-                       'level_it': _TXT(120), 'level_en': _TXT(120), 'basis': _TXT(200),
+                       'level_it': _TXT(160), 'level_en': _TXT(160), 'basis': _TXT(300),
                        'limits': {'type': 'array', 'maxItems': 20, 'items': {
                            'type': 'object', 'required': ['host'], 'additionalProperties': False,
                            'properties': {'host': _TXT(40), 'rpm': _NUM, 'rpd': _NUM, 'tpm': _NUM, 'tpd': _NUM,
-                                          'note': _TXT(200), 'source': _TXT(300)}}},
+                                          'note': _TXT(500), 'source': _TXT(300)}}},
                        'sources': {'type': 'array', 'maxItems': 10, 'items': _TXT(300)}}}}}}
 LINES_SCHEMA = {
     'type': 'object', 'required': ['decisions'], 'additionalProperties': False,

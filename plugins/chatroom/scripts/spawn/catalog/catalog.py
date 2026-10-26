@@ -15,7 +15,8 @@ import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, wait
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from pathlib import Path
 
 try:
@@ -329,7 +330,8 @@ def study(room_dir, lang='it'):
     asked = {x for e in _studies(room_dir) if e.get('kind') == 'profiles' and not Path(e['out']).with_suffix('.done.json').exists()
              and not Path(e['out']).with_suffix('.bad.json').exists() for x in e['models']}
     todo = {m['canonical']: [(r['adapter'], r['model_id']) for r in m['routes'] if r.get('free')] for m in cat['models']
-            if not m.get('profile') and m['canonical'] not in asked}   # a profile for every model: what it is, status, level, free limits
+            if m['canonical'] not in asked and (not m.get('profile') or not (m['profile'].get('level_it') or m['profile'].get('again')))}
+    # a profile for every model (what it is, status, level, free limits); one without a level is asked once more
     keys = list(todo)
     for k in range(0, len(keys), researcher.PROFILES_BATCH):
         part = {c: todo[c] for c in keys[k:k + researcher.PROFILES_BATCH]}
@@ -344,6 +346,7 @@ def study(room_dir, lang='it'):
 
 PROBE = {'running': False, 'done': 0, 'total': 0}
 PROBE_ASK = [{'role': 'user', 'content': 'Reply with the single word OK.'}]
+PROBE_WAIT = 60                                          # seconds the limiter may hold one try (a closed window): then the next host
 
 
 def probe(complete=None, only=None, workers=8):
@@ -359,13 +362,18 @@ def probe(complete=None, only=None, workers=8):
     def one(m):
         res = {'ok': False, 'error': 'no_host'}
         for r in [r for r in m['routes'] if r.get('free')][:4]:
-            t0 = time.time()
+            t0, stop = time.time(), threading.Event()
+            timer = threading.Timer(PROBE_WAIT, stop.set)
+            timer.start()
             try:
-                complete(r['adapter'], r['model_id'], PROBE_ASK, max_tokens=64, attempts=1)
+                complete(r['adapter'], r['model_id'], PROBE_ASK, max_tokens=64, attempts=1, stop=stop)
                 res = {'ok': True, 'ms': int((time.time() - t0) * 1000), 'host': r['adapter']}
                 break
             except Exception as exc:                       # the next host; the last error is the one kept
-                res = {'ok': False, 'host': r['adapter'], 'error': getattr(exc, 'kind', type(exc).__name__)}
+                kind = getattr(exc, 'kind', type(exc).__name__)
+                res = {'ok': False, 'host': r['adapter'], 'error': 'busy' if kind == 'stopped' else kind}
+            finally:
+                timer.cancel()
         return m['canonical'], {**res, 'at': time.time()}
 
     def flush():
@@ -377,7 +385,8 @@ def probe(complete=None, only=None, workers=8):
         save(cat)
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for c, res in pool.map(one, todo):
+            for f in as_completed([pool.submit(one, m) for m in todo]):
+                c, res = f.result()
                 got[c] = res
                 PROBE['done'] += 1
                 if PROBE['done'] % 20 == 0:
@@ -451,7 +460,7 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
                 got = researcher.accept_profiles(out, hosts)
                 for m in cat['models']:
                     if m['canonical'] in got:
-                        m['profile'] = {**got[m['canonical']], 'at': now}
+                        m['profile'] = {**got[m['canonical']], 'at': now, 'again': bool(m.get('profile'))}
                 out.replace(out.with_suffix('.done.json'))
                 cat['providers']['profiles'] = {'at': now, 'ok': True, 'count': len(got)}
             except ValueError as exc:

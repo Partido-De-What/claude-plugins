@@ -18,7 +18,10 @@ FOR EACH MODEL:
    "between GPT-4o mini and GPT-4o", "below Claude 3 Haiku", "close to Gemini 2.5 Pro on coding". Base it on numbers:
    the Artificial Analysis Intelligence Index, LMArena, or benchmarks the maker and independent sites report, compared
    with the same numbers of the well-known model. "basis" says in a few words what you compared (e.g. "AA index 38 vs
-   Claude 3.5 Sonnet 37"). If you find no number to compare, write level "" and basis "no data": never guess.
+   Claude 3.5 Sonnet 37"). If you find no number to compare, still give a level as an ESTIMATE from what you know of
+   it (size, generation, release date, what the maker compares it with), starting with "estimate:" / "stima:", e.g.
+   "stima: vicino a GPT-3.5, un 7B del 2024", and basis "estimate from size and date". A model the user cannot place
+   is the problem this card solves: never leave the level empty.
 4. FREE LIMITS of every host listed for it: how much the free tier of that host lets you use this model. Requests per
    minute and per day, tokens per minute and per day, when the host publishes them (its rate-limit or pricing page,
    e.g. Groq's rate limits page, OpenRouter's free-model limits, Google AI Studio's rate limits, Cerebras, NVIDIA NIM,
