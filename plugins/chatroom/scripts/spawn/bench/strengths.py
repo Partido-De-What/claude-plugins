@@ -190,7 +190,7 @@ def _prova():
     assert w['aa-omniscience'] == round(0.6 * 1.0 + 0.4 * (1 - 1 / 3), 4), w                          # 0.6 x frontiera + 0.4 x (1 - rank/N)
     cg = annotate({'mistral-large-4': [s('cybergym-e2e-aa', 82)]}, g, leaders={'cybergym-e2e-aa': [79, 78], 'other': [1]})
     x = cg['mistral-large-4']['strengths'][0]
-    assert (x['rank'], x['of'], x['trophy'], x['area']) == (1, 3, True, 'other'), x               # CyberGym 82 davanti a 79 e 78 (#530)
+    assert (x['rank'], x['of'], x['trophy'], x['area']) == (1, 3, True, 'security'), x            # CyberGym 82 davanti a 79 e 78 (#530)
     assert not annotate({'m': [s('cybergym-e2e-aa', 70)]}, g, leaders={'cybergym-e2e-aa': [82, 79]})['m']['strengths'][0]['trophy']
     da = annotate({k: [s('design-arena-website', v)] for k, v in (('a', 1300), ('b', 1200), ('c', 1100))}, g)
     assert da['a']['strengths'][0]['area'] == 'design' and da['a']['strengths'][0]['trophy']          # famiglia Design Arena
