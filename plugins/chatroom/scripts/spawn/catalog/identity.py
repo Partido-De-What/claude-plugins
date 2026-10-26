@@ -38,7 +38,7 @@ def line_key(canonical):
     words, version, dates = [], [], []
     for t in str(canonical or '').split('-'):
         if t.isdigit():
-            (dates if len(t) >= 4 else version).append(int(t))
+            (dates if len(t) >= 4 or dates else version).append(int(t))   # dopo una data (2025-07-28) tutto è data
             continue
         m = re.fullmatch(r'([a-z]+)(\d+)', t)             # qwen3, k3, o3, v4: nome attaccato alla versione
         if m and m[1] != 'v':
@@ -104,6 +104,7 @@ def _prova():
     assert line_key('deepseek-v4-1-flash') == ('deepseek-flash', ((4, 1), ())) and line_key('qwen3-coder') == ('qwen-coder', ((3,), ()))
     assert line_key('deepseek-v4-1-flash-1017') > line_key('deepseek-v4-flash-0731') and line_key('mistral-large-4-0') > line_key('mistral-large-2512')
     assert line_key('kimi-k3') > line_key('kimi-k2-0905') > line_key('kimi-k2') and line_key('') == ('', ((), ()))
+    assert line_key('qwen3-7-plus') > line_key('qwen-plus-2025-07-28') and line_key('qwen-plus-2025-07-28')[0] == 'qwen-plus'   # #506 p.1
     print('identity ok')
 
 

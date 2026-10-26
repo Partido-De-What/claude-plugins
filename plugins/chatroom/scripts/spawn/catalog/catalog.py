@@ -13,6 +13,7 @@ lista è la richiesta della lista stessa: tempo e riuscita per provider, mai una
 """
 import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
@@ -27,6 +28,7 @@ from research import _params_b                            # noqa: E402  la tagli
 
 MAX_AGE = 12 * 3600
 FAST_TIMEOUT = 30
+NOT_CHAT = re.compile(r'embed|rerank|guard|safety|parse|lyria|reward|detector|nvclip|moderation|whisper|transcri|tts', re.I)   # #506 p.4
 ROUTE_KEYS = ('ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price_out')
 
 
@@ -67,7 +69,7 @@ def save(cat):
     path = catalog_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f'catalog.{os.getpid()}.tmp')
-    tmp.write_text(json.dumps(cat, ensure_ascii=False), encoding='utf-8')
+    tmp.write_text(json.dumps({k: v for k, v in cat.items() if not k.startswith('_')}, ensure_ascii=False), encoding='utf-8')
     os.replace(tmp, path)
 
 
@@ -92,8 +94,10 @@ def refresh(cat, provider_ids, list_models, now=None, force=False):
             m['routes'] = [r for r in m['routes'] if r['adapter'] != pid]
         for item in listed:
             key = canonical_id(item.get('id'))
-            if not key or item.get('free') is not True:  # D12: la 0.13 usa solo modelli gratis
+            if not key or item.get('free') is not True or NOT_CHAT.search(str(item['id'])):   # D12 solo gratis; solo chat
                 continue
+            if isinstance(item.get('benchmarks'), dict):  # OpenRouter: punteggi gratis dentro la lista (letti da update)
+                cat.setdefault('_raw', {}).setdefault(key, []).append((item['id'], item['benchmarks']))
             m = models.setdefault(key, {'canonical': key, 'name': str(item.get('name') or item['id'])[:120], 'routes': [],
                                         'scores': [], 'aa': None, 'strengths': [], 'areas_best': [], 'state': 'pending',
                                         'params_b': _params_b({'id': item['id'], 'description': item.get('description')})})
@@ -194,9 +198,14 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
     canon = [m['canonical'] for m in cat['models']]
     aa, st = load_key('artificial_analysis'), cat['providers'].get('artificial_analysis') or {}
     scores, partial = {}, False
+    for c, raw in cat.pop('_raw', {}).items():            # i benchmarks della lista di OpenRouter (#506 p.5)
+        for model_id, b in raw[:1]:
+            scores.setdefault(c, []).extend(sources.parse_openrouter(b, model_id))
     if aa and canon and (force or not st.get('ok') or now - st.get('at', 0) > AA_MAX_AGE):
-        scores, partial = fast_scores({'aa': lambda: sources.aa_scores(aa['key'], canon, g, payload=aa_payload)})
-        cat['providers']['artificial_analysis'] = {'at': now, 'ok': not partial, 'count': len(scores)}
+        got, partial = fast_scores({'aa': lambda: sources.aa_scores(aa['key'], canon, g, payload=aa_payload)})
+        for c, s in got.items():
+            scores.setdefault(c, []).extend(s)
+        cat['providers']['artificial_analysis'] = {'at': now, 'ok': not partial, 'count': len(got)}
     for e in _studies(room_dir) if room_dir else []:
         out = Path(e['out'])
         if not out.is_file():
@@ -225,12 +234,17 @@ def _prova_update(tmp):
                              {'id': 'moonshotai/kimi-k3:free', 'name': 'Kimi', 'free': True, 'tools': True},
                              {'id': 'deepseek/deepseek-v4-flash:free', 'name': 'DS', 'free': True}],
              'groq': [{'id': 'qwen/qwen3.8-27b', 'name': 'Q', 'free': True}]}
+    lists['open_router'] += [{'id': 'nvidia/nemotron-3.5-embed-1b:free', 'free': True}, {'id': 'openai/gpt-oss-safeguard-20b:free', 'free': True}]
+    lists['open_router'][2]['benchmarks'] = {'design_arena': [{'arena': 'models', 'category': 'website', 'elo': 1300}],
+                                             'artificial_analysis': {'intelligence_index': 50.0}}
     keys = {'open_router': {'key': 'k'}, 'artificial_analysis': {'key': 'a'}}
     payload = {'data': [{'slug': s, 'evaluations': {'artificial_analysis_intelligence_index': v, 'gpqa': v / 100}}
                         for s, v in (('glm-5-3', 61), ('kimi-k3', 64), ('deepseek-v4-flash', 50))]}
     asked = []
     cat = update(room, list_models=lambda p: asked.append(p) or lists[p], load_key=keys.get, aa_payload=payload)
-    assert asked == ['open_router'] and len(cat['models']) == 3                                  # groq senza chiave: non letto
+    assert asked == ['open_router'] and len(cat['models']) == 3                                  # groq senza chiave; embed e safeguard fuori
+    ds = next(m for m in cat['models'] if m['canonical'] == 'deepseek-v4-flash')
+    assert {x['bench'] for x in ds['scores']} >= {'design-arena-website', 'aa-intelligence-index'} and '_raw' not in load()
     assert cat['models'][0]['canonical'] == 'kimi-k3' and cat['models'][0]['aa'] == 64 and cat['models'][0]['state'] == 'partial'
     assert cat['providers']['artificial_analysis']['ok'] and cat['models'][0]['strengths']
     e = study(room)
@@ -273,7 +287,8 @@ def _prova():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bench'))
     import strengths
     g = strengths.load_glossary()
-    real_home = Path.home()
+    real = Path.home() / '.claude' / 'chatroom' / 'spawn' / 'catalog.json'
+    before = real.stat().st_mtime_ns if real.exists() else None             # quello vero (prove dal vivo del LEAD) non si tocca
     with tempfile.TemporaryDirectory() as tmp:
         os.environ['USERPROFILE'] = os.environ['HOME'] = tmp       # mai la ~/.claude vera
         assert Path.home() == Path(tmp) and catalog_path().is_relative_to(Path(tmp))
@@ -325,7 +340,7 @@ def _prova():
         small = {'canonical': 'lfm-2-5-2-6b', 'aa': None, 'params_b': 2.6}
         assert sorted([small, big, {'canonical': 'x', 'aa': 1, 'params_b': None}], key=order)[1:] == [big, small]
         assert _params_b({'id': 'nvidia/nemotron-3-ultra-550b-a55b:free'}) == 550
-    assert not (real_home / '.claude' / 'chatroom' / 'spawn' / 'catalog.json').exists()
+    assert (real.stat().st_mtime_ns if real.exists() else None) == before
     print('catalog ok')
 
 

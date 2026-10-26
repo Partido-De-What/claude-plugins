@@ -4,14 +4,16 @@ Per ogni benchmark i modelli misurati vanno in classifica; la frontiera è il mi
 0.6 x (vicinanza alla frontiera) + 0.4 x (1 - posizione/modelli misurati), per 1.0 se misurato da una fonte
 indipendente (Artificial Analysis, una classifica pubblica) e per 0.7 se dichiarato dal produttore (piano 4.2). I punti
 forti di un modello sono i suoi punteggi più forti, al massimo 3 per ambito e 10 in tutto, solo su benchmark con almeno 3
-modelli confrontabili (gli altri restano tra i punteggi); gli indici (ambito "index") vanno nel grafico AA, non tra i
-punti forti. Trofeo 🏆: primo in uno di questi benchmark. Funzioni pure: niente rete, niente file tranne il glossario."""
+modelli confrontabili (gli altri restano tra i punteggi); gli indici (ambito "index") vanno nel grafico AA, velocità e
+prezzo (ambito "efficiency": misure di AA su provider a pagamento) solo nella scheda, non tra i punti forti. Una voce
+del glossario con "family" vale per tutti gli id che cominciano col suo (design-arena-website è Design Arena). Trofeo 🏆: primo in uno di questi benchmark. Funzioni pure: niente rete, niente file tranne il glossario."""
 import json
 import re
 from pathlib import Path
 
 GLOSSARY = Path(__file__).resolve().parents[2] / 'bench_glossary.json'
 TOP, PER_AREA, MIN_MODELS, DECLARED = 10, 3, 3, 0.7
+NOT_STRENGTHS = ('index', 'efficiency')
 
 
 def norm(name):
@@ -84,6 +86,12 @@ def lookup(name, glossary):
     return None
 
 
+def entry(bench, glossary):
+    """la voce del glossario di un id: la sua, o quella della famiglia di cui è parte (design-arena-website), o {}"""
+    return next((b for b in glossary['benchmarks'] if b['id'] == bench), None) or next(
+        (b for b in glossary['benchmarks'] if b.get('family') and str(bench).startswith(b['id'] + '-')), {})
+
+
 def _best(scores):
     """un punteggio per benchmark: prima l'indipendente, poi il più recente"""
     out = {}
@@ -117,7 +125,7 @@ def annotate(scores_by_model, glossary):
     for m, by in best.items():
         scores, items = [], []
         for bench, s in by.items():
-            g = gl.get(bench, {})
+            g = gl.get(bench) or entry(bench, glossary)
             better, col = g.get('better', 'higher'), columns[bench]
             vals = [v for _, v in col]
             value = float(s['value'])
@@ -125,7 +133,7 @@ def annotate(scores_by_model, glossary):
             f = _frontier(value, vals, better)
             scores.append({**s, 'frontier': f})
             area = g.get('area', 'other')
-            if area != 'index' and len(col) >= MIN_MODELS:
+            if area not in NOT_STRENGTHS and len(col) >= MIN_MODELS:
                 items.append({'bench': bench, 'area': area, 'value': value, 'source': s.get('source', ''), 'rank': rank,
                               'of': len(col), 'trophy': rank == 1,
                               'weight': round((0.6 * f + 0.4 * (1 - rank / len(col))) * (1.0 if s.get('independent') else DECLARED), 4)})
@@ -166,14 +174,17 @@ def _prova():
     assert len([x for x in a['strengths'] if x['area'] == 'code']) == 3, a['strengths']             # al massimo 3 per ambito
     assert not any(x['bench'] == 'aa-intelligence-index' for x in a['strengths'])                    # gli indici no
     assert any(x['bench'] == 'aa-intelligence-index' for x in a['scores'])                           # ma restano tra i punteggi
-    ttft = next(x for x in a['strengths'] if x['bench'] == 'aa-ttft')
-    assert ttft['rank'] == 1 and ttft['trophy'] and ttft['of'] == 3                                   # lower è meglio
+    assert not any(x['area'] == 'efficiency' for m in out for x in out[m]['strengths'])              # #506 p.3: velocità e prezzo no
+    ft = {m: next(x for x in out[m]['scores'] if x['bench'] == 'aa-ttft')['frontier'] for m in ('alfa', 'beta')}
+    assert ft == {'alfa': 1.0, 'beta': 0.25}, ft                                                     # lower è meglio
     lcb = next(x for x in a['strengths'] if x['bench'] == 'livecodebench')
     assert lcb['trophy'] and lcb['of'] == 3
     assert not any(x['bench'] == 'swe-bench-pro' for x in out['delta']['strengths'])                # 1 modello solo: non è un punto forte
     assert any(x['bench'] == 'swe-bench-pro' for x in out['delta']['scores'])                         # ma resta tra i punteggi
     w = {x['bench']: x['weight'] for x in b['strengths']}
-    assert w['aa-ttft'] == round(0.6 * 0.25 + 0.4 * (1 - 3 / 3), 4), w                                # 0.6 x frontiera + 0.4 x (1 - rank/N)
+    assert w['aa-omniscience'] == round(0.6 * 1.0 + 0.4 * (1 - 1 / 3), 4), w                          # 0.6 x frontiera + 0.4 x (1 - rank/N)
+    da = annotate({k: [s('design-arena-website', v)] for k, v in (('a', 1300), ('b', 1200), ('c', 1100))}, g)
+    assert da['a']['strengths'][0]['area'] == 'design' and da['a']['strengths'][0]['trophy']          # famiglia Design Arena
     sw = lambda f, rank, n, ind: round((0.6 * f + 0.4 * (1 - rank / n)) * (1.0 if ind else DECLARED), 4)
     assert DECLARED == 0.7 and sw(1.0, 1, 3, False) == round(0.7 * (0.6 + 0.4 * 2 / 3), 4)
     gp = next(x for x in b['scores'] if x['bench'] == 'gpqa-diamond')
