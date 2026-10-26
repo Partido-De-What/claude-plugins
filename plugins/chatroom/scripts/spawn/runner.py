@@ -349,6 +349,9 @@ def create(room, name, mission, canonical, route, tools=(), effort=None, profile
         raise ValueError('a role name is 2-20 capitals, digits or _, starting with a letter')
     if not route or not route.get('adapter') or not route.get('model_id'):
         raise ValueError('a role needs a host: adapter and model_id')
+    import importlib.util
+    if room.config().get('mode') == 'spawn' and importlib.util.find_spec('headroom') is None:
+        raise ValueError('a spawn room needs Headroom: install it from the Prepara spawn card first')
 
     def add(c):
         if name in c.get('participants', []) or name in {c.get('user_name'), *c.get('self_names', [])}:

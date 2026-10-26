@@ -1704,6 +1704,18 @@ def cmd_notebook(room, a):
     print(compress.texts(room, [path.read_text(encoding='utf-8')])[0] if path.exists() else say('chat.say.cmd_notebook.your_notebook_is_empty'))
 
 
+def cmd_spawn(room, a):
+    """chat.py spawn [create] --room ROOM: the spawn mode here (A in a room made with init --spawn, B in a normal room,
+    C in a research room): the Prepara spawn card (keys, Headroom, RTK) in the chat, or with `create` the Crea ruolo card"""
+    try:
+        from spawn import cards_spawn
+    except ImportError as exc:                # Python older than 3.14 without uv, or the packages missing
+        sys.exit(say('chat.err.main.error', exc=exc))
+    post = cards_spawn.post_create if (a.pairs or [''])[0] == 'create' else cards_spawn.post_prepare
+    n, _ = post(room, a.name or 'SPAWN')
+    print(say('chat.say.posted', n=n))
+
+
 def cmd_expand(room, a):
     """chat.py expand ID: the original of a text the room handed back compressed (the id after "compressed:")"""
     import compress
@@ -3793,7 +3805,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
-                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand'])
+                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -3917,7 +3929,7 @@ def main():
                     'serve': cmd_serve, 'command': cmd_command, 'alerts': cmd_alerts, 'add': cmd_add, 'remove': cmd_remove,
                     'task': cmd_task, 'board': cmd_board, 'check': cmd_check, 'notebook': cmd_notebook, 'mcp': cmd_mcp,
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
-                    'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand}
+                    'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn}
         if a.command in commands:
             return commands[a.command](room, a)
     except ValueError as exc:
