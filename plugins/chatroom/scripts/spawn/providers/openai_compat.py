@@ -39,7 +39,9 @@ PROFILES = {
     'open_router': {'reasoning': ('object', 'all')},
     'nvidia_nim': {'reasoning': ('effort', 'all')},
     'groq': {'mt': 'max_completion_tokens', 'reasoning': ('effort', 'lmh'), 'names': True},
-    'gemini': {'reasoning': ('effort', 'gemini')},
+    # Google's stream keeps the connection open some 20 s after the last token: one plain answer is far faster (3,7 s
+    # against 26,6 s measured on the same body); the roles do not need the tokens as they come
+    'gemini': {'reasoning': ('effort', 'gemini'), 'stream': False},
     'mistral': {}, 'mistral_codestral': {},
     'cerebras': {'mt': 'max_completion_tokens', 'reasoning': ('effort', 'lmh')},
     'sambanova': {'reasoning': ('effort', 'lmh')},
@@ -75,6 +77,9 @@ def build_body(provider, model, messages, tools=None, max_tokens=4096, effort=No
         _gemini_signatures(msgs)
     body = {'model': model, 'messages': msgs, 'stream': True, 'stream_options': {'include_usage': True},
             p.get('mt', 'max_tokens'): int(max_tokens)}
+    if p.get('stream') is False:
+        body['stream'] = False
+        del body['stream_options']
     if tools:
         body['tools'] = tools
     how = p.get('reasoning')
@@ -131,7 +136,8 @@ def _gemini_signatures(msgs):
 
 
 def headers(provider, key):
-    h = {'Content-Type': 'application/json', 'Accept': 'text/event-stream', **catalog.auth_headers(provider, key)}
+    h = {'Content-Type': 'application/json', 'Accept': 'application/json' if PROFILES[provider].get('stream') is False else 'text/event-stream',
+         **catalog.auth_headers(provider, key)}
     if provider == 'open_router':
         h.update(ATTRIBUTION)
     if PROFILES[provider].get('ua'):
@@ -302,6 +308,8 @@ def _stream(client, url, hdrs, body, answer, seen=None):
             except ValueError:
                 continue
             answer.feed(chunk)
+            if answer.finish and answer.usage:
+                return                             # all is said: some providers keep the stream open long after it
 
 
 def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None, key=None, extra=None, session_id=None,
@@ -442,7 +450,7 @@ def list_models(provider, key=None, client=None, extra=None):
 def _prova():
     """no network: a fake provider (httpx.MockTransport) streams answers and refusals. python -m spawn.providers.openai_compat"""
     sse = lambda *chunks: ''.join(f'data: {json.dumps(c)}\n\n' for c in chunks) + 'data: [DONE]\n\n'
-    seen, seen_headers, gemini_hdrs, cf_urls = [], [], [], []
+    seen, seen_headers, gemini_hdrs, cf_urls, lingered = [], [], [], [], []
 
     def answer(request):
         body = json.loads(request.content) if request.content else {}
@@ -473,6 +481,16 @@ def _prova():
         if model == 'tpm' and body.get('max_completion_tokens', 0) > 5000:
             return httpx.Response(413, json={'error': {'message': 'Request too large: tokens per minute (TPM): Limit 6000, Requested 9000, please reduce',
                                                        'type': 'tokens', 'code': 'rate_limit_exceeded'}})
+        if model == 'plain':
+            return httpx.Response(200, json={'choices': [{'message': {'role': 'assistant', 'content': 'plain answer'}, 'finish_reason': 'stop'}],
+                                             'usage': {'prompt_tokens': 5, 'completion_tokens': 4, 'total_tokens': 9}})
+        if model == 'lingers':
+            def body_stream():
+                yield ('data: ' + json.dumps({'choices': [{'delta': {'content': 'done'}, 'finish_reason': 'stop'}],
+                                               'usage': {'prompt_tokens': 3, 'completion_tokens': 1}}) + '\n\n').encode()
+                lingered.append('read past the end')          # a stream still open after its last word
+                yield b'data: [DONE]\n\n'
+            return httpx.Response(200, headers={'content-type': 'text/event-stream'}, content=body_stream())
         if model == 'busy':
             return httpx.Response(429, headers={'retry-after': '3', 'x-ratelimit-limit-requests': '30', 'x-ratelimit-remaining-requests': '0',
                                                 'x-ratelimit-reset-requests': '3s'}, json={'error': {'message': 'rate limit'}})
@@ -531,6 +549,11 @@ def _prova():
                    effort='medium')
     assert g['messages'][1]['tool_calls'][0]['extra_content']['google']['thought_signature'] == GOOGLE_SKIP_SIGNATURE and g['reasoning_effort'] == 'medium'
     assert build_body('zai_api', 'z', msgs, effort='high')['thinking']['type'] == 'enabled'
+    assert g['stream'] is False and 'stream_options' not in g and headers('gemini', 'k')['Accept'] == 'application/json'
+    r = chat('gemini', 'plain', msgs, key='gk', client=client, on_delta=lambda kind, x: deltas.append(kind))
+    assert r['text'] == 'plain answer' and r['finish'] == 'stop' and r['usage']['total_tokens'] == 9 and seen[-1]['stream'] is False
+    r = chat('groq', 'lingers', msgs, key='k', client=client)                  # finish and usage seen: the lingering rest is not waited for
+    assert r['text'] == 'done' and r['usage']['completion_tokens'] == 1 and lingered == []
     assert build_body('poolside', 'p', msgs, effort='high')['chat_template_kwargs'] == {'enable_thinking': True}
     assert build_body('novita', 'n', msgs, effort='high')['enable_thinking'] is True and 'enable_thinking' not in build_body('novita', 'n', msgs)
     assert set(PROFILES) == set(catalog.FREE), set(PROFILES) ^ set(catalog.FREE)
