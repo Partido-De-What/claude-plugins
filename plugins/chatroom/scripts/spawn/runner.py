@@ -30,7 +30,7 @@ from pathlib import Path
 
 from spawn import errors
 
-CTX_SHARE, DEFAULT_CTX, MAX_TOKENS, WAIT, BRAKE = 0.8, 32768, 4096, 540, 30
+CTX_SHARE, DEFAULT_CTX, MAX_TOKENS, WAIT, BRAKE, JOIN_READ, TURN = 0.8, 32768, 4096, 540, 30, 30, 2000   # TURN: what a turn adds to the input, roughly
 NAME = re.compile(r'[A-Z][A-Z0-9_]{1,19}\Z')
 STATES = ('service', 'switch', 'notokens', 'stopped')
 SHELL = {'type': 'function', 'function': {'name': 'shell', 'description': 'Run a shell command in your own folder (120 s at most). '
@@ -179,21 +179,24 @@ def research_room(room):
     return room is not None and (Path(room.dir) / 'research' / 'contract.json').is_file()
 
 
-def tool_defs(role, room=None):
+def tool_defs(role, room=None, compact=False):
     """the room's MCP tools as OpenAI tools (without room and as: the runner fills them), plus shell when given. In a
-    research room (mode C) also the research kernel's tool, whose roles the kernel enforces"""
+    research room (mode C) also the research kernel's tool, whose roles the kernel enforces. compact: for a host whose
+    limits do not hold the full prefix (see Runner.compact): first sentences only, no property texts, no check"""
     import chat
     out = []
-    for t in chat.MCP_TOOLS:                      # every call carries these bytes: first sentence only, no property texts, no check
-        if t['name'] == 'check' or (t['name'] == 'research' and not research_room(room)):
+    for t in chat.MCP_TOOLS:
+        if (compact and t['name'] == 'check') or (t['name'] == 'research' and not research_room(room)):
             continue
         params = copy.deepcopy(t['inputSchema'])
         for k in ('room', 'as'):
             params['properties'].pop(k, None)
-        for v in params['properties'].values():
-            v.pop('description', None)
-        out.append({'type': 'function', 'function': {'name': t['name'], 'description': t['description'].split(': ')[0].split('. ')[0][:160],
-                                                     'parameters': params}})
+        desc = t['description']
+        if compact:
+            for v in params['properties'].values():
+                v.pop('description', None)
+            desc = desc.split(': ')[0].split('. ')[0][:160]
+        out.append({'type': 'function', 'function': {'name': t['name'], 'description': desc, 'parameters': params}})
     return out + ([SHELL] if 'shell' in role.get('tools', []) else [])
 
 
@@ -269,9 +272,24 @@ class Runner(threading.Thread):
     def save(self, h):
         _write(_history_path(self.room, self.name), h)
 
+    def compact(self, role):
+        """the compact tools, only on a host whose known limits (tokens per minute from its headers, the context window)
+        do not hold the full prefix plus a turn with a margin (Groq's free gpt-oss-120b: ~8000 tokens a minute)"""
+        from spawn.limiter import LIMITER
+        r = role['route']
+        q = (LIMITER.route(r['adapter'], r['model_id']) if hasattr(LIMITER, 'route') else None) or {}
+        limits = [x for x in (q.get('limit_tokens'), r.get('ctx')) if isinstance(x, (int, float)) and x > 0]
+        if not limits:
+            return False
+        full = tokens([{'role': 'system', 'content': self.system(role)}]) + tokens(tool_defs(role, self.room))
+        return full + (role.get('max_tokens') or MAX_TOKENS) + TURN > 0.8 * min(limits)
+
     def call(self, role, h, tools=True, max_tokens=None):
         r = role['route']
-        return self._complete(r['adapter'], r['model_id'], h, tools=tool_defs(role, self.room) if tools else None,
+        compact = self.compact(role)
+        if bool(role.get('compact')) != compact:          # per host, again at every change of door; the role's line says it
+            role = update(self.room, self.name, compact=compact)
+        return self._complete(r['adapter'], r['model_id'], h, tools=tool_defs(role, self.room, compact) if tools else None,
                               max_tokens=max_tokens or role.get('max_tokens') or MAX_TOKENS, effort=role.get('effort'),
                               session_id=f"{self.name}-{r['adapter']}", stop=self.stop)
 
@@ -445,6 +463,8 @@ def create(room, name, mission, canonical, route, tools=(), effort=None, profile
                     'tools': [t for t in tools if t == 'shell'], 'effort': effort, 'state': 'service', 'tried': [], 'usage': {}}
         _write(_dir(room) / 'roles.json', rs)
     room.locked(write)
+    items = room.messages()                       # a role joining a long room reads its last 30 messages, not the whole history
+    room.set_cursor(name, items[-JOIN_READ]['n'] - 1 if len(items) > JOIN_READ else 0)
     return start(room, name, complete)
 
 
@@ -492,7 +512,7 @@ def snapshot(room):
         m = cards.get(r.get('canonical')) or {}
         st = m.get('strengths') or []
         out.append({'name': r['name'], 'provider': r['route']['adapter'], 'model': r.get('canonical') or r['route']['model_id'],
-                    'host': r['route']['adapter'], 'state': r.get('state', 'service'),
+                    'host': r['route']['adapter'], 'state': r.get('state', 'service'), 'compact': bool(r.get('compact')),
                     'trophy': next((s['bench'] for s in st if s.get('trophy')), None), 'aa': m.get('aa'),
                     'strong': [s['bench'] for s in st[:3]]})     # strengths come in order already: trophies, then strength (strengths.py)
     used = {r['provider'] for r in out} | set(lim)
@@ -575,7 +595,7 @@ def _prova():
             assert any(m.get('kind') == 'card' for m in room.messages()) or not (Path(__file__).parent / 'cards_spawn.py').is_file()
             assert roles(room)['ARCH']['state'] == 'notokens' and '@Adrian' in last['text'] and 'senza token' in last['text'] and not last.get('kind')
             snap = snapshot(room)['roles'][0]
-            assert snap == {'name': 'ARCH', 'provider': 'kilo', 'model': 'm', 'host': 'kilo', 'state': 'notokens',
+            assert snap == {'name': 'ARCH', 'provider': 'kilo', 'model': 'm', 'host': 'kilo', 'state': 'notokens', 'compact': False,
                             'trophy': 'swe-bench', 'aa': 40.0, 'strong': ['swe-bench', 'gpqa']}, snap
             box['runner'], script[:] = None, ['stop']                                          # the thread replace() starts: one step, then it stops
             replace(room, 'ARCH', 'm', r1, complete=fake)
@@ -602,6 +622,13 @@ def _prova():
             no = run_tool(room, roles(room)['ARCH'], {'function': {'name': 'shell', 'arguments': '{"command": "echo x"}'}}, threading.Event())
             assert no.startswith('error'), no                                               # no shell unless the user gave it
             assert 'sk-' not in json.dumps(roles(room))
+            for i in range(40):
+                room.append('A', f'old {i}')
+            want = room.messages()[-JOIN_READ]['n'] - 1
+            create(room, 'LATE', 'x', 'm', r1, complete=lambda *a, **k: (_ for _ in ()).throw(errors.ProviderError('payment', 402)))
+            stop(room, 'LATE')
+            RUNNERS[(str(room.dir.resolve()), 'LATE')].join(10)
+            assert room.cursor('LATE') == want > 0, (room.cursor('LATE'), want)          # a late role reads only the last 30 messages
             assert _encoder() is not None and tokens([{'role': 'user', 'content': 'hello world'}]) > 0      # cl100k from spawn/data, offline
             # the host by quota (T31): a fake limiter that says what the providers' headers said
             from spawn.limiter import LIMITER
@@ -625,6 +652,14 @@ def _prova():
                 seen_q['kilo:q-kilo'] = {'quota': 0.9, 'recent_429': 3}
                 seen_q['open_router:q-open_router'] = {'quota': 0.9, 'recent_429': 1}
                 assert best_route(room, 'q', 'BETA')['adapter'] == 'open_router'           # equal quota: fewer recent 429
+                beta = roles(room)['BETA']
+                seen_q['open_router:q-open_router'] = {'quota': 0.9, 'limit_tokens': 8000}       # Groq-like: 8000 tokens a minute
+                rb_ = Runner(room, 'BETA', fake)
+                assert rb_.compact(beta) is True and 'check' not in {x['function']['name'] for x in tool_defs(beta, room, True)}
+                seen_q['open_router:q-open_router'] = {'quota': 0.9, 'limit_tokens': 200000}
+                assert rb_.compact(beta) is False and 'check' in {x['function']['name'] for x in tool_defs(beta, room)}
+                full, small = (tokens(tool_defs(beta, room, c)) for c in (False, True))
+                assert small < full * 0.7, (small, full)                                        # the compact tools: a real cut
                 seen_q['open_router:q-open_router'] = {'quota': 0.0}
                 try:
                     Runner(room, 'BETA', fake).step(roles(room)['BETA'])                      # quota over before the call: change door, no request
