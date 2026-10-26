@@ -237,8 +237,9 @@ def add_scores(cat, scores, glossary, partial=False, studied=()):
     for c, new in scores.items():
         if c not in models:
             continue
-        keep = {(s['bench'], s['source']) for s in new}
-        models[c]['scores'] = [s for s in models[c]['scores'] if (s['bench'], s['source']) not in keep] + list(new)
+        keep, known = {(s['bench'], s['source']) for s in new}, {b['id'] for b in glossary.get('benchmarks', [])}
+        models[c]['scores'] = [s for s in models[c]['scores'] if (s['bench'], s['source']) not in keep
+                               and s['bench'] in known] + list(new)       # an id gone from the glossary is a stale one
     raw = {c: [{k: s[k] for k in ('bench', 'value', 'source', 'date', 'independent', 'seen') if k in s} for s in m['scores']]
            for c, m in models.items() if m['scores']}
     who = {_who(c): c for c in models}                    # un leader che è già nel catalogo conta una volta sola,

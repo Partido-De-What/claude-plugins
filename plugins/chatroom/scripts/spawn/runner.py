@@ -411,12 +411,7 @@ class Runner(threading.Thread):
             self.room.append(self.name, _say(self.room, 'switch', name=self.name, old=route['adapter'], new=nxt['adapter']), 'board')
         else:
             update(self.room, self.name, state='notokens', tried=tried)
-            self.room.append(self.name, _say(self.room, 'notokens', name=self.name, model=role['canonical']))
-            try:                                          # the Sostituisci card in the chat at once (VETRINA's cards_spawn.py)
-                from spawn import cards_spawn
-                cards_spawn.post_replace(self.room, self.name)
-            except Exception:                              # no card is no reason to stop the role: the message above says it
-                pass
+            self.room.append(self.name, _say(self.room, 'notokens', name=self.name, model=role['canonical']))   # the replacement is picked in the Spawn view
 
 
 # ------------------------------------------------------------------ what the cards and serve call

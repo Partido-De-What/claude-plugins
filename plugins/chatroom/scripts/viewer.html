@@ -1184,6 +1184,7 @@ window.chatroom = {
 };
 I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); setInterval(poll, 1500); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); pollRoles(); setInterval(pollRoles, 5000); });
 </script>
+<script src="spawn-view.js"></script>
 <script type="module" src="office.js"></script>
 </body>
 </html>

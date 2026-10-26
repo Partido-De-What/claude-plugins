@@ -1423,7 +1423,7 @@ function drawScreen(name, act, t) {
 // ------------------------------------------------------------------ UI, modes, selection, camera
 // ?view=chat (or office, split) opens the viewer in that view, once; the buttons change it as usual
 const VIEW = new URLSearchParams(location.search).get('view');
-let mode = ['split', 'office', 'chat'].includes(VIEW) ? VIEW : pref('mode', window.innerWidth >= 1000 ? 'split' : 'office'), selected = null, follow = false;
+let mode = ['split', 'office', 'chat'].includes(VIEW) ? VIEW : pref('mode', 'chat'), selected = null, follow = false;
 // first person: the camera is the user's figure's eyes; leaving it flies back to the overview before the orbit resumes
 let pov = pref('pov', false), flyHome = false, povLocked = false, povRot = 0, watchEnd = 0;
 let paintball = null;                                                      // office-paintball.js, created at the end; while it is on the view stays in first person

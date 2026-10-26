@@ -11,7 +11,7 @@ const CSS = `
 body.mode-split #office, body.mode-office #office { display: block; }
 body.mode-split #office { width: var(--office-w, 62vw); }
 body.mode-split { padding-left: var(--office-w, 62vw); }
-body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox) { display: none !important; }
+body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox):not(#spawnView) { display: none !important; }
 #office canvas { display: block; width: 100%; height: 100%; outline: none; }
 #office .o-tags { position: absolute; inset: 0; pointer-events: none; }
 #office .o-tag { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center;

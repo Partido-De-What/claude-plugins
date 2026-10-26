@@ -1708,14 +1708,14 @@ def cmd_notebook(room, a):
 
 def cmd_spawn(room, a):
     """chat.py spawn [create] --room ROOM: the spawn mode here (A in a room made with init --spawn, B in a normal room,
-    C in a research room): the Prepara spawn card (keys, Headroom, RTK) in the chat, or with `create` the Crea ruolo card"""
+    C in a research room). One line in the chat: keys, models and roles live in the viewer's Spawn view (🛸, ?view=spawn),
+    not in cards that pile up in the chat"""
     try:
-        from spawn import cards_spawn
+        from spawn import panel  # noqa: F401  (the view needs it: fails here when Python or the packages are missing)
     except ImportError as exc:                # Python older than 3.14 without uv, or the packages missing
         sys.exit(say('chat.err.main.error', exc=exc))
-    post = cards_spawn.post_create if (a.pairs or [''])[0] == 'create' else cards_spawn.post_prepare
-    n, _ = post(room, a.name or 'SPAWN')
-    print(say('chat.say.posted', n=n))
+    use(lang_of(room.config()), here=True)
+    print(say('chat.say.posted', n=room.append(a.name or 'SPAWN', say('spawnv.chatline'), 'board')))
 
 
 def cmd_expand(room, a):
@@ -3285,9 +3285,16 @@ def cmd_serve(room, a):
                 r = keys.handle('GET', path, self.path.partition('?')[2], {}, a.port)
                 if r:
                     return self.send(r[0], r[2], r[1])
+                if path in ('/spawn/state.json', '/spawn/model.json'):    # the Spawn view (spawn/panel.py, spawn-view.js)
+                    from spawn import panel
+                    try:
+                        data = panel.state(room) if path == '/spawn/state.json' else panel.model(room, urllib.parse.parse_qs(self.path.partition('?')[2]).get('c', [''])[0])
+                    except ValueError as exc:
+                        return self.send(404, str(exc), 'text/plain; charset=utf-8')
+                    return self.send(200, json.dumps(data, ensure_ascii=False), 'application/json; charset=utf-8')
             if path in ('/', '/index.html'):
                 return self.send(200, viewer.read_bytes(), 'text/html; charset=utf-8')
-            if re.fullmatch(r'/(office(-[a-z]+)*|i18n|cards)\.js', path):
+            if re.fullmatch(r'/(office(-[a-z]+)*|i18n|cards|spawn-view)\.js', path):
                 body = (HERE / path[1:]).read_bytes()
                 if path == '/i18n.js':                 # English inside the loader: the page has its texts in the same request
                     en = (HERE.parent / 'locales' / 'en.json').read_text(encoding='utf-8-sig')
@@ -3578,6 +3585,12 @@ def cmd_serve(room, a):
                 r = keys.handle('POST', path, '', body if isinstance(body, dict) else {}, a.port)
                 if r:
                     return self.send(r[0], r[2], r[1])
+                if path == '/spawn/do':               # a click of the Spawn view; the key of save_key goes no further than keys.save
+                    from spawn import panel
+                    try:
+                        return self.send(200, json.dumps(panel.do(room, body if isinstance(body, dict) else {}), ensure_ascii=False), 'application/json; charset=utf-8')
+                    except ValueError as exc:
+                        return self.send(400, str(exc), 'text/plain; charset=utf-8')
             if path == '/compress':               # Headroom at the source: the room's agents send their long texts here, where it is loaded
                 import compress
                 texts = body.get('texts') if isinstance(body, dict) else None
