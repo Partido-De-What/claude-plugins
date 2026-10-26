@@ -364,8 +364,9 @@ export function start(ctx) {
   if (typeof document !== 'undefined') document.addEventListener('keydown', e => {
     if (e.target.closest?.('input, textarea, select, [contenteditable]')) return;
     konami = konamiStep(konami, e.key.length === 1 ? e.key.toLowerCase() : e.key);
+    if (konami > 4 && /^Arrow(Left|Right)$/.test(e.key)) e.stopImmediatePropagation();     // after ↑↑↓↓ the ← → are the code's, not "the next agent" of office-ui.js
     if (konami === KONAMI.length) { konami = 0; H.creditsUntil = performance.now() / 1000 + 9; }
-  });
+  }, true);
   setBoard(); drawLabels(); poll(); setInterval(poll, 3000);
   if (/[?&]force\b/.test(location.search)) window.__officeHangar = {H, data: () => data, shadow: () => { H.nextShadow = 0; }, llama: i => startLlama(i), click};   // tests: see and call the live pieces
   return {update, click, clickPerson};
@@ -594,7 +595,8 @@ function startLlama(i) {
   v.box(1, 16, 11, 4, 26, 14, W).box(1, 23, 15, 4, 26, 18, W).box(2, 23, 19, 3, 24, 19, '#3b2a20').set(1, 25, 15, '#1b1b2a').set(4, 25, 15, '#1b1b2a');
   v.box(1, 27, 12, 1, 29, 12, W).box(4, 27, 12, 4, 29, 12, W).box(0, 12, 6, 5, 13, 8, '#c0392b').box(2, 14, -1, 3, 15, 0, W);
   const m = V.mesh(v, {pivot: [2.5, 0, 7], scale: 0.05, jitter: 0.05}); H.group.add(m);
-  const p = [{x: it.x, z: it.z + 0.4}, {x: it.x, z: 1.85}, {x: it.x > 0 ? -6 : 9, z: 1.85}];
+  const a = {x: it.x, z: it.z + 0.4}, mid = {x: it.x, z: 1.85}, end = {x: it.x > 0 ? -6 : 9, z: 1.85}, way = (f, t) => S.route?.(f, t)?.map(v => ({x: v.x, z: v.z})) || [t];
+  const p = [a, ...way(a, mid), ...way(mid, end)].filter((q, k, l) => !k || Math.hypot(q.x - l[k - 1].x, q.z - l[k - 1].z) > 0.01);   // round the desks, the office's own A*
   const len = p.slice(1).map((q, k) => Math.hypot(q.x - p[k].x, q.z - p[k].z));
   H.llamaRun = {m, t: 0, path: p, len};
   S.emit(40, new T.Vector3(it.x, 1.1, it.z + 0.3), {color: ['#ffffff', PALETTE.gold], speed: 2, up: 2, life: 0.9, size: 0.07});

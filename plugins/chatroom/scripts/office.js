@@ -2126,7 +2126,8 @@ const VD = {
 }
 // the live pieces of the Hangar of the Gates (office-hangar.js): its data, its board, its gates, its easter eggs
 hangar = HANGAR ? HANGAR.start({camera, raycastables, emit, say: t => ui.placeName(t), figure: n => people.get(n), desk: n => SPOTS.get(n)?.g,
-                                names: () => D.names.filter(n => !D.per[n]?.neighbor), lang: () => DATA.config.lang, active: () => !officeUnseen()}) : null;
+                                names: () => D.names.filter(n => !D.per[n]?.neighbor), lang: () => DATA.config.lang, active: () => !officeUnseen(),
+                                route: (a, b) => route(new THREE.Vector3(a.x, 0, a.z), new THREE.Vector3(b.x, 0, b.z))}) : null;
 research = RES ? RES.createResearch({THREE, V, scene, renderer, camera, dom: renderer.domElement, raycastables, lang: () => DATA.config.lang, paused: officeUnseen, pov: () => pov && povLocked, lab: LAB}) : null;
 if (!visit) github = createGithubWall({board: ghBoard, frame: ghFrame, raycastables, root, lang: () => DATA.config.lang, paused: officeUnseen, onEnabled: () => ui.addExtra('github', '🐙', 'GitHub', () => github.open())});
 const GAME_TABLES = ITEM_MESHES.filter(m => CATALOG[itemOf(m)?.type]?.game).map(m => {
