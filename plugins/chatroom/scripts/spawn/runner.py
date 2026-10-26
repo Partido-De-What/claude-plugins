@@ -284,7 +284,7 @@ class Runner(threading.Thread):
             t0 = time.time()
             text, _ = chat.mcp_call(self.room, self.name, 'chat_wait', {'timeout': WAIT}, self.stop)
             h.append({'role': 'user', 'content': text or 'nothing new'})
-            if time.time() - t0 < 5:                      # back at once (the silence timer): a brake, or the free quota burns in a loop
+            if time.time() - t0 < 5 and '--- #' not in (text or ''):   # back at once with nothing new (the silence timer): a brake, or the free quota burns
                 self.stop.wait(BRAKE)
         self.save(h)
 
