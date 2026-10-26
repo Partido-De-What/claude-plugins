@@ -93,7 +93,9 @@ def build_body(provider, model, messages, tools=None, max_tokens=4096, effort=No
             elif kind == 'flag':
                 body[arg] = True
     if provider == 'open_router':                    # decision D4: providers that keep the prompts are never used
-        body['provider'] = {'data_collection': 'deny', **({'require_parameters': True} if tools else {})}
+        # decision D12 (only free models): a host that would charge is never chosen, whatever the model id says
+        body['provider'] = {'data_collection': 'deny', 'max_price': {'prompt': 0, 'completion': 0},
+                            **({'require_parameters': True} if tools else {})}
         if session_id:
             body['session_id'] = str(session_id)[:128]
     elif session_id and provider in ('kilo', 'zenmux', 'vercel'):
@@ -381,8 +383,8 @@ def list_models(provider, key=None, client=None):
         params = m.get('supported_parameters') if isinstance(m.get('supported_parameters'), list) else None
         arch = m.get('architecture') if isinstance(m.get('architecture'), dict) else {}
         top = m.get('top_provider') if isinstance(m.get('top_provider'), dict) else {}
-        free = (str(m['id']).endswith(':free') or (pin == 0 and pout == 0)
-                or provider == 'nvidia_nim' or bool(m.get('free') or m.get('is_free')))
+        free = (str(m['id']).endswith(':free') or (pin == 0 and pout == 0) or bool(catalog.get(provider).get('all_free'))
+                or bool(m.get('free') or m.get('is_free')))
         out.append({'id': str(m['id']), 'name': str(m.get('name') or m['id']),
                     'ctx': m.get('context_length') or m.get('context_window') or m.get('max_context_length'),
                     'max_out': top.get('max_completion_tokens') or m.get('max_completion_tokens') or m.get('max_output_tokens'),
@@ -434,7 +436,8 @@ def _prova():
     r = chat('open_router', 'm', msgs, tools=[{'type': 'function', 'function': {'name': 'chat_post', 'parameters': {}}}], max_tokens=100,
              effort='high', key='k', session_id='room-ROLE', on_delta=lambda kind, t: deltas.append(kind), client=client)
     b = seen[-1]
-    assert b['max_tokens'] == 100 and b['reasoning'] == {'effort': 'high'} and b['provider'] == {'data_collection': 'deny', 'require_parameters': True}
+    assert b['max_tokens'] == 100 and b['reasoning'] == {'effort': 'high'}
+    assert b['provider'] == {'data_collection': 'deny', 'max_price': {'prompt': 0, 'completion': 0}, 'require_parameters': True}
     assert seen_headers[-1]['x-openrouter-title'] == 'Chatroom (ArtyomITA)' and seen_headers[-1]['http-referer'].endswith('/claude-plugins')
     assert b['session_id'] == 'room-ROLE' and b['stream_options'] == {'include_usage': True} and msgs[0]['name'] == 'sys'
     m = r['message']
@@ -475,6 +478,7 @@ def _prova():
     assert ms[0] == {'id': 'a/free-one:free', 'name': 'Free One', 'ctx': 131072, 'max_out': 8192, 'tools': True, 'reasoning': True,
                      'free': True, 'price_in': 0.0, 'price_out': 0.0, 'modalities': ['text']}, ms[0]
     assert ms[1]['free'] is False and ms[1]['tools'] is False and abs(ms[1]['price_out'] - 8.0) < 1e-9
+    assert all(m['free'] for m in list_models('groq', key='k', client=client))       # a free tier without prices: every model free
     assert m['_origin'] == 'open_router'
     moved = prepare_history(hist, 'groq')
     assert not any(f in moved[2] for f in HISTORY_REASONING) and 'extra_content' not in moved[2]['tool_calls'][0] and '_origin' not in moved[2]

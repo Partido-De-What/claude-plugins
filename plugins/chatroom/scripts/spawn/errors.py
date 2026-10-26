@@ -12,10 +12,10 @@ import re
 import time
 
 KINDS = ('rate_limit', 'quota', 'overloaded', 'upstream', 'timeout', 'network', 'stream_cut', 'auth', 'payment', 'forbidden',
-         'context', 'too_large', 'bad_request', 'not_found', 'tool_json')
+         'context', 'too_large', 'bad_request', 'not_found', 'tool_json', 'no_output')
 ACTION = {'rate_limit': 'retry', 'overloaded': 'retry', 'upstream': 'retry', 'timeout': 'retry', 'network': 'retry',
           'stream_cut': 'resume', 'tool_json': 'repair',
-          'quota': 'next_host', 'not_found': 'next_host',
+          'quota': 'next_host', 'not_found': 'next_host', 'no_output': 'next_host',
           'context': 'handover',
           'auth': 'stop', 'payment': 'stop', 'forbidden': 'stop', 'too_large': 'stop', 'bad_request': 'stop'}
 RETRYABLE = frozenset(k for k, a in ACTION.items() if a == 'retry')

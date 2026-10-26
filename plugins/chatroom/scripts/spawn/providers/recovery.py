@@ -124,6 +124,14 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         text, thinking = result['text'], result['reasoning']
         if not cut:
             break
+    if result['finish'] == 'length' and not (result['text'] or '').strip() and not result['tool_calls']:
+        # the reasoning ate the whole output budget and nothing visible came out: once more without the effort and with
+        # twice the budget; still nothing, and the role moves to another host
+        kw2 = {**kw, 'effort': None, 'max_tokens': 2 * int(kw.get('max_tokens') or 4096)}
+        again = lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, messages, tools=tools, key=key, **kw2), stop)
+        if again['finish'] == 'length' and not (again['text'] or '').strip() and not again['tool_calls']:
+            raise errors.ProviderError('no_output', None, None, 'the reasoning used the whole output budget', again)
+        result = again
     schemas = {t['function']['name']: t['function'].get('parameters') for t in tools or [] if t.get('function')}
     for c in result['message'].get('tool_calls', []):
         args, name = c['function']['arguments'], c['function']['name']
@@ -150,10 +158,11 @@ def _prova():
     assert valid_args('{"text": "a"}', schema) == {'text': 'a'} and valid_args('[1]', None) is None
     import threading
     from spawn.limiter import Limiter
-    script, sent = [], []
+    script, sent, kws = [], [], []
 
     def fake_chat(provider, model, msgs, tools=None, key=None, **kw):
         sent.append((msgs, tools))
+        kws.append(kw)
         step = script.pop(0)
         if isinstance(step, Exception):
             raise step
@@ -181,6 +190,16 @@ def _prova():
             raise AssertionError('broken JSON accepted')
         except errors.ProviderError as e:
             assert e.kind == 'tool_json' and e.action == 'repair'
+        script[:] = [res('', finish='length'), res('visible now')]
+        sent.clear()
+        r = complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter(), effort='high', max_tokens=100)
+        assert r['text'] == 'visible now' and len(sent) == 2 and kws[-1]['effort'] is None and kws[-1]['max_tokens'] == 200, kws[-1]
+        script[:] = [res('', finish='length'), res('', finish='length')]
+        try:
+            complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter())
+            raise AssertionError('an empty answer passed')
+        except errors.ProviderError as e:
+            assert e.kind == 'no_output' and e.action == 'next_host'
         script[:] = [errors.ProviderError('payment', 402)]
         try:
             complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter())
