@@ -16,6 +16,7 @@ TaskStop/KillShell kills it. Codex: an exec_command whose output says "Process r
 the "Process exited with code N" of a later write_stdin ends it. The command and the output stay on this computer:
 they are served to the local viewer only, never to friends.
 """
+import functools
 import json
 import os
 import re
@@ -597,6 +598,18 @@ class Activity:
         return {'now': now, 'agents': {a.name: a.view(now) for a in self.agents.values()}, 'mod': self.mod_at}
 
 
+@functools.cache                       # shortcut: found once per viewer (a PATH scan is ~40 ms on Windows); RTK installed later needs a restart of serve
+def rtk_path():
+    """RTK for the mod, which rewrites the room agents' shell commands through it (rtk rewrite): CHATROOM_RTK, then the
+    PATH, then ~/.claude/chatroom/bin; None when there is none (commands then pass unchanged)"""
+    import shutil
+    exe = 'rtk.exe' if os.name == 'nt' else 'rtk'
+    for p in (os.environ.get('CHATROOM_RTK'), shutil.which('rtk'), str(CLAUDE_DIR / 'chatroom' / 'bin' / exe)):
+        if p and Path(p).is_file():
+            return str(Path(p).resolve())
+    return None
+
+
 def register_room(room, port, host):
     """note the served room in ~/.claude/chatroom/rooms.json, so the mod knows where to send events; call it again
     every few seconds: the stamp is the heartbeat (a room not stamped for 60 s is dropped, no pid checks: on Windows
@@ -624,7 +637,7 @@ def register_room(room, port, host):
 
     def add(rooms):
         c = room.config()
-        rooms[key] = {'url': f'http://{host}:{port}', 'ts': time.time(), 'ids': list(Activity(room).ids().values()),
+        rooms[key] = {'url': f'http://{host}:{port}', 'ts': time.time(), 'ids': list(Activity(room).ids().values()), 'rtk': rtk_path(),
                       'participants': c.get('participants', []), 'user': c.get('user_name', 'USER'),
                       'title': c.get('title') or c.get('topic', ''), 'since': rooms.get(key, {}).get('since', started)}
     edit(add)

@@ -9,7 +9,7 @@
 // Rooms are found in ~/.claude/chatroom/rooms.json, which `chat.py serve` stamps every few seconds.
 import type { Register } from 'claude-code'
 
-type Room = { url: string; ts: number; ids: string[]; participants: string[]; user: string; title: string }
+type Room = { url: string; ts: number; ids: string[]; participants: string[]; user: string; title: string; rtk?: string | null }
 type Agent = { tool?: string | null; target?: string; since?: number | null; waiting?: number | null }
 type Message = { n: number; from: string; text: string; kind?: string; ts?: number }
 type Summary = {
@@ -37,6 +37,23 @@ function pick(e: Record<string, unknown>) {
   const out: Record<string, string> = {}
   for (const k of FIELDS) if (typeof e[k] === 'string') out[k] = (e[k] as string).slice(0, 300)
   return out
+}
+
+// RTK for a room agent's shell command: `rtk rewrite` prints the shorter-output form (exit 0 or 3), or nothing (1: run it
+// as it is), or a refusal (2 with a message). The rewrite calls `rtk` by name, so its folder goes first in PATH.
+async function rtk($: any, exe: string, command: string): Promise<string | { deny: string }> {
+  try {
+    const r = await $.process.run([exe, 'rewrite', command], { timeoutMs: 5000 })
+    const out = (r.stdout || '').trim()
+    if ((r.exitCode === 0 || r.exitCode === 3) && out && out !== command) {
+      const dir = exe.replace(/[\\/][^\\/]*$/, '').replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_: string, d: string) => '/' + d.toLowerCase())
+      return `export PATH="${dir}:$PATH"; ${out}`
+    }
+    if (r.exitCode === 2 && out) return { deny: out }
+  } catch {
+    // rtk missing or slow: the command runs as it is
+  }
+  return command
 }
 
 function send($: any, room: Room, ev: object) {
@@ -121,6 +138,11 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const room = roomOf(e.agentId)
     if (!room) return next(e)
+    if (e.tool === 'Bash' && room.rtk && typeof (e as any).command === 'string') {
+      const rewritten = await rtk($, room.rtk, (e as any).command)
+      if (typeof rewritten !== 'string') return rewritten
+      if (rewritten !== (e as any).command) e = { ...e, command: rewritten } as typeof e
+    }
     const id = e.tool_use_id || `${e.agentId}-${Date.now()}`
     send($, room, { kind: 'tool', agentId: e.agentId, id, tool: e.tool, input: pick(e as Record<string, unknown>) })
     let ok = false
