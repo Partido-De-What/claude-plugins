@@ -21,10 +21,18 @@ try:
     from .identity import canonical_id
 except ImportError:                                      # lanciato come script (_prova)
     from identity import canonical_id
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from research import _params_b                            # noqa: E402  la taglia dall'id ('550b-a55b' -> 550), come il panel
 
 MAX_AGE = 12 * 3600
 FAST_TIMEOUT = 30
 ROUTE_KEYS = ('ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price_out')
+
+
+def order(m):
+    """prima chi ha l'indice AA più alto, poi i modelli n.d. dal più grande (parametri dall'id), poi per nome"""
+    return (-(m['aa'] if m.get('aa') is not None else -1), -(m.get('params_b') or 0), m['canonical'])
 
 
 def catalog_path():
@@ -71,10 +79,11 @@ def refresh(cat, provider_ids, list_models, now=None, force=False):
             if not key:
                 continue
             m = models.setdefault(key, {'canonical': key, 'name': str(item.get('name') or item['id'])[:120], 'routes': [],
-                                        'scores': [], 'aa': None, 'strengths': [], 'areas_best': [], 'state': 'pending'})
+                                        'scores': [], 'aa': None, 'strengths': [], 'areas_best': [], 'state': 'pending',
+                                        'params_b': _params_b({'id': item['id'], 'description': item.get('description')})})
             m['routes'].append({'adapter': pid, 'model_id': item['id'], **{k: item.get(k) for k in ROUTE_KEYS},
                                 'ping': {'ok': True, 'ms': ms, 'at': now}})
-    cat['models'] = sorted((m for m in models.values() if m['routes']), key=lambda m: (-(m['aa'] or -1), m['canonical']))
+    cat['models'] = sorted((m for m in models.values() if m['routes']), key=order)
     cat['updated'] = now
     return cat
 
@@ -102,7 +111,7 @@ def add_scores(cat, scores, glossary, partial=False, studied=()):
             m['aa'] = next((s['value'] for s in n['scores'] if s['bench'] == 'aa-intelligence-index'), None)
         if c in scores or m['state'] != 'pending':
             m['state'] = 'partial' if partial or c not in studied else 'complete'
-    cat['models'] = sorted(models.values(), key=lambda m: (-(m['aa'] or -1), m['canonical']))
+    cat['models'] = sorted(models.values(), key=order)
     return cat
 
 
@@ -172,6 +181,10 @@ def _prova():
         assert all('frontier' in x and x['source'] for x in glm['scores'])
         save(cat)
         assert load()['models'][0]['canonical'] == 'glm-5-3' and not list(catalog_path().parent.glob('*.tmp'))
+        big = {'canonical': 'nemotron-3-ultra-550b-a55b', 'aa': None, 'params_b': 550.0}
+        small = {'canonical': 'lfm-2-5-2-6b', 'aa': None, 'params_b': 2.6}
+        assert sorted([small, big, {'canonical': 'x', 'aa': 1, 'params_b': None}], key=order)[1:] == [big, small]
+        assert _params_b({'id': 'nvidia/nemotron-3-ultra-550b-a55b:free'}) == 550
     assert not (real_home / '.claude' / 'chatroom' / 'spawn' / 'catalog.json').exists()
     print('catalog ok')
 
