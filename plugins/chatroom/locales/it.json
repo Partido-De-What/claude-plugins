@@ -1246,6 +1246,7 @@
  "office.hangar.host": "HOST",
  "office.hangar.state": "STATO",
  "office.hangar.service": "IN SERVIZIO",
+ "office.hangar.stopped": "FERMO",
  "office.hangar.switch": "CAMBIO PORTA",
  "office.hangar.notokens": "SENZA TOKEN",
  "office.hangar.sleep": "TUTTE LE PORTE DORMONO",

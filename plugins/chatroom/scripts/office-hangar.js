@@ -195,9 +195,9 @@ export function roleEvents(before, after) {
 }
 /** the rows of the departures board: [role, model, host, state key] in fixed widths, upper case; `rows` at most, the last says how many more */
 export const COLS = [9, 18, 11, 12];
-const fit = (s, w) => String(s ?? '').toUpperCase().slice(0, w).padEnd(w);
+const fit = (s, w) => String(s ?? '').toUpperCase().slice(0, w - 1).padEnd(w);            // one space between columns
 export function boardRows(roles, rows, lg) {
-  const all = roles.map(r => fit(r.name, COLS[0]) + fit(r.model, COLS[1]) + fit(r.host || r.provider, COLS[2]) + fit(TXT(r.state === 'notokens' ? 'notokens' : r.state === 'switch' ? 'switch' : 'service', {}, lg), COLS[3]));
+  const all = roles.map(r => fit(r.name, COLS[0]) + fit(r.model, COLS[1]) + fit(r.host || r.provider, COLS[2]) + fit(TXT(r.state, {}, lg), COLS[3]));
   if (all.length <= rows) return all;
   return [...all.slice(0, rows - 1), fit('', COLS[0]) + fit(TXT('more', {n: all.length - rows + 1}, lg), COLS[1] + COLS[2] + COLS[3])];
 }
@@ -213,7 +213,7 @@ export function clean(d) {
   d = d && typeof d === 'object' ? d : {};
   return {
     providers: (Array.isArray(d.providers) ? d.providers : []).slice(0, 40).filter(p => p && p.id).map(p => ({id: s(p.id), name: s(p.name || p.id), quota: p.quota == null ? null : Math.max(0, Math.min(1, num(p.quota))), down: !!p.down})),
-    roles: (Array.isArray(d.roles) ? d.roles : []).slice(0, 40).filter(r => r && r.name).map(r => ({name: s(r.name), provider: s(r.provider), model: s(String(r.model ?? '').split('/').pop(), 60), host: s(r.host), state: ['service', 'switch', 'notokens'].includes(r.state) ? r.state : 'service',
+    roles: (Array.isArray(d.roles) ? d.roles : []).slice(0, 40).filter(r => r && r.name).map(r => ({name: s(r.name), provider: s(r.provider), model: s(String(r.model ?? '').split('/').pop(), 60), host: s(r.host), state: ['service', 'switch', 'notokens', 'stopped'].includes(r.state) ? r.state : 'service',
       trophy: r.trophy ? s(r.trophy) : null, aa: r.aa == null ? null : num(r.aa), strong: (Array.isArray(r.strong) ? r.strong : []).slice(0, 3).map(x => s(x, 24))})),
     saved: {headroom: num(d.saved?.headroom), rtk: num(d.saved?.rtk), caveman: num(d.saved?.caveman)},
     press: num(d.press), funnel: num(d.funnel), router: s(d.router, 60),
@@ -462,14 +462,15 @@ function drawBoard(now) {
   let moving = false, blink = false;
   g.font = '700 26px Consolas, "Courier New", monospace'; g.textAlign = 'center';
   for (let r = 0; r < ROWS; r++) {
-    const y = 66 + r * rh, out = r < ROWS - (data.roles.length > ROWS ? 1 : 0) && data.roles[r]?.state === 'notokens' && !(now < (H.creditsUntil || 0)) && !asleep(new Date());
+    const real = r < ROWS - (data.roles.length > ROWS ? 1 : 0) && !(now < (H.creditsUntil || 0)) && !asleep(new Date()), st = real ? data.roles[r]?.state : '';
+    const y = 66 + r * rh, out = st === 'notokens', stopped = st === 'stopped';
     for (let i = 0; i < WIDTH; i++) {
       const f = H.flaps[r * WIDTH + i], x = 12 + i * cw;
       if (now < f.until) { f.cur = FLAP[Math.floor(Math.random() * FLAP.length)]; moving = true; } else f.cur = f.to;
       g.fillStyle = '#1a1e27'; g.fillRect(x + 1, y, cw - 2, rh - 6); g.fillStyle = '#0b0d12'; g.fillRect(x + 1, y + (rh - 6) / 2, cw - 2, 1);
-      const stateCol = i >= WIDTH - COLS[3] && out;
-      if (stateCol) blink = true;
-      g.fillStyle = stateCol ? (Math.floor(now * 2) % 2 ? PALETTE.red : '#5a1a22') : f.cur === f.to ? '#f2f2ea' : '#c9cbd4';
+      const stateCol = i >= WIDTH - COLS[3] && (out || stopped);
+      if (stateCol && out) blink = true;
+      g.fillStyle = stateCol ? (stopped || Math.floor(now * 2) % 2 ? PALETTE.red : '#5a1a22') : f.cur === f.to ? '#f2f2ea' : '#c9cbd4';   // no tokens blinks, stopped (401/402/403) stays red
       g.fillText(f.cur, x + cw / 2, y + (rh - 6) / 2 + 1);
     }
   }

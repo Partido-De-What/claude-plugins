@@ -1246,6 +1246,7 @@
  "office.hangar.host": "HOST",
  "office.hangar.state": "STATUS",
  "office.hangar.service": "ON DUTY",
+ "office.hangar.stopped": "STOPPED",
  "office.hangar.switch": "CHANGING GATE",
  "office.hangar.notokens": "NO TOKENS",
  "office.hangar.sleep": "ALL GATES ARE ASLEEP",
