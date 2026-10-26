@@ -343,7 +343,7 @@ export function install(ctx) {
   for (const [x, y] of [[200, 140], [225, 120], [180, 160]]) { p.beginPath(); p.arc(x, y, 7, 0, 7); p.fill(); }
   p.fillStyle = '#2b2118'; p.font = '700 18px serif'; p.fillText('UGH. FEW WORD.', 20, 165);
   const paint = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.7), basic({map: tex(pc)}));
-  paint.position.set(-14.86, 1.6, -4.6); paint.rotation.y = Math.PI / 2; paint.userData.hangar = {kind: 'cave'}; group.add(paint); H.cave = paint;
+  paint.position.set(-14.86, 1.6, -4.88); paint.rotation.y = Math.PI / 2; paint.userData.hangar = {kind: 'cave'}; group.add(paint); H.cave = paint;
   // the pager over a role with no tokens, and its ring on the floor (made on demand, at most a few)
   const qc = canvas(128, 128), q = qc.getContext('2d');
   q.fillStyle = '#ff1744'; q.beginPath(); q.arc(64, 64, 60, 0, 7); q.fill(); q.font = '72px sans-serif'; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText('📟', 64, 70);
