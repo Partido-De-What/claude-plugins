@@ -125,6 +125,27 @@ def routes_of(canonical, cat=None):
     return sorted(rs, key=lambda r: (not (r.get('ping') or {}).get('ok'), (r.get('ping') or {}).get('ms') or 10 ** 6))
 
 
+def best_route(room, canonical, name=None, exclude=()):
+    """the host for a role on this model, among the free ones with tools and a key: hosts down, cooling down or with no
+    quota left go last; then the ones no other role of the room uses for the same model (two roles do not eat one quota);
+    then the most quota left (the limiter's figures from the provider's headers, unknown counts as half), the fewest
+    429 in the last minutes, the best ping. None when no host has a key"""
+    from spawn import keys
+    from spawn.limiter import LIMITER
+    others = {f"{r['route']['adapter']}:{r['route']['model_id']}" for n, r in roles(room).items()
+              if n != name and r.get('canonical') == canonical and r.get('state') != 'stopped' and r.get('route')}
+    seen = LIMITER.routes() if hasattr(LIMITER, 'routes') else {}
+
+    def score(r):
+        k = f"{r['adapter']}:{r['model_id']}"
+        q, ping = seen.get(k) or {}, r.get('ping') or {}
+        quota = q.get('quota')
+        return (bool(q.get('down')) or (q.get('cooldown_s') or 0) > 0 or quota == 0, k in others,
+                -(0.5 if quota is None else quota), q.get('recent_429') or 0, not ping.get('ok'), ping.get('ms') or 10 ** 6)
+    rs = [r for r in routes_of(canonical) if f"{r['adapter']}:{r['model_id']}" not in exclude and keys.load(r['adapter'])]
+    return min(rs, key=score, default=None)
+
+
 _ENC = []
 
 
@@ -266,6 +287,11 @@ class Runner(threading.Thread):
                 self.room.append(self.name, _say(self.room, 'stopped', name=self.name, kind=kind, provider=role['route']['adapter']))
 
     def step(self, role):
+        from spawn.limiter import LIMITER
+        r = role['route']
+        q = LIMITER.route(r['adapter'], r['model_id']) if hasattr(LIMITER, 'route') else None
+        if q and q.get('quota') == 0:                     # the provider said this host's quota is over: change door before calling
+            raise errors.ProviderError('quota', None, None, 'no quota left on this host (limiter)')
         h = self.history(role)
         if tokens(h) > CTX_SHARE * (role['route'].get('ctx') or DEFAULT_CTX):
             h = self.handover(role, h)
@@ -323,8 +349,7 @@ class Runner(threading.Thread):
             return
         tried = role.get('tried', []) + [f"{route['adapter']}:{route['model_id']}"]   # next_host, or retries used up
         from spawn import keys
-        nxt = next((r for r in routes_of(role['canonical']) if f"{r['adapter']}:{r['model_id']}" not in tried
-                    and keys.load(r['adapter'])), None)
+        nxt = best_route(self.room, role['canonical'], self.name, exclude=tried)
         if nxt:
             update(self.room, self.name, state='switch', route=nxt, tried=tried)     # 'service' again at its first answer
             self.room.append(self.name, _say(self.room, 'switch', name=self.name, old=route['adapter'], new=nxt['adapter']), 'board')
@@ -369,8 +394,9 @@ def create(room, name, mission, canonical, route, tools=(), effort=None, profile
     ({adapter, model_id, ctx, ...}); tools: 'shell' only when the user gives it (D1)"""
     if not NAME.match(name or ''):
         raise ValueError('a role name is 2-20 capitals, digits or _, starting with a letter')
+    route = route or best_route(room, canonical, name)
     if not route or not route.get('adapter') or not route.get('model_id'):
-        raise ValueError('a role needs a host: adapter and model_id')
+        raise ValueError('a role needs a host: no free host of this model has a key')
     import importlib.util
     if room.config().get('mode') == 'spawn' and importlib.util.find_spec('headroom') is None:
         raise ValueError('a spawn room needs Headroom: install it from the Prepara spawn card first')
@@ -394,7 +420,10 @@ def create(room, name, mission, canonical, route, tools=(), effort=None, profile
 
 def replace(room, name, canonical, route, complete=None):
     """the Sostituisci card: the role goes on with another model, chosen by the user; its history stays (what the new
-    host cannot read is left out by the adapter), its tried hosts start again"""
+    host cannot read is left out by the adapter), its tried hosts start again; route None: the best host (best_route)"""
+    route = route or best_route(room, canonical, name)
+    if not route:
+        raise ValueError('no free host of this model has a key')
     role = update(room, name, canonical=canonical, route=route, tried=[], state='service', error=None)
     room.update_config(profiles={name: {'model': route['model_id'][-24:]}})
     room.append(name, _say(room, 'replaced', name=name, model=canonical, provider=route['adapter']), 'board')
@@ -543,6 +572,36 @@ def _prova():
             no = run_tool(room, roles(room)['ARCH'], {'function': {'name': 'shell', 'arguments': '{"command": "echo x"}'}}, threading.Event())
             assert no.startswith('error'), no                                               # no shell unless the user gave it
             assert 'sk-' not in json.dumps(roles(room))
+            # the host by quota (T31): a fake limiter that says what the providers' headers said
+            from spawn.limiter import LIMITER
+            ra, rb, rc, rd = ({'adapter': a, 'model_id': f'q-{a}', 'ctx': 100000, 'free': True, 'tools': True, 'ping': {'ok': True, 'ms': ms}}
+                              for a, ms in (('open_router', 50), ('kilo', 90), ('groq', 1), ('cerebras', 5)))
+            cat = catalog.load()
+            cat['models'].append({'canonical': 'q', 'name': 'Q', 'routes': [ra, rb, rc, rd], 'aa': None, 'strengths': []})
+            catalog.save(cat)
+            seen_q = {'open_router:q-open_router': {'quota': 0.9, 'recent_429': 0}, 'kilo:q-kilo': {'quota': 0.2, 'recent_429': 0},
+                      'groq:q-groq': {'quota': 0.8, 'down': True}, 'cerebras:q-cerebras': {'quota': 0.0}}
+            LIMITER.routes = lambda: seen_q
+            LIMITER.route = lambda a, m: seen_q.get(f'{a}:{m}')
+            try:
+                assert best_route(room, 'q')['adapter'] == 'open_router'                     # most quota; down and empty ones last
+                assert best_route(room, 'q', exclude=('open_router:q-open_router',))['adapter'] == 'kilo'
+                rs = roles(room)
+                rs['BETA'] = {'name': 'BETA', 'canonical': 'q', 'route': ra, 'state': 'service'}
+                _write(_dir(room) / 'roles.json', rs)
+                assert best_route(room, 'q', 'GAMMA')['adapter'] == 'kilo'                   # another role holds open_router: a different host
+                assert best_route(room, 'q', 'BETA')['adapter'] == 'open_router'             # its own host does not count against it
+                seen_q['kilo:q-kilo'] = {'quota': 0.9, 'recent_429': 3}
+                seen_q['open_router:q-open_router'] = {'quota': 0.9, 'recent_429': 1}
+                assert best_route(room, 'q', 'BETA')['adapter'] == 'open_router'           # equal quota: fewer recent 429
+                seen_q['open_router:q-open_router'] = {'quota': 0.0}
+                try:
+                    Runner(room, 'BETA', fake).step(roles(room)['BETA'])                      # quota over before the call: change door, no request
+                    raise AssertionError('called a host with no quota')
+                except errors.ProviderError as e:
+                    assert e.kind == 'quota'
+            finally:
+                del LIMITER.routes, LIMITER.route
             update(room, 'ARCH', state='service', route={**r1, 'ctx': 100000})        # a failure inside fail(): the handover fails too
             script[:] = [errors.ProviderError('context', 400), errors.ProviderError('payment', 402)]
             box['runner'] = r2 = Runner(room, 'ARCH', fake)
