@@ -88,10 +88,11 @@ def accept_repair(prefix, candidate, schema):
     return None
 
 
-def complete(provider, model, messages, *, tools=None, key=None, stop=None, limiter=None, tokens=None, **kw):
+def complete(provider, model, messages, *, tools=None, key=None, stop=None, limiter=None, tokens=None, attempts=None, **kw):
     """the whole answer of one step of a role: limiter, resume of a broken stream, repair of broken tool JSON.
     tokens: what the first request counts against tokens per minute (input + max_tokens), when the caller counts it better
-    than the estimate here. Returns chat()'s result; raises errors.ProviderError for what neither a wait nor a repair can fix"""
+    than the estimate here. attempts: the limiter's tries for a wait-fixable failure (10 by default; fewer when the
+    caller has another host for this model). Returns chat()'s result; raises errors.ProviderError for what neither a wait nor a repair can fix"""
     lim = limiter or LIMITER
     if key is None:
         from spawn import keys
@@ -101,7 +102,8 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         key, kw['extra'] = k['key'], kw.get('extra') or k['extra']
     budget = int(kw.get('max_tokens') or 4096)        # what a request counts against tokens per minute: its input and its max_tokens
     call = lambda msgs, t: lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, msgs, tools=t, key=key, **kw), stop,
-                                   tokens=tokens if tokens and msgs is messages else openai_compat.estimate_tokens(msgs, t) + budget)
+                                   tokens=tokens if tokens and msgs is messages else openai_compat.estimate_tokens(msgs, t) + budget,
+                                   attempts=attempts)
     text, thinking, result = '', '', None
     for attempt in range(RESUMES + 1):
         try:
@@ -132,7 +134,7 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         # twice the budget; still nothing, and the role moves to another host
         kw2 = {**kw, 'effort': None, 'max_tokens': 2 * int(kw.get('max_tokens') or 4096)}
         again = lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, messages, tools=tools, key=key, **kw2), stop,
-                        tokens=openai_compat.estimate_tokens(messages, tools) + kw2['max_tokens'])
+                        tokens=openai_compat.estimate_tokens(messages, tools) + kw2['max_tokens'], attempts=attempts)
         if again['finish'] == 'length' and not (again['text'] or '').strip() and not again['tool_calls']:
             raise errors.ProviderError('no_output', None, None, 'the reasoning used the whole output budget', again)
         result = again

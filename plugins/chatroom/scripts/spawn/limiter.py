@@ -161,14 +161,15 @@ class Limiter:
                     return
                 self.cond.wait(min(max(0.05, min(w['reset_at'] for w in short) - now), 1.0))
 
-    def run(self, provider, key, model, fn, stop=None, tokens=None):
+    def run(self, provider, key, model, fn, stop=None, tokens=None, attempts=ATTEMPTS):
         """fn() under the limiter, attempted up to 10 times while the failure is one a wait can fix. fn raises
         errors.ProviderError (or an httpx error); anything else goes straight up. stop: a threading.Event that ends the
         waiting (the role was stopped). tokens: what the request will count against the provider's tokens per minute
-        (its input and its max_tokens): it waits for the window to hold them"""
+        (its input and its max_tokens): it waits for the window to hold them. attempts: fewer than 10 when the caller has
+        another host to go to (the last error is raised after them)"""
         lane = self._lane(provider, key, model)
         last = None
-        for _ in range(ATTEMPTS):
+        for _ in range(max(1, int(attempts or ATTEMPTS))):
             if tokens:
                 self._tokens(provider, key, model, tokens, stop)
             probe = self._admit(lane, stop)
@@ -362,6 +363,12 @@ def _prova():
         raise AssertionError('no error after 10 attempts')
     except errors.ProviderError as e:
         assert e.kind == 'overloaded' and len(n) == ATTEMPTS
+    n.clear()
+    try:
+        lim.run('groq', 'k', 'm4', always, attempts=3)
+        raise AssertionError('no error after 3 attempts')
+    except errors.ProviderError as e:
+        assert e.kind == 'overloaded' and len(n) == 3                      # a role with another host does not wait for 10
     lane6 = lim._lane('mistral', 'k6', 'a')               # another request's 402 or late success does not close an open episode
     lane6.failures, lane6.ready_at, lane6.inflight = 1, t[0] + 100, 2
     lim._done(lane6, False, None, neutral=True)
