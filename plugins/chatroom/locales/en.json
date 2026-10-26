@@ -1762,5 +1762,9 @@
  "spawnv.why.auth": "key refused",
  "spawnv.why.slow": "too slow",
  "spawnv.why.down": "host in trouble",
- "spawnv.why.noHost": "no free host"
+ "spawnv.why.noHost": "no free host",
+ "spawnv.dead": "hidden ({n})",
+ "spawnv.deadTip": "Models that do not answer by the service's choice: paid only, retired, out of credits, not chat",
+ "spawnv.why.paid": "paid only on this host",
+ "spawnv.why.notChat": "not a chat model"
 }

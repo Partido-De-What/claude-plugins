@@ -346,6 +346,31 @@ def study(room_dir, lang='it'):
 
 PROBE = {'running': False, 'done': 0, 'total': 0}
 PROBE_ASK = [{'role': 'user', 'content': 'Reply with the single word OK.'}]
+# what the service decides, not a wait: such a host is gone for us. A refused key is not here (the user can fix it)
+DEAD = {'payment', 'not_found', 'paid_only', 'not_chat', 'no_host'}
+_PAID = re.compile(r'Free plan|only available on agentic harnesses', re.I)
+_NOT_CHAT = re.compile(r'Interactions API|Invalid model|required properties|terms acceptance', re.I)
+
+
+def dead(m):
+    """tried, and every host it tried is gone for good (paid only, not there, not a chat model)"""
+    p = m.get('probe') or {}
+    return bool(p) and not p.get('ok') and all(v in DEAD for v in (p.get('tries') or {'-': p.get('error')}).values())
+
+
+def _kind(exc):
+    kind, detail = getattr(exc, 'kind', type(exc).__name__), str(getattr(exc, 'detail', ''))
+    if kind == 'stopped':
+        return 'busy'
+    if kind == 'no_output':
+        return 'ok'                                      # it thought until max_tokens: alive
+    if kind == 'forbidden' and _PAID.search(detail):
+        return 'paid_only'
+    if kind == 'bad_request' and _NOT_CHAT.search(detail):
+        return 'not_chat'
+    return kind
+
+
 PROBE_WAIT = 60                                          # seconds the limiter may hold one try (a closed window): then the next host
 
 
@@ -366,14 +391,17 @@ def probe(complete=None, only=None, workers=8):
             timer = threading.Timer(PROBE_WAIT, stop.set)
             timer.start()
             try:
-                complete(r['adapter'], r['model_id'], PROBE_ASK, max_tokens=64, attempts=1, stop=stop)
+                complete(r['adapter'], r['model_id'], PROBE_ASK, max_tokens=512, attempts=3, stop=stop)
                 res = {'ok': True, 'ms': int((time.time() - t0) * 1000), 'host': r['adapter']}
                 tries[r['adapter']] = 'ok'
                 break
             except Exception as exc:                       # the next host; the last error is the one kept
-                kind = getattr(exc, 'kind', type(exc).__name__)
-                res = {'ok': False, 'host': r['adapter'], 'error': 'busy' if kind == 'stopped' else kind}
-                tries[r['adapter']] = res['error']
+                kind = _kind(exc)
+                tries[r['adapter']] = kind
+                if kind == 'ok':
+                    res = {'ok': True, 'ms': int((time.time() - t0) * 1000), 'host': r['adapter']}
+                    break
+                res = {'ok': False, 'host': r['adapter'], 'error': kind}
             finally:
                 timer.cancel()
         return m['canonical'], {**res, 'tries': tries, 'at': time.time()}      # tries: each host's answer, 'ok' or why not
@@ -591,7 +619,8 @@ def _prova_update(tmp):
         return {'text': 'OK'}
     got = probe(complete=fake, workers=2)
     assert got['glm-5-3']['ok'] and got['glm-5-3']['host'] == 'open_router' and got['kimi-k3'] == {**got['kimi-k3'], 'ok': False, 'error': 'quota'}
-    assert next(m for m in load()['models'] if m['canonical'] == 'glm-5-3')['probe']['ok'] and not PROBE['running'] and PROBE['done'] == PROBE['total'] == len(cat['models'])
+    assert next(m for m in load()['models'] if m['canonical'] == 'glm-5-3')['probe']['ok']
+    assert dead({'probe': {'ok': False, 'tries': {'huggingface': 'payment', 'cloudflare': 'paid_only'}}}) and not dead({'probe': {'ok': False, 'tries': {'gemini': 'quota'}}}) and not dead({}) and not PROBE['running'] and PROBE['done'] == PROBE['total'] == len(cat['models'])
 
 
 def _prova_veri(strengths, researcher):

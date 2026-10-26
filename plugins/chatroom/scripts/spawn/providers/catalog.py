@@ -45,7 +45,8 @@ FREE = {
                     'env': 'SILICONFLOW_API_KEY', 'offer': 'small models free', 'verify': ('/user/info', 'data', (401,))},
     'ollama_cloud': {'all_free': True, 'name': 'Ollama Cloud', 'base': 'https://ollama.com/v1', 'signup': 'https://ollama.com/settings/keys',
                      'env': 'OLLAMA_API_KEY', 'offer': 'free quota'},
-    'kilo': {'name': 'Kilo', 'base': 'https://api.kilo.ai/api/gateway', 'signup': 'https://app.kilo.ai', 'env': 'KILO_API_KEY', 'offer': 'free models'},
+    'kilo': {'name': 'Kilo', 'base': 'https://api.kilo.ai/api/gateway', 'signup': 'https://app.kilo.ai', 'env': 'KILO_API_KEY', 'offer': 'free models',
+             'anon': True},                         # free models answer without a key too (200 requests an hour per IP, Kilo's docs)
     'opencode_zen': {'name': 'OpenCode Zen', 'base': 'https://opencode.ai/zen/v1', 'signup': 'https://opencode.ai/auth',
                      'env': 'OPENCODE_API_KEY', 'offer': 'free models'},
     'vercel': {'name': 'Vercel AI Gateway', 'base': 'https://ai-gateway.vercel.sh/v1', 'signup': 'https://vercel.com/docs/ai-gateway',
@@ -105,4 +106,6 @@ def auth_headers(provider, key, verify=False):
     """how the key travels: a bearer token, or the provider's own header (verify: the one its key probe needs)"""
     p = get(provider)
     how = (p.get('verify_auth') if verify else None) or p.get('auth', 'bearer')
+    if not key:
+        return {}                                    # anonymous: only a provider marked 'anon'
     return {'Authorization': f'Bearer {key}'} if how == 'bearer' else {how: key}

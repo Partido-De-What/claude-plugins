@@ -138,7 +138,7 @@
 
   function top() {
     const d = SV.data || {}, L = d.catalog || {};
-    const label = {keys: `${I18N.text('spawnv.tab.keys')} ${d.ready || 0} ${I18N.text('spawnv.ready')}`, models: `${I18N.text('spawnv.tab.models')} ${(L.lines || []).length}`, roles: `${I18N.text('spawnv.tab.roles')} ${(d.roles || []).length}`};
+    const label = {keys: `${I18N.text('spawnv.tab.keys')} ${d.ready || 0} ${I18N.text('spawnv.ready')}`, models: `${I18N.text('spawnv.tab.models')} ${(L.lines || []).filter(m => !m.dead).length}`, roles: `${I18N.text('spawnv.tab.roles')} ${(d.roles || []).length}`};
     const upd = L.updating ? I18N.text('spawnv.updating') : L.updated ? I18N.text('spawnv.updated', {when: ago(L.updated)}) : I18N.text('spawnv.never');
     const pr = L.probing || {};
     const probe = pr.running ? `<span>${esc(I18N.text('spawnv.probeRun', {done: pr.done || 0, total: pr.total || 0}))}</span>`
@@ -172,7 +172,7 @@
   function listRows() {
     const L = (SV.data.catalog || {}).lines || [], q = SV.q.trim().toLowerCase(), qa = ALIAS[q];
     const hit = m => !q || (qa && (m.areas || []).includes(qa)) || (m.name + ' ' + m.c + ' ' + (m.maker || '') + ' ' + (m.areas || []).map(areaLow).join(' ')).toLowerCase().includes(q);
-    const rows = L.filter(m => hit(m) && (!SV.area || (m.areas || []).includes(SV.area)));
+    const rows = L.filter(m => (SV.dead || !m.dead) && hit(m) && (!SV.area || (m.areas || []).includes(SV.area)));
     if (!rows.length) return `<div class="sv-empty">${esc((L.length ? I18N.text('spawnv.noMatch') : I18N.text('spawnv.never')))}</div>`;
     return rows.map(m => {
       const on = SV.sel === m.c;
@@ -187,7 +187,8 @@
   const WHY = {payment: () => I18N.text('spawnv.why.payment'), quota: () => I18N.text('spawnv.why.quota'), rate_limit: () => I18N.text('spawnv.why.rate'),
                busy: () => I18N.text('spawnv.why.rate'), not_found: () => I18N.text('spawnv.why.notFound'), auth: () => I18N.text('spawnv.why.auth'),
                forbidden: () => I18N.text('spawnv.why.auth'), timeout: () => I18N.text('spawnv.why.slow'), upstream: () => I18N.text('spawnv.why.down'),
-               overloaded: () => I18N.text('spawnv.why.down'), no_host: () => I18N.text('spawnv.why.noHost')};
+               overloaded: () => I18N.text('spawnv.why.down'), no_host: () => I18N.text('spawnv.why.noHost'),
+               paid_only: () => I18N.text('spawnv.why.paid'), not_chat: () => I18N.text('spawnv.why.notChat')};
   const why = p => (WHY[p.error] || (() => String(p.error || '').replace(/_/g, ' ')))();
   const probeText = p => !p ? I18N.text('spawnv.probe.none') : p.ok ? I18N.text('spawnv.probe.ok', {ms: p.ms}) : I18N.text('spawnv.probe.bad', {why: why(p)});
   const tried = (m, host) => { const t = ((m.probe || {}).tries || {})[host]; return t ? (t === 'ok' ? {ok: true, ms: m.probe.ms} : {ok: false, error: t}) : null; };
@@ -270,10 +271,11 @@
 
   function modelsTab() {
     const have = new Set(((SV.data.catalog || {}).lines || []).flatMap(m => m.areas || []));
-    const chips = MAIN_AREAS.filter(a => have.has(a));
+    const chips = MAIN_AREAS.filter(a => have.has(a)), nDead = ((SV.data.catalog || {}).lines || []).filter(m => m.dead).length;
     return `<div class="sv-main ${SV.phoneDetail ? 'detail' : ''}"><div class="sv-card sv-list">
       <input id="svQ" type="search" placeholder="${esc(I18N.text('spawnv.search'))}" value="${esc(SV.q)}">
-      <div class="sv-chips">${chips.map(a => `<button class="sv-chip ${SV.area === a ? 'on' : ''}" data-area="${esc(a)}">${esc(area(a))}</button>`).join('')}</div>
+      <div class="sv-chips">${chips.map(a => `<button class="sv-chip ${SV.area === a ? 'on' : ''}" data-area="${esc(a)}">${esc(area(a))}</button>`).join('')}
+        ${nDead ? `<button class="sv-chip ${SV.dead ? 'on' : ''}" data-dead="1" title="${esc(I18N.text('spawnv.deadTip'))}">${esc(I18N.text('spawnv.dead', {n: nDead}))}</button>` : ''}</div>
       <div class="sv-rows" id="svList">${listRows()}</div></div>
       <div class="sv-card sv-detail" id="svDetail">${detail()}</div></div>`;
   }
@@ -330,11 +332,12 @@
   }
 
   main.addEventListener('click', async e => {
-    const el = e.target.closest('[data-tab],[data-m],[data-area],[data-do],[data-form],[data-close],[data-back],[data-more]');
+    const el = e.target.closest('[data-tab],[data-m],[data-area],[data-do],[data-form],[data-close],[data-back],[data-more],[data-dead]');
     if (!el) return;
     if (el.dataset.tab) { SV.tab = el.dataset.tab; keep(); return render(); }
     if (el.dataset.close) return open(false);
     if (el.dataset.back) { SV.phoneDetail = false; return render(); }
+    if (el.dataset.dead) { SV.dead = !SV.dead; return render(); }
     if (el.dataset.more) { SV.more = SV.more === el.dataset.more ? '' : el.dataset.more; return render(); }
     if (el.dataset.m) return pick(el.dataset.m);
     if (el.dataset.area !== undefined && el.classList.contains('sv-chip')) { SV.area = SV.area === el.dataset.area ? '' : el.dataset.area; return render(); }

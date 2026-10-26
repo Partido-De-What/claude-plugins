@@ -333,6 +333,9 @@ def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None,
             try:
                 _stream(client, url, headers(provider, key), body, answer, lambda h: LIMITER.observe(provider, key, model, h))
             except errors.ProviderError as e:
+                if e.kind == 'auth' and key and catalog.get(provider).get('anon'):
+                    key = ''                         # a refused key on a provider whose free models need none: once more without it
+                    continue
                 fixed = correct(body, e.status, e.detail, used) if e.status in (400, 413) else None
                 if fixed is None:
                     raise

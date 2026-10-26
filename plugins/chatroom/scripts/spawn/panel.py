@@ -107,13 +107,18 @@ def _profile(m, lang):
             'limits': p.get('limits') or [], 'sources': p.get('sources') or []}
 
 
+def c_dead(m):
+    from spawn.catalog.catalog import dead
+    return dead(m)
+
+
 def _summary(m, quotas, lang='it'):
     hosts = _hosts(m, quotas)
     pings = [h['ping_ms'] for h in hosts if h['ping_ms']]
     return {'c': m['canonical'], 'name': _name(m), 'maker': _maker(m), 'aa': m.get('aa'), 'areas': [a for a in (m.get('areas_best') or []) if a != 'other'][:3],
             'hosts': len(hosts), 'ping_ms': min(pings) if pings else None, 'ctx': max((h['ctx'] or 0) for h in hosts) if hosts else None,
             'tools': any(h['tools'] for h in hosts), 'partial': m.get('state') in ('pending', 'partial'), 'params_b': m.get('params_b'),
-            'probe': _probe(m), 'status': (m.get('profile') or {}).get('status'), 'level': (_profile(m, lang) or {}).get('level', '')}
+            'probe': _probe(m), 'dead': c_dead(m), 'status': (m.get('profile') or {}).get('status'), 'level': (_profile(m, lang) or {}).get('level', '')}
 
 
 def state(room):
