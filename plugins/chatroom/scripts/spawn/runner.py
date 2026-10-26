@@ -30,7 +30,7 @@ from pathlib import Path
 
 from spawn import errors
 
-CTX_SHARE, DEFAULT_CTX, MAX_TOKENS, WAIT = 0.8, 32768, 4096, 540
+CTX_SHARE, DEFAULT_CTX, MAX_TOKENS, WAIT, BRAKE = 0.8, 32768, 4096, 540, 30
 NAME = re.compile(r'[A-Z][A-Z0-9_]{1,19}\Z')
 STATES = ('service', 'switch', 'notokens', 'stopped')
 SHELL = {'type': 'function', 'function': {'name': 'shell', 'description': 'Run a shell command in your own folder (120 s at most). '
@@ -238,19 +238,32 @@ class Runner(threading.Thread):
                               max_tokens=max_tokens or role.get('max_tokens') or MAX_TOKENS, effort=role.get('effort'),
                               session_id=f"{self.name}-{r['adapter']}", stop=self.stop)
 
+    def over(self):
+        """the role left the room (chat.py remove) or the user or the lead closed it (CLOSED): the thread ends"""
+        import chat
+        c = self.room.config()
+        if self.name not in c.get('participants', []):
+            return True
+        users = self.room.user_names()
+        return any(m.get('from') in users and not m.get('kind') and chat.closing(m.get('text', ''))[0]
+                   for m in self.room.messages()[-200:])
+
     def run(self):
-        while not self.stop.is_set():
+        while not self.stop.is_set() and not self.over():
             role = roles(self.room).get(self.name)
             if not role or role.get('state') in ('notokens', 'stopped'):
                 self.wake.wait(5)
                 self.wake.clear()
                 continue
             try:
-                self.step(role)
-            except errors.ProviderError as e:
-                self.fail(role, e)
-            except Exception as e:                        # a bug must not kill the role silently: it stops, the user sees why
-                update(self.room, self.name, state='stopped', error=f'{type(e).__name__}: {str(e)[:200]}')
+                try:
+                    self.step(role)
+                except errors.ProviderError as e:
+                    self.fail(role, e)
+            except Exception as e:                        # a bug, or a failure while handling one: the role stops and says why
+                kind = e.kind if isinstance(e, errors.ProviderError) else type(e).__name__
+                update(self.room, self.name, state='stopped', error=f'{kind}: {str(e)[:200]}')
+                self.room.append(self.name, _say(self.room, 'stopped', name=self.name, kind=kind, provider=role['route']['adapter']))
 
     def step(self, role):
         h = self.history(role)
@@ -268,15 +281,24 @@ class Runner(threading.Thread):
                 h.append({'role': 'tool', 'tool_call_id': c['id'], 'content': run_tool(self.room, role, c, self.stop)})
         else:                                             # the turn is over: wait for the room, then go on with it
             import chat
+            t0 = time.time()
             text, _ = chat.mcp_call(self.room, self.name, 'chat_wait', {'timeout': WAIT}, self.stop)
             h.append({'role': 'user', 'content': text or 'nothing new'})
+            if time.time() - t0 < 5:                      # back at once (the silence timer): a brake, or the free quota burns in a loop
+                self.stop.wait(BRAKE)
         self.save(h)
 
     def handover(self, role, h, full=False):
         """the role writes its handover, which goes to its notebook and starts the new history; full: the provider said
         the context is full, so only the last messages are given to write it"""
         import chat
-        short = [h[0]] + h[-12:] if full or tokens(h) > (role['route'].get('ctx') or DEFAULT_CTX) * 0.95 else h
+        if full or tokens(h) > (role['route'].get('ctx') or DEFAULT_CTX) * 0.95:
+            tail = h[-12:]
+            while tail and tail[0].get('role') == 'tool':  # a tool answer without its call is refused by the provider
+                tail = tail[1:]
+            short = [h[0]] + tail
+        else:
+            short = h
         notes = self.call(role, short + [{'role': 'user', 'content': HANDOVER}], tools=False, max_tokens=1500)['text'].strip()
         chat.mcp_call(self.room, self.name, 'notebook', {'text': 'handover: ' + ' '.join(notes.split())[:1500]})
         update(self.room, self.name, handover=notes)
@@ -304,7 +326,7 @@ class Runner(threading.Thread):
         nxt = next((r for r in routes_of(role['canonical']) if f"{r['adapter']}:{r['model_id']}" not in tried
                     and keys.load(r['adapter'])), None)
         if nxt:
-            update(self.room, self.name, state='service', route=nxt, tried=tried)
+            update(self.room, self.name, state='switch', route=nxt, tried=tried)     # 'service' again at its first answer
             self.room.append(self.name, _say(self.room, 'switch', name=self.name, old=route['adapter'], new=nxt['adapter']), 'board')
         else:
             update(self.room, self.name, state='notokens', tried=tried)
@@ -488,7 +510,7 @@ def _prova():
             r = Runner(room, 'ARCH', fake)
             r.fail(roles(room)['ARCH'], errors.ProviderError('quota', 429))                # quota: the same model on another host
             role = roles(room)['ARCH']
-            assert role['route']['adapter'] == 'kilo' and role['state'] == 'service' and 'cambio porta open_router → kilo' in room.messages()[-1]['text']
+            assert role['route']['adapter'] == 'kilo' and role['state'] == 'switch' and 'cambio porta open_router → kilo' in room.messages()[-1]['text']
             r.fail(role, errors.ProviderError('rate_limit', 429))                           # the limiter gave up: no host left
             last = [m for m in room.messages() if m['from'] == 'ARCH' and not m.get('kind')][-1]
             assert any(m.get('kind') == 'card' for m in room.messages()) or not (Path(__file__).parent / 'cards_spawn.py').is_file()
@@ -521,6 +543,33 @@ def _prova():
             no = run_tool(room, roles(room)['ARCH'], {'function': {'name': 'shell', 'arguments': '{"command": "echo x"}'}}, threading.Event())
             assert no.startswith('error'), no                                               # no shell unless the user gave it
             assert 'sk-' not in json.dumps(roles(room))
+            update(room, 'ARCH', state='service', route={**r1, 'ctx': 100000})        # a failure inside fail(): the handover fails too
+            script[:] = [errors.ProviderError('context', 400), errors.ProviderError('payment', 402)]
+            box['runner'] = r2 = Runner(room, 'ARCH', fake)
+            r2.start()
+            for _ in range(100):
+                if roles(room)['ARCH']['state'] == 'stopped':
+                    break
+                time.sleep(0.05)
+            r2.stop.set()
+            r2.join(10)
+            assert roles(room)['ARCH']['state'] == 'stopped' and '⛔ ARCH fermo: payment' in room.messages()[-1]['text'] and not r2.is_alive()
+            h = [{'role': 'system', 'content': 's'}] + [{'role': 'tool', 'tool_call_id': 'x', 'content': 'y'}] * 3 + [{'role': 'user', 'content': 'u'}] * 9
+            script[:] = [{'text': 'notes'}]
+            Runner(room, 'ARCH', fake).handover(roles(room)['ARCH'], h, full=True)
+            assert [m['role'] for m in seen[-1][2]][:2] == ['system', 'user'], seen[-1][2][:3]      # no tool answer without its call
+            update(room, 'ARCH', state='service')
+            room.edit_config(lambda c: c.update(participants=[n for n in c['participants'] if n != 'ARCH']))
+            r3 = Runner(room, 'ARCH', fake)
+            r3.start()
+            r3.join(5)
+            assert not r3.is_alive()                                                        # removed from the room: the thread ends
+            room.edit_config(lambda c: c['participants'].append('ARCH'))
+            room.append('LEAD', 'CLOSED v1: fine')
+            r4 = Runner(room, 'ARCH', fake)
+            r4.start()
+            r4.join(5)
+            assert not r4.is_alive()                                                        # the lead closed the room: the thread ends
             s = snapshot(room)
             assert s['saved']['caveman'] == int(roles(room)['ARCH']['usage']['out'] * CAVEMAN_FACTOR) > 0 and s['caveman_estimated'], s
             assert isinstance(s['saved']['rtk'], int) and s['saved']['rtk'] >= 0, s
