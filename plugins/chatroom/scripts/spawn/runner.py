@@ -476,6 +476,7 @@ def _prova():
             posted = [m for m in room.messages() if m['from'] == 'ARCH']
             assert posted and posted[0]['text'] == 'ciao @A', room.messages()
             assert 'ARCH' in room.config()['participants'] and room.config()['profiles']['ARCH']['model'] == 'x/m:free'
+            assert room.config()['participants'][0] == 'A' and 'A' not in room.config().get('profiles', {}) and room.roster() == {}   # mode B: the others untouched
             p, m, msgs, tools, kw = seen[0]
             assert p == 'open_router' and msgs[0]['role'] == 'system' and 'caveman ultra' in msgs[0]['content'] and 'Italian' in msgs[0]['content']
             names = {t['function']['name'] for t in tools}
