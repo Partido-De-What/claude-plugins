@@ -74,12 +74,19 @@ ARTIFICIAL_ANALYSIS = {'name': 'Artificial Analysis', 'base': 'https://artificia
 ALL = {**FREE, 'artificial_analysis': ARTIFICIAL_ANALYSIS}
 
 
+class UnknownProvider(ValueError, KeyError):
+    """a ValueError for the viewer and the cards (they answer 400 with it), a KeyError for older callers"""
+
+    def __str__(self):
+        return str(self.args[0])
+
+
 def get(provider):
-    """the entry of one provider, or KeyError naming the known ones"""
+    """the entry of one provider, or UnknownProvider naming the known ones"""
     try:
         return ALL[provider]
     except KeyError:
-        raise KeyError(f'unknown provider {provider!r}; known: {", ".join(ALL)}') from None
+        raise UnknownProvider(f'unknown provider {str(provider)[:40]!r}; known: {", ".join(ALL)}') from None
 
 
 def base_url(provider, extra=None):
