@@ -102,7 +102,7 @@ class Limiter:
         with self.cond:
             while True:
                 if stop is not None and stop.is_set():
-                    raise errors.ProviderError('network', None, None, 'stopped')
+                    raise errors.ProviderError('stopped', None, None, 'the role was stopped')
                 now = self.clock()
                 while lane.starts and lane.starts[0] <= now - WINDOW:
                     lane.starts.popleft()
@@ -148,7 +148,7 @@ class Limiter:
         with self.cond:
             while True:
                 if stop is not None and stop.is_set():
-                    raise errors.ProviderError('network', None, None, 'stopped')
+                    raise errors.ProviderError('stopped', None, None, 'the role was stopped')
                 now = self.clock()
                 wins = [w for k, w in self.windows.get(name, {}).items() if 'token' in k and w.get('limit') and w.get('remaining') is not None]
                 for w in wins:                          # a window past its reset is full again
@@ -452,8 +452,8 @@ def _prova():
     try:
         tp.run('groq', 'g', 'oss', lambda: 'x', stop=stop2, tokens=7000)
         raise AssertionError('stop ignored while waiting for tokens')
-    except errors.ProviderError:
-        pass
+    except errors.ProviderError as e:
+        assert e.kind == 'stopped' and e.action == 'none'      # not a failure of the host: the runner must not switch
     done.set()
     print('limiter ok')
 

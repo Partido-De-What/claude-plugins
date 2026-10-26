@@ -12,11 +12,12 @@ import re
 import time
 
 KINDS = ('rate_limit', 'quota', 'overloaded', 'upstream', 'timeout', 'network', 'stream_cut', 'auth', 'payment', 'forbidden',
-         'context', 'too_large', 'bad_request', 'not_found', 'tool_json', 'no_output')
+         'context', 'too_large', 'bad_request', 'not_found', 'tool_json', 'no_output', 'stopped')
 ACTION = {'rate_limit': 'retry', 'overloaded': 'retry', 'upstream': 'retry', 'timeout': 'retry', 'network': 'retry',
           'stream_cut': 'resume', 'tool_json': 'repair',
           'quota': 'next_host', 'not_found': 'next_host', 'no_output': 'next_host',
           'context': 'handover',
+          'stopped': 'none',                        # the role was stopped while it waited: nothing to retry, nothing to switch
           'auth': 'stop', 'payment': 'stop', 'forbidden': 'stop', 'too_large': 'stop', 'bad_request': 'stop'}
 RETRYABLE = frozenset(k for k, a in ACTION.items() if a == 'retry')
 
@@ -126,6 +127,7 @@ def _prova():
     e = classify(500, 'key sk-or-v1-' + 'b' * 40 + ' leaked')
     assert 'bbbbbbbb' not in str(e) and e.action == 'retry'
     assert ProviderError('context').action == 'handover' and ProviderError('payment').action == 'stop'
+    assert ProviderError('stopped').action == 'none' and 'stopped' not in RETRYABLE
     import httpx
     assert from_exception(httpx.ReadTimeout('x')).kind == 'timeout' and from_exception(httpx.RemoteProtocolError('x')).kind == 'stream_cut'
     assert from_exception(httpx.ConnectError('x')).kind == 'network'
