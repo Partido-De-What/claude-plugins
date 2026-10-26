@@ -370,13 +370,13 @@ def create(room, name, mission, canonical, route, tools=(), effort=None, profile
     return start(room, name, complete)
 
 
-def replace(room, name, canonical, route):
+def replace(room, name, canonical, route, complete=None):
     """the Sostituisci card: the role goes on with another model, chosen by the user; its history stays (what the new
     host cannot read is left out by the adapter), its tried hosts start again"""
     role = update(room, name, canonical=canonical, route=route, tried=[], state='service', error=None)
     room.update_config(profiles={name: {'model': route['model_id'][-24:]}})
     room.append(name, _say(room, 'replaced', name=name, model=canonical, provider=route['adapter']), 'board')
-    start(room, name)
+    start(room, name, complete)
     return role
 
 
@@ -447,6 +447,8 @@ def _prova():
         catalog.save({'updated': 1, 'providers': {}, 'models': [{'canonical': 'm', 'name': 'M', 'routes': [r2, r1], 'aa': 40.0,
                       'strengths': [{'bench': 'swe-bench', 'rank': 1, 'trophy': True}, {'bench': 'gpqa', 'rank': 3}]}]})
         real_load, keys.load = keys.load, (lambda p: {'key': 'k', 'extra': None})
+        import spawn.providers as providers_mod
+        providers_mod.complete = lambda *a, **k: (_ for _ in ()).throw(AssertionError('a real provider was called'))   # never the network here
         script, seen, box = [], [], {}
 
         def fake(provider, model, msgs, tools=None, **kw):
@@ -494,7 +496,9 @@ def _prova():
             snap = snapshot(room)['roles'][0]
             assert snap == {'name': 'ARCH', 'provider': 'kilo', 'model': 'm', 'host': 'kilo', 'state': 'notokens',
                             'trophy': 'swe-bench', 'aa': 40.0, 'strong': ['swe-bench', 'gpqa']}, snap
-            replace(room, 'ARCH', 'm', r1)
+            box['runner'], script[:] = None, ['stop']                                          # the thread replace() starts: one step, then it stops
+            replace(room, 'ARCH', 'm', r1, complete=fake)
+            RUNNERS[(str(room.dir.resolve()), 'ARCH')].join(15)
             assert roles(room)['ARCH']['state'] == 'service' and 'ora gira su m' in room.messages()[-1]['text']
             stop(room, 'ARCH')
             role = update(room, 'ARCH', route={**r1, 'ctx': 300})                           # a tiny window: the next step renews the context
