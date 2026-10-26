@@ -196,7 +196,7 @@ File: `office-hangar.js` nuovo (tema, texture, oggetti, easter egg); `office.js`
 
 - Uno solo, nel server del viewer, per chiave e per modello, logica di FCC (finestra, concorrenza, una sonda di recupero mentre gli altri aspettano, 10 tentativi da 2 a 60 s, `Retry-After`).
 - Rispetta i limiti free (OpenRouter 20 rpm e quota giornaliera da `/key`, NIM circa 40 rpm, Groq RPM e TPM con correzione di `max_tokens`).
-- Modalità solo free: nessuna strada a pagamento entra nella catena. A pagamento: tetto in dollari per ruolo e per stanza, somma di `usage.cost`.
+- **Solo modelli gratis (D12, Adrian 26/10):** la 0.13 usa esclusivamente strade free; nessuna strada a pagamento entra mai nella catena e non esiste un modo a pagamento. I modelli locali (llama.cpp, LM Studio, Ollama) arrivano in un aggiornamento successivo.
 - Errori 402 e 403 fermano il ruolo con card che spiega.
 
 ## 11. README
@@ -241,6 +241,7 @@ Questa scelta di modelli vale per la stanza 0.13 (eccezione alla regola generale
 ## 14. Decisioni di Adrian (26/10/2026)
 
 - **D-LIC** Tutto il plugin passa ad AGPL-3.0-only (sezione 2).
+- **D12** Solo modelli gratis nella 0.13, niente modo a pagamento; i modelli locali in un aggiornamento dopo.
 - **D11** Tutto il plugin su Python 3.14, un solo ambiente, librerie dentro la chatroom, avvio con `uv run --python 3.14`, `uv.lock`, suite su 3.14 prima di installare (sezione 2).
 - **D1** Shell e file solo ai ruoli che sceglie Adrian, sempre con RTK.
 - **D2** Sì alla chiave Artificial Analysis (gratuita, 100 richieste al giorno), inserita nella prima inizializzazione come gli altri provider.
