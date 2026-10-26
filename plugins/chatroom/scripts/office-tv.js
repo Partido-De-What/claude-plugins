@@ -46,7 +46,7 @@ function speaker(el) {
   ac.createMediaElementSource(el).connect(gain).connect(pan).connect(ac.destination);
   return {gain, pan};
 }
-for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => ac?.state === 'suspended' && ac.resume(), true);
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => ac?.state === 'suspended' && !quiet.size && ac.resume(), true);
 /** [gain, side] of a sound at `src` whose area is the rectangle `area`, heard by a figure at `me` looking through
  *  `camera`: inside the area 1 and 0; outside it fades with the distance and comes from where it is (right = +1).
  *  `reach` (metres): the sound stays in its room and is gone this far outside it; without it, a long fade (30 m) */
@@ -65,9 +65,13 @@ const MIX_KEY = 'chatroom.mix.v2';
 // 0.13: a page that never saved its levels starts silent (the general mute on): sound comes back only from the mixer; saved levels stay as they are
 const MIX = {master: 0.3, tv: 0.5, arcade: 0.5, radio: 1, lofi: 1, mute: {master: true}};
 try { Object.assign(MIX, JSON.parse(localStorage.getItem(MIX_KEY) || '{}')); } catch (e) {}
-export const mixLevel = kind => (MIX.mute.master ? 0 : MIX.master) * (MIX.mute[kind] ? 0 : MIX[kind] ?? 1);
+// silent whatever the mixer says while a reason holds: the chat-only view (the office stops its frames, the levels would stay where they were)
+// and the chat's 🔕, the one switch for every sound of the page
+const quiet = new Set();
+export function hush(why, on) { if (on) quiet.add(why); else quiet.delete(why); if (quiet.size) ac?.suspend(); else if (ac?.state === 'suspended') ac.resume(); }
+export const mixLevel = kind => quiet.size ? 0 : (MIX.mute.master ? 0 : MIX.master) * (MIX.mute[kind] ? 0 : MIX[kind] ?? 1);
 /** the general switch of the mixer: the sounds that do not go through it (the chime, the games) ask this first */
-export const soundOn = () => !MIX.mute.master && MIX.master > 0;
+export const soundOn = () => !quiet.size && !MIX.mute.master && MIX.master > 0;
 /** move a speaker's gain and side smoothly; the mixer's level for its kind applies on top */
 function steer(nodes, g, p, kind) {
   nodes.gain.gain.setTargetAtTime(g * mixLevel(kind), ac.currentTime, 0.12);

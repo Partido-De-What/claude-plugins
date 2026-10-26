@@ -91,12 +91,29 @@ def _maker(m):
     return MAKERS.get(owner, owner.replace('-', ' ').title() if owner else '')
 
 
-def _summary(m, quotas):
+def _probe(m):
+    p = m.get('probe') or {}
+    return {'ok': p.get('ok'), 'ms': p.get('ms'), 'error': p.get('error'), 'host': p.get('host'), 'at': p.get('at')} if p else None
+
+
+def _profile(m, lang):
+    """the profiler's card in the room's language: what it is, status, level next to known models, free limits per host"""
+    p = m.get('profile') or {}
+    if not p:
+        return None
+    other = 'en' if lang == 'it' else 'it'
+    return {'what': p.get(lang) or p.get(other) or '', 'status': p.get('status', 'unknown'), 'successor': p.get('successor', ''),
+            'level': p.get('level_' + lang) or p.get('level_' + other) or '', 'basis': p.get('basis', ''),
+            'limits': p.get('limits') or [], 'sources': p.get('sources') or []}
+
+
+def _summary(m, quotas, lang='it'):
     hosts = _hosts(m, quotas)
     pings = [h['ping_ms'] for h in hosts if h['ping_ms']]
     return {'c': m['canonical'], 'name': _name(m), 'maker': _maker(m), 'aa': m.get('aa'), 'areas': [a for a in (m.get('areas_best') or []) if a != 'other'][:3],
             'hosts': len(hosts), 'ping_ms': min(pings) if pings else None, 'ctx': max((h['ctx'] or 0) for h in hosts) if hosts else None,
-            'tools': any(h['tools'] for h in hosts), 'partial': m.get('state') in ('pending', 'partial'), 'params_b': m.get('params_b')}
+            'tools': any(h['tools'] for h in hosts), 'partial': m.get('state') in ('pending', 'partial'), 'params_b': m.get('params_b'),
+            'probe': _probe(m), 'status': (m.get('profile') or {}).get('status'), 'level': (_profile(m, lang) or {}).get('level', '')}
 
 
 def state(room):
@@ -119,8 +136,8 @@ def state(room):
     models = [m for m in cat.get('models', []) if any(r.get('free') for r in m.get('routes') or [])]
     lines = []
     for g in c.lines(models):
-        row = _summary(g['newest'], quotas)
-        row['older'] = [_summary(o, quotas) for o in g['older']]
+        row = _summary(g['newest'], quotas, lang)
+        row['older'] = [_summary(o, quotas, lang) for o in g['older']]
         row['doubt'] = bool(g.get('doubt'))
         lines.append(row)
     lines.sort(key=lambda r: (r['aa'] is None, -(r['aa'] or 0), r['name']))
@@ -132,7 +149,8 @@ def state(room):
     return {'lang': lang, 'tools': cards_spawn.tools_state(), 'providers': provs, 'ready': ready,
             'catalog': {'updated': cat.get('updated'), 'sources': {k: {'ok': v.get('ok'), 'count': v.get('count'), 'error': v.get('error')}
                                                                    for k, v in (cat.get('providers') or {}).items()},
-                        'lines': lines, 'updating': bool(getattr(state, 'updating', False)), 'error': getattr(state, 'error', '')},
+                        'lines': lines, 'updating': bool(getattr(state, 'updating', False)), 'error': getattr(state, 'error', ''),
+                        'probing': dict(c.PROBE)},
             'areas': areas, 'roles': roles}
 
 
@@ -166,7 +184,8 @@ def model(room, canonical):
     return {'c': canonical, 'name': _name(m), 'maker': _maker(m), 'aa': m.get('aa'), 'indexes': idx, 'speed': speed,
             'areas': [a for a in (m.get('areas_best') or []) if a != 'other'], 'partial': m.get('state') in ('pending', 'partial'),
             'hosts': _hosts(m, _quotas()), 'strong': [_bench(s, gl, lang, front.get(s.get('bench'))) for s in strong[:10]],
-            'others': [_bench(s, gl, lang) for s in others], 'versions': versions, 'line': line, 'near': near}
+            'others': [_bench(s, gl, lang) for s in others], 'versions': versions, 'line': line, 'near': near,
+            'profile': _profile(m, lang), 'probe': _probe(m)}
 
 
 def do(room, body):
@@ -203,6 +222,12 @@ def do(room, body):
     elif act == 'update':
         _update(room, bool(body.get('force')))
         note = say('spawn.cat.updating')
+    elif act == 'probe':
+        if not c.PROBE['running']:
+            import threading
+            c.PROBE['running'] = True                       # set here, so a second click before the thread starts does nothing
+            threading.Thread(target=c.probe, kwargs={'only': body.get('only')}, daemon=True).start()
+        note = say('spawnv.probing')
     elif act == 'study':
         asked = c.study(room.dir, lang_of(room.config()))
         note = (say('spawn.cat.studyAsked', k=len(asked), n=sum(len(e['models']) for e in asked if e['kind'] == 'model'))

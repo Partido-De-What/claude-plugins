@@ -29,6 +29,22 @@ except ImportError:                                      # lanciato come script 
 TEMPLATE = Path(__file__).resolve().parents[3] / 'templates' / 'bench_researcher.md'
 BOARD_TEMPLATE = TEMPLATE.with_name('bench_board.md')
 LINES_TEMPLATE = TEMPLATE.with_name('bench_lines.md')
+PROFILES_TEMPLATE = TEMPLATE.with_name('model_profiles.md')
+PROFILES_BATCH = 25                                      # models per profiler: one agent reads ~25 model pages in its minutes
+_TXT = lambda n: {'type': 'string', 'maxLength': n}
+_NUM = {'type': ['number', 'null'], 'minimum': 0}
+PROFILES_SCHEMA = {
+    'type': 'object', 'required': ['profiles'], 'additionalProperties': False,
+    'properties': {'profiles': {'type': 'array', 'maxItems': 100, 'items': {
+        'type': 'object', 'required': ['canonical', 'it', 'en', 'status'], 'additionalProperties': False,
+        'properties': {'canonical': _TXT(140), 'it': _TXT(400), 'en': _TXT(400),
+                       'status': {'enum': ['current', 'preview', 'deprecated', 'unknown']}, 'successor': _TXT(140),
+                       'level_it': _TXT(120), 'level_en': _TXT(120), 'basis': _TXT(200),
+                       'limits': {'type': 'array', 'maxItems': 20, 'items': {
+                           'type': 'object', 'required': ['host'], 'additionalProperties': False,
+                           'properties': {'host': _TXT(40), 'rpm': _NUM, 'rpd': _NUM, 'tpm': _NUM, 'tpd': _NUM,
+                                          'note': _TXT(200), 'source': _TXT(300)}}},
+                       'sources': {'type': 'array', 'maxItems': 10, 'items': _TXT(300)}}}}}}
 LINES_SCHEMA = {
     'type': 'object', 'required': ['decisions'], 'additionalProperties': False,
     'properties': {
@@ -164,6 +180,40 @@ def prepare_lines(groups, out, lang='it', minutes=MINUTES):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding='utf-8')
     return path
+
+
+def prepare_profiles(models, out, lang='it', minutes=MINUTES):
+    """the profiler's prompt: models = {canonical: [(host id, model id on that host)]}"""
+    if not models:
+        return None
+    clean = lambda s: re.sub(r'[\x00-\x1f`<>]', ' ', str(s))[:120]
+    rows = '\n'.join(f'- {clean(c)}: ' + ', '.join(f'{clean(h)} = {clean(i)}' for h, i in hosts[:8]) for c, hosts in models.items())
+    values = {'MODELS': rows, 'OUT': str(out), 'MINUTES': str(minutes), 'LANGUAGE': 'Italian' if lang == 'it' else 'English'}
+    text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), PROFILES_TEMPLATE.read_text(encoding='utf-8'))
+    path = Path(out).with_suffix('.prompt.md')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding='utf-8')
+    return path
+
+
+def accept_profiles(path, asked):
+    """the profiles, checked: only models asked (asked = {canonical: set of host ids}), limits only for their hosts,
+    links only http(s); {canonical: profile}"""
+    try:
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+        jsonschema.validate(data, PROFILES_SCHEMA)
+    except (OSError, ValueError, jsonschema.ValidationError) as exc:
+        raise ValueError(f'risultato del profiler non valido: {str(getattr(exc, "message", exc))[:200]}')
+    web = lambda u: u if re.match(r'https?://', str(u)) else ''
+    out = {}
+    for p in data['profiles']:
+        c = resolve(p['canonical'], set(asked))
+        if c is None:
+            continue
+        p = {**p, 'canonical': c, 'sources': [u for u in map(web, p.get('sources', [])) if u],
+             'limits': [{**x, 'source': web(x.get('source', ''))} for x in p.get('limits', []) if x['host'] in asked[c]]}
+        out[c] = p
+    return out
 
 
 def accept_lines(path, members, line_keys):

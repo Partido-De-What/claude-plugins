@@ -11,7 +11,7 @@ import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as V from './office-voxel.js';
 import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, findWorkstation, LEAD3_ITEMS, idleSpots} from './office-layout.js';
 import {createEditor} from './office-edit.js';
-import {createTV, createRadio, createLofi, createMixer, mixLevel} from './office-tv.js';
+import {createTV, createRadio, createLofi, createMixer, mixLevel, hush} from './office-tv.js';
 import {createArcade, ARCADE_AT} from './office-arcade.js';
 import {createGithubWall} from './office-github.js';
 import {buildSigns} from './office-signs.js';
@@ -1537,6 +1537,8 @@ const editor = createEditor({scene, camera, controls, renderer, root, layout: LA
                              lang: () => DATA.config.lang === 'en' ? 'en' : 'it'});
 document.addEventListener('keydown', e => { if (mode !== 'chat' && !editor.active()) ui.onKey(e); });
 // the chat header's 🏢 button: from the chat alone back to the split view, otherwise to the chat alone
+window.officeHush = on => hush('bell', on);                                    // the chat's 🔔/🔕 (viewer.html)
+hush('bell', window.chatSound === false);
 window.officeMode = m => { mode = m || (mode === 'chat' ? 'split' : 'chat'); setPref('mode', mode); applyMode(); };
 async function post(path, body) {
   try { return await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}); } catch (e) { return null; }
@@ -1667,6 +1669,7 @@ function openCommon() {
 function applyMode() {
   document.body.classList.remove('mode-split', 'mode-office', 'mode-chat');
   document.body.classList.add('mode-' + mode);
+  hush('chat', mode === 'chat');
   resize();
 }
 let tween = null;

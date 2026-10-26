@@ -326,10 +326,66 @@ def study(room_dir, lang='it'):
         prompt = researcher.prepare_lines(groups, out, lang)
         entries.append({'id': n + len(entries) + 1, 'kind': 'lines', 'prompt': str(prompt), 'out': str(out),
                         'models': sorted({m for gr in groups for m in gr['members']}), 'lines': [gr['line'] for gr in groups]})
+    asked = {x for e in _studies(room_dir) if e.get('kind') == 'profiles' and not Path(e['out']).with_suffix('.done.json').exists()
+             and not Path(e['out']).with_suffix('.bad.json').exists() for x in e['models']}
+    todo = {m['canonical']: [(r['adapter'], r['model_id']) for r in m['routes'] if r.get('free')] for m in cat['models']
+            if not m.get('profile') and m['canonical'] not in asked}   # a profile for every model: what it is, status, level, free limits
+    keys = list(todo)
+    for k in range(0, len(keys), researcher.PROFILES_BATCH):
+        part = {c: todo[c] for c in keys[k:k + researcher.PROFILES_BATCH]}
+        out = Path(room_dir) / 'spawn' / 'study' / f'{n + len(entries) + 1}.json'
+        prompt = researcher.prepare_profiles(part, out, lang)
+        entries.append({'id': n + len(entries) + 1, 'kind': 'profiles', 'prompt': str(prompt), 'out': str(out), 'models': sorted(part)})
     if entries:
         with (Path(room_dir) / 'spawn' / 'study.jsonl').open('a', encoding='utf-8') as f:
             f.writelines(json.dumps(e, ensure_ascii=False) + '\n' for e in entries)
     return entries
+
+
+PROBE = {'running': False, 'done': 0, 'total': 0}
+PROBE_ASK = [{'role': 'user', 'content': 'Reply with the single word OK.'}]
+
+
+def probe(complete=None, only=None, workers=8):
+    """the "Prova tutti" button: one tiny real request per model, host after host until one answers (a list request
+    says the host is up, not that the model answers). m['probe'] = {ok, ms, at, host, error}; every request goes through
+    the limiter like a role's, one try each. Saved every 20 models, so the view fills while it runs"""
+    if complete is None:
+        from spawn.providers import complete
+    todo = [m for m in load()['models'] if only is None or m['canonical'] in only]
+    PROBE.update(running=True, done=0, total=len(todo))
+    got = {}
+
+    def one(m):
+        res = {'ok': False, 'error': 'no_host'}
+        for r in [r for r in m['routes'] if r.get('free')][:4]:
+            t0 = time.time()
+            try:
+                complete(r['adapter'], r['model_id'], PROBE_ASK, max_tokens=64, attempts=1)
+                res = {'ok': True, 'ms': int((time.time() - t0) * 1000), 'host': r['adapter']}
+                break
+            except Exception as exc:                       # the next host; the last error is the one kept
+                res = {'ok': False, 'host': r['adapter'], 'error': getattr(exc, 'kind', type(exc).__name__)}
+        return m['canonical'], {**res, 'at': time.time()}
+
+    def flush():
+        # shortcut: load, set, save; an update() running at the same time can lose this batch, a second "Prova" fixes it
+        cat = load()
+        for m in cat['models']:
+            if m['canonical'] in got:
+                m['probe'] = got[m['canonical']]
+        save(cat)
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for c, res in pool.map(one, todo):
+                got[c] = res
+                PROBE['done'] += 1
+                if PROBE['done'] % 20 == 0:
+                    flush()
+        flush()
+    finally:
+        PROBE['running'] = False
+    return got
 
 
 def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None):
@@ -388,6 +444,19 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
             except ValueError as exc:
                 out.replace(out.with_suffix('.bad.json'))
                 cat['providers']['lines'] = {'at': now, 'ok': False, 'error': str(exc)[:200]}
+            continue
+        if e.get('kind') == 'profiles':
+            try:
+                hosts = {m['canonical']: {r['adapter'] for r in m['routes']} for m in cat['models'] if m['canonical'] in e['models']}
+                got = researcher.accept_profiles(out, hosts)
+                for m in cat['models']:
+                    if m['canonical'] in got:
+                        m['profile'] = {**got[m['canonical']], 'at': now}
+                out.replace(out.with_suffix('.done.json'))
+                cat['providers']['profiles'] = {'at': now, 'ok': True, 'count': len(got)}
+            except ValueError as exc:
+                out.replace(out.with_suffix('.bad.json'))
+                cat['providers']['profiles'] = {'at': now, 'ok': False, 'error': str(exc)[:200]}
             continue
         try:
             got, news, leaders = researcher.accept(out, g, asked=set(e['models']))
@@ -466,7 +535,7 @@ def _prova_update(tmp):
     cat = update(room, force=True, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, aa_payload={'data': []}, or_payloads={})
     assert cat['line_changes'] == [{'line': 'inkling', 'newest': 'inkling', 'was': None}], cat['line_changes']   # il riesame marca il nuovo
     e2 = study(room)
-    assert [x['models'] for x in e2] == [['inkling']]                                           # solo il nuovo
+    assert [x['models'] for x in e2 if x['kind'] != 'profiles'] == [['inkling']]                                           # solo il nuovo
     Path(e2[0]['out']).write_text('{"models": [{"canonical": "glm-5-3", "scores": []}]}', encoding='utf-8')
     cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, or_payloads={})
     assert not cat['providers']['researcher']['ok'] and 'non chiesto' in cat['providers']['researcher']['error']
@@ -487,6 +556,31 @@ def _prova_update(tmp):
     assert {g['line'] for g in lines(cat['models']) if 'codestral' in g['line']} == {'codestral'} and load_override()['split'] == []
     split_line('codestral-2')
     assert load_override()['move'] == {} and override_path().is_relative_to(Path(tmp))
+    pr = [x for x in _studies(room) if x['kind'] == 'profiles']                                     # a profile for every model, in batches
+    assert pr and set(m['canonical'] for m in cat['models']) <= {c for x in pr for c in x['models']}
+    assert 'open_router = z-ai/glm-5.3:free' in Path(pr[0]['prompt']).read_text(encoding='utf-8') or 'glm-5-3' not in pr[0]['models']
+    assert not any(x['kind'] == 'profiles' for x in study(room))                               # già chiesti: non due volte
+    one = next(x for x in pr if 'glm-5-3' in x['models'])
+    Path(one['out']).write_text(json.dumps({'profiles': [
+        {'canonical': 'glm-5-3', 'it': 'Il modello di Z.ai.', 'en': "Z.ai's model.", 'status': 'current', 'level_it': 'come Claude 3.5 Sonnet',
+         'level_en': 'about Claude 3.5 Sonnet', 'basis': 'AA 61', 'sources': ['https://z.ai', 'javascript:x'],
+         'limits': [{'host': 'open_router', 'rpm': 20, 'rpd': 50, 'tpm': None, 'tpd': None, 'source': 'https://openrouter.ai/docs'},
+                    {'host': 'groq', 'rpm': 1}]},
+        {'canonical': 'not-asked', 'it': 'x', 'en': 'x', 'status': 'unknown'}]}), encoding='utf-8')
+    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, or_payloads={})
+    glm = next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')['profile']
+    assert glm['level_it'] == 'come Claude 3.5 Sonnet' and glm['sources'] == ['https://z.ai'] and [x['host'] for x in glm['limits']] == ['open_router']
+    assert cat['providers']['profiles']['ok'] and not any(m.get('profile') for m in cat['models'] if m['canonical'] != 'glm-5-3')
+    calls = []
+    def fake(adapter, model_id, msgs, **kw):
+        calls.append(model_id)
+        if 'kimi' in model_id:
+            from spawn.errors import ProviderError
+            raise ProviderError('quota', 429, None, 'free quota')
+        return {'text': 'OK'}
+    got = probe(complete=fake, workers=2)
+    assert got['glm-5-3']['ok'] and got['glm-5-3']['host'] == 'open_router' and got['kimi-k3'] == {**got['kimi-k3'], 'ok': False, 'error': 'quota'}
+    assert next(m for m in load()['models'] if m['canonical'] == 'glm-5-3')['probe']['ok'] and not PROBE['running'] and PROBE['done'] == PROBE['total'] == len(cat['models'])
 
 
 def _prova_veri(strengths, researcher):

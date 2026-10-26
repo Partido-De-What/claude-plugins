@@ -1738,5 +1738,21 @@
  "spawnv.cmpPick": "scegli il modello da confrontare",
  "spawnv.cmpNone": "Nessun benchmark in comune",
  "spawnv.noOthers": "Nessun altro benchmark",
- "spawnv.badName": "Nome: lettere maiuscole, cifre o _, da 2 a 20, inizia con una lettera"
+ "spawnv.badName": "Nome: lettere maiuscole, cifre o _, da 2 a 20, inizia con una lettera",
+ "spawnv.probing": "Provo ogni modello con una richiesta minima, host dopo host: i pallini si colorano mentre va.",
+ "spawnv.probeAll": "Prova tutti",
+ "spawnv.probeTip": "Una richiesta vera e minima per ogni modello, dentro i limiti gratis: dice quali rispondono",
+ "spawnv.probeRun": "prova {done}/{total}",
+ "spawnv.probe.ok": "risponde · {ms} ms",
+ "spawnv.probe.bad": "non risponde ({why})",
+ "spawnv.probe.none": "mai provato",
+ "spawnv.deprecated": "deprecato",
+ "spawnv.successor": "sostituito da {name}",
+ "spawnv.preview": "anteprima",
+ "spawnv.level": "Livello: {level}",
+ "spawnv.noProfile": "Scheda non ancora scritta: premi Studia e il lead manda un Haiku a scriverla.",
+ "spawnv.lim.rpm": "{n} richieste/min",
+ "spawnv.lim.rpd": "{n} richieste/giorno",
+ "spawnv.lim.tpm": "{n} token/min",
+ "spawnv.lim.tpd": "{n} token/giorno"
 }

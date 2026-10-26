@@ -1738,5 +1738,21 @@
  "spawnv.cmpPick": "pick a model to compare",
  "spawnv.cmpNone": "No benchmark in common",
  "spawnv.noOthers": "No other benchmark",
- "spawnv.badName": "Name: capitals, digits or _, 2 to 20, starting with a letter"
+ "spawnv.badName": "Name: capitals, digits or _, 2 to 20, starting with a letter",
+ "spawnv.probing": "Trying every model with one tiny request, host after host: the dots fill in as it goes.",
+ "spawnv.probeAll": "Try all",
+ "spawnv.probeTip": "One real, tiny request per model, within the free limits: shows which ones answer",
+ "spawnv.probeRun": "trying {done}/{total}",
+ "spawnv.probe.ok": "answers · {ms} ms",
+ "spawnv.probe.bad": "no answer ({why})",
+ "spawnv.probe.none": "never tried",
+ "spawnv.deprecated": "deprecated",
+ "spawnv.successor": "replaced by {name}",
+ "spawnv.preview": "preview",
+ "spawnv.level": "Level: {level}",
+ "spawnv.noProfile": "No profile yet: press Study and the lead sends a Haiku to write it.",
+ "spawnv.lim.rpm": "{n} requests/min",
+ "spawnv.lim.rpd": "{n} requests/day",
+ "spawnv.lim.tpm": "{n} tokens/min",
+ "spawnv.lim.tpd": "{n} tokens/day"
 }

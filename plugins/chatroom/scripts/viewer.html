@@ -926,7 +926,7 @@ $('newer').addEventListener('click', () => { feed.scrollTop = feed.scrollHeight;
 /* search and sound */
 $('searchBtn').addEventListener('click', () => { const s = $('search'); s.classList.toggle('open'); if (s.classList.contains('open')) s.focus(); else { s.value = ''; query = ''; rerender(); } });
 $('search').addEventListener('input', e => { query = e.target.value.trim().toLowerCase(); rerender(); });
-function setSound(on) { sound = on; $('soundBtn').textContent = on ? '🔔' : '🔕'; $('soundBtn').classList.toggle('on', on); setPref('sound', on); }
+function setSound(on) { sound = on; window.chatSound = on; window.officeHush?.(!on); $('soundBtn').textContent = on ? '🔔' : '🔕'; $('soundBtn').classList.toggle('on', on); setPref('sound', on); }
 $('soundBtn').addEventListener('click', () => setSound(!sound));
 
 /* settings panel */

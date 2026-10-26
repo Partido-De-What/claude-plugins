@@ -71,6 +71,11 @@
   .sv-links button.on, .sv-links button:hover { text-decoration: underline; }
   .sv-links .dot { color: var(--sv-mute); }
   .sv-more { margin-top: 8px; }
+  .sv-prof { margin: 14px 0 4px; font-size: 16px; line-height: 1.45; max-width: 760px; }
+  .sv-prof .lvl { margin-top: 6px; font-weight: 600; } .sv-prof .mute, .sv-prof.mute { color: var(--sv-mute); font-weight: 400; }
+  .sv-tag { display: inline-block; font-size: 13px; padding: 2px 10px; border-radius: 8px; margin-bottom: 6px; background: var(--sv-acc-bg); color: var(--sv-acc); }
+  .sv-tag.bad { background: color-mix(in srgb, #e5484d 18%, transparent); color: #e5484d; }
+  .sv-host .lim { color: var(--sv-mute); }
   .sv-host { display: flex; gap: 14px; font-size: 15px; padding: 9px 0; border-bottom: 1px solid var(--sv-line); flex-wrap: wrap; align-items: center; }
   .sv-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--sv-mute); flex: none; }
   .sv-dot.ok { background: #3fb950; } .sv-dot.bad { background: #e5484d; } .sv-dot.warn { background: #e0a030; }
@@ -135,9 +140,12 @@
     const d = SV.data || {}, L = d.catalog || {};
     const label = {keys: `${I18N.text('spawnv.tab.keys')} ${d.ready || 0} ${I18N.text('spawnv.ready')}`, models: `${I18N.text('spawnv.tab.models')} ${(L.lines || []).length}`, roles: `${I18N.text('spawnv.tab.roles')} ${(d.roles || []).length}`};
     const upd = L.updating ? I18N.text('spawnv.updating') : L.updated ? I18N.text('spawnv.updated', {when: ago(L.updated)}) : I18N.text('spawnv.never');
+    const pr = L.probing || {};
+    const probe = pr.running ? `<span>${esc(I18N.text('spawnv.probeRun', {done: pr.done || 0, total: pr.total || 0}))}</span>`
+                             : `<button class="sv-btn small" data-do="probe" title="${esc(I18N.text('spawnv.probeTip'))}">${esc(I18N.text('spawnv.probeAll'))}</button>`;
     return `<div class="sv-top"><button class="sv-logo" data-close="1" title="${esc(I18N.text('spawnv.back'))}">🛸</button><span class="sv-title">Spawn</span>
       ${['keys', 'models', 'roles'].map(k => `<button class="sv-pill ${SV.tab === k ? 'on' : ''}" data-tab="${k}">${esc(label[k])}</button>`).join('')}
-      <span class="sv-sp"></span><span class="sv-upd">${esc(upd)}<button class="sv-icon" data-do="update" title="${esc(I18N.text('spawnv.update'))}">↻</button></span></div>`;
+      <span class="sv-sp"></span><span class="sv-upd">${probe}${esc(upd)}<button class="sv-icon" data-do="update" title="${esc(I18N.text('spawnv.update'))}">↻</button></span></div>`;
   }
 
   function keysTab() {
@@ -168,10 +176,27 @@
     if (!rows.length) return `<div class="sv-empty">${esc((L.length ? I18N.text('spawnv.noMatch') : I18N.text('spawnv.never')))}</div>`;
     return rows.map(m => {
       const on = SV.sel === m.c;
-      const sub = [(m.areas || []).slice(0, 2).map(areaLow).join(' · '), on ? I18N.text('spawnv.hosts', {n: m.hosts}) : I18N.text('spawnv.hostsShort', {n: m.hosts})].filter(Boolean).join(' · ');
-      return `<div class="sv-row ${on ? 'on' : ''}" data-m="${esc(m.c)}"><div class="n"><span>${esc(m.name)}</span><span class="aa">${m.aa == null ? esc(I18N.text('spawnv.noAA')) : 'AA ' + Math.round(m.aa)}</span></div>
+      const sub = [m.status === 'deprecated' ? I18N.text('spawnv.deprecated') : '', (m.areas || []).slice(0, 2).map(areaLow).join(' · ') || m.level,
+                   on ? I18N.text('spawnv.hosts', {n: m.hosts}) : I18N.text('spawnv.hostsShort', {n: m.hosts})].filter(Boolean).join(' · ');
+      return `<div class="sv-row ${on ? 'on' : ''}" data-m="${esc(m.c)}"><div class="n"><span>${probeDot(m.probe)}${esc(m.name)}</span><span class="aa">${m.aa == null ? esc(I18N.text('spawnv.noAA')) : 'AA ' + Math.round(m.aa)}</span></div>
         ${on ? `<div class="trk"><i style="width:${Math.max(3, Math.min(100, (m.aa || 0) / 70 * 100))}%"></i></div>` : ''}<div class="s">${esc(sub)}</div></div>`;
     }).join('');
+  }
+
+  const probeDot = p => `<span class="sv-dot ${!p ? '' : p.ok ? 'ok' : /rate|quota|overload/.test(p.error || '') ? 'warn' : 'bad'}" style="margin-right:8px"></span>`;
+  const why = p => String(p.error || '').replace(/_/g, ' ');
+  const probeText = p => !p ? I18N.text('spawnv.probe.none') : p.ok ? I18N.text('spawnv.probe.ok', {ms: p.ms}) : I18N.text('spawnv.probe.bad', {why: why(p)});
+  const LIMS = [['rpm', n => I18N.text('spawnv.lim.rpm', {n})], ['rpd', n => I18N.text('spawnv.lim.rpd', {n})],
+                ['tpm', n => I18N.text('spawnv.lim.tpm', {n})], ['tpd', n => I18N.text('spawnv.lim.tpd', {n})]];
+  const limits = x => x ? [...LIMS.filter(([k]) => x[k] != null).map(([k, f]) => f(Number(x[k]).toLocaleString())), x.note].filter(Boolean).join(' · ') : '';
+
+  function profile(m) {
+    const p = m.profile;
+    if (!p) return `<div class="sv-prof mute">${esc(I18N.text('spawnv.noProfile'))}</div>`;
+    const tag = p.status === 'deprecated' ? `<span class="sv-tag bad">${esc(I18N.text('spawnv.deprecated'))}${p.successor ? ' · ' + esc(I18N.text('spawnv.successor', {name: p.successor})) : ''}</span>`
+      : p.status === 'preview' ? `<span class="sv-tag">${esc(I18N.text('spawnv.preview'))}</span>` : '';
+    return `<div class="sv-prof">${tag}<div>${esc(p.what)}</div>
+      ${p.level ? `<div class="lvl">${esc(I18N.text('spawnv.level', {level: p.level}))}${p.basis ? ` <span class="mute">(${esc(p.basis)})</span>` : ''}</div>` : ''}</div>`;
   }
 
   function bench(b) {
@@ -204,7 +229,8 @@
     if (!m || m.c !== SV.sel) return `<div class="sv-empty">…</div>`;
     const ctx = Math.max(0, ...m.hosts.map(h => h.ctx || 0)), rep = SV.replacing;
     const tools = m.hosts.some(h => h.tools) ? I18N.text('spawnv.tools') : m.hosts.length && m.hosts.every(h => h.tools === false) ? I18N.text('spawnv.noTools') : '';
-    const sub = [m.maker, ctx ? I18N.text('spawnv.ctx', {k: Math.round(ctx / 1000)}) : '', tools].filter(Boolean).join(' · ');
+    const sub = [m.maker, ctx ? I18N.text('spawnv.ctx', {k: Math.round(ctx / 1000)}) : '', tools, probeText(m.probe)].filter(Boolean).join(' · ');
+    const lim = Object.fromEntries(((m.profile || {}).limits || []).map(x => [x.host, x]));
     const action = rep ? `<button class="sv-btn pri" data-do="replace_go">${esc(I18N.text('spawnv.replaceWith', {name: rep}))}</button>`
                        : `<button class="sv-btn" data-form="1">${esc(I18N.text('spawnv.role.go'))}</button>`;
     const form = SV.form && !rep ? `<div class="sv-form"><label>${esc(I18N.text('spawnv.role.name'))}<br><input type="text" id="svName" placeholder="ARCH" maxlength="20" style="width:100%;box-sizing:border-box"></label>
@@ -218,13 +244,15 @@
       : SV.more === 'cmp' ? compare()
       : SV.more === 'ver' ? m.versions.map(v => `<div class="sv-row" data-m="${esc(v.c)}"><div class="n"><span>${esc(v.name)}</span><span class="aa">${v.aa == null ? '' : 'AA ' + Math.round(v.aa)}</span></div></div>`).join('')
       : SV.more === 'hosts' ? m.hosts.map(h => `<div class="sv-host"><span class="sv-dot ${h.down ? 'bad' : h.up ? 'ok' : ''}"></span><b>${esc(h.adapter)}</b><span>${esc(h.model_id)}</span>
-          <span>${h.ping_ms ? h.ping_ms + ' ms' : ''}</span><span>${h.left != null && h.limit ? esc(I18N.text('spawnv.quota', {left: h.left, limit: h.limit})) : ''}</span></div>`).join('')
+          <span>${h.ping_ms ? h.ping_ms + ' ms' : ''}</span><span>${h.left != null && h.limit ? esc(I18N.text('spawnv.quota', {left: h.left, limit: h.limit})) : ''}</span>
+          <span class="lim">${esc(limits(lim[h.adapter]))}</span></div>`).join('')
           + `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px"><span class="sub" style="color:var(--sv-mute)">${esc(I18N.text('spawnv.line', {line: m.line}))}</span>
           ${m.near.length ? `<select id="svLine">${m.near.map(l => `<option>${esc(l)}</option>`).join('')}</select><button class="sv-btn small" data-do="move">${esc(I18N.text('spawnv.move'))}</button>` : ''}
           <button class="sv-btn small" data-do="split">${esc(I18N.text('spawnv.split'))}</button></div>` : '';
     return `<button class="sv-btn small sv-backlist" data-back="1">← ${esc(I18N.text('spawnv.tab.models'))}</button>
       ${rep ? `<div class="sv-banner">📟 ${esc(I18N.text('spawnv.replacing', {name: rep}))}<span class="sv-sp"></span><button class="sv-btn small" data-do="replace_cancel">${esc(I18N.text('spawnv.cancel'))}</button></div>` : ''}
       <div class="sv-h"><h2>${esc(m.name)}</h2><span class="sub">${esc(sub)}</span><span class="sv-sp"></span>${action}</div>${form}
+      ${profile(m)}
       ${best ? `<div class="sv-strong">${esc(I18N.text('spawnv.bestIn', {areas: best}))}</div>` : ''}
       ${m.partial ? `<div style="color:var(--sv-mute);font-size:14px;margin-bottom:6px">${esc(I18N.text('spawnv.partial'))}</div>` : ''}
       <div class="sv-lbl">${esc(I18N.text('spawnv.strongLbl'))}</div>
@@ -313,7 +341,7 @@
     }
     if (['check_key', 'skip', 'unskip', 'login'].includes(d)) return act({action: d, provider: p});
     if (d === 'skip_rest' && !confirm(I18N.text('spawn.prep.skipRestConfirm', {n: SV.data.providers.filter(x => x.state === 'none').length}))) return;
-    if (['skip_rest', 'install_headroom', 'study'].includes(d)) return act({action: d});
+    if (['skip_rest', 'install_headroom', 'study', 'probe'].includes(d)) return act({action: d});
     if (d === 'update') return act({action: 'update', force: true});
     if (d === 'create') {
       const name = ($('svName').value || '').trim().toUpperCase();

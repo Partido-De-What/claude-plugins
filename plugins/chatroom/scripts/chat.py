@@ -3740,9 +3740,9 @@ def cmd_serve(room, a):
             if path == '/join/answer':             # guest: what to do with the host's ask for help
                 if not guest['bridge']:
                     return self.send(400, say('chat.say.do_POST.join_a_friend_s'), 'text/plain')
-                a = clean_lend_auto({**body, 'on': True})
+                lend = clean_lend_auto({**body, 'on': True})      # not `a`: that name is the serve arguments (a.port above)
                 try:
-                    answer_ask(body.get('id'), body.get('ok') is True, a['model'], a['effort'], a['minutes'])
+                    answer_ask(body.get('id'), body.get('ok') is True, lend['model'], lend['effort'], lend['minutes'])
                 except (ValueError, PermissionError, OSError) as exc:
                     return self.send(400, str(exc), 'text/plain')
                 return self.send(200, json.dumps(guest['bridge'].status()), 'application/json')
