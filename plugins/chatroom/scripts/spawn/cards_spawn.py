@@ -52,7 +52,8 @@ def glossary():
 def tools_state():
     """Headroom importable, RTK on the PATH (or where the plugin keeps it)"""
     import importlib.util
-    rtk = shutil.which('rtk') or shutil.which('rtk-oss')
+    from activity import rtk_path
+    rtk = rtk_path() or shutil.which('rtk-oss')            # the same search as the mod: CHATROOM_RTK, PATH, ~/.claude/chatroom/bin
     return {'headroom': importlib.util.find_spec('headroom') is not None, 'rtk': bool(rtk)}
 
 
