@@ -251,9 +251,6 @@ class Runner(threading.Thread):
         if self.complete:
             return self.complete(*a, **kw)
         from spawn.providers import complete
-        import inspect
-        if 'attempts' not in inspect.signature(complete).parameters:   # shortcut: until PORTE's complete(attempts=) lands (#611)
-            kw.pop('attempts', None)
         return complete(*a, **kw)
 
     def system(self, role):
@@ -596,6 +593,9 @@ def _prova():
             names = {t['function']['name'] for t in tools}
             assert kw['tokens'] > kw['max_tokens'] > 0                                       # the input estimate goes to the limiter
             assert kw['attempts'] == ATTEMPTS_WITH_ALTERNATIVE                               # kilo serves the same model: 3 tries, then change door
+            script[:] = [{'text': 'x'}]
+            Runner(room, 'ARCH', fake).call({**roles(room)['ARCH'], 'tried': ['kilo:x/m']}, [{'role': 'user', 'content': 'q'}])
+            assert seen[-1][4]['attempts'] is None                                           # no other host: the limiter's full 10 tries
             assert kw['session_id'] == 'ARCH-open_router' and names >= {'chat_post', 'chat_wait', 'board', 'task'} and not names & {'shell', 'research'}
             assert seen[1][2][0] == msgs[0] and seen[1][2][-1]['role'] == 'tool'          # the same system bytes, the tool's answer carried
             assert roles(room)['ARCH']['usage'] == {'in': 20, 'out': 6, 'cost': 0.0}, roles(room)['ARCH']['usage']
