@@ -367,6 +367,12 @@ def refresh_catalog(room, cid, force=False):
     threading.Thread(target=run, daemon=True).start()
 
 
+def _host(runner, room, canonical, routes, name=None):
+    """the host a role starts on: REGIA's choice by quota (best_route, T31) when it is there, else the fastest free one"""
+    pick = getattr(runner, 'best_route', None)
+    return (pick(room, canonical, name=name) if pick else None) or routes[0]
+
+
 # ------------------------------------------------------------------ clicks
 def card_action(room, card, action, key, values):
     """the answer to a click on a spawn card: the card's new data (cards.py saves it as its state)"""
@@ -437,9 +443,10 @@ def card_action(room, card, action, key, values):
         routes = runner.routes_of(canonical)
         if not routes:
             raise ValueError(say('spawn.err.noRoute', model=canonical))
-        runner.create(room, name, values.get('mission', '').strip() or name, canonical, routes[0], tools=('shell',) if values.get('shell') == 'yes' else ())
+        route = _host(runner, room, canonical, routes)
+        runner.create(room, name, values.get('mission', '').strip() or name, canonical, route, tools=('shell',) if values.get('shell') == 'yes' else ())
         cards.post(room, 'SPAWN', 'role_state', role_state(runner.roles(room)), say('spawn.role.statePlain'))
-        return {**create_role(_load_catalog()), 'note': say('spawn.role.created', name=name, model=canonical, provider=routes[0]['adapter'])}
+        return {**create_role(_load_catalog()), 'note': say('spawn.role.created', name=name, model=canonical, provider=route['adapter'])}
     if card['type'] == 'role_state':
         if action == 'replace':
             post_replace(room, key)
@@ -452,8 +459,9 @@ def card_action(room, card, action, key, values):
             routes = runner.routes_of(key)
             if not routes:
                 raise ValueError(say('spawn.err.noRoute', model=key))
-            runner.replace(room, name, key, routes[0])
-            return {**replace_card(_load_catalog(), runner.roles(room)[name]), 'note': say('spawn.role.replaced', name=name, model=key, provider=routes[0]['adapter'])}
+            route = _host(runner, room, key, routes, name)
+            runner.replace(room, name, key, route)
+            return {**replace_card(_load_catalog(), runner.roles(room)[name]), 'note': say('spawn.role.replaced', name=name, model=key, provider=route['adapter'])}
         if action == 'sheet':
             d = sheet(_load_catalog(), key, lang)
             cards.post(room, 'SPAWN', 'model_sheet', d, say('spawn.sheet.plain', name=d['title']))
