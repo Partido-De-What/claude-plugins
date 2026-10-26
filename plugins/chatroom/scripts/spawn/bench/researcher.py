@@ -24,6 +24,15 @@ except ImportError:                                      # lanciato come script 
 
 TEMPLATE = Path(__file__).resolve().parents[3] / 'templates' / 'bench_researcher.md'
 BOARD_TEMPLATE = TEMPLATE.with_name('bench_board.md')
+LINES_TEMPLATE = TEMPLATE.with_name('bench_lines.md')
+LINES_SCHEMA = {
+    'type': 'object', 'required': ['decisions'], 'additionalProperties': False,
+    'properties': {
+        'decisions': {'type': 'array', 'maxItems': 300, 'items': {
+            'type': 'object', 'required': ['canonical', 'action'], 'additionalProperties': False,
+            'properties': {'canonical': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.-]{0,120}$'}, 'action': {'enum': ['split', 'move']},
+                           'line': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.~-]{0,120}$'}}}},
+        'checked': {'type': 'array', 'maxItems': 300, 'items': {'type': 'string', 'maxLength': 140}}}}
 STUDIED = Path.home() / '.claude' / 'chatroom' / 'spawn' / 'studied.json'
 MINUTES = 6
 # le classifiche lette una volta al giorno per tutti i modelli (#530 p.3); indirizzi scritti a memoria: il lettore li cerca
@@ -131,6 +140,36 @@ def prepare(models, out, glossary_path, areas, lang='it', minutes=MINUTES, skip=
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding='utf-8')
     return path
+
+
+def prepare_lines(groups, out, lang='it', minutes=MINUTES):
+    """il prompt del lettore delle linee in dubbio: groups = [{'line', 'members' (dalla più nuova), 'why'}]"""
+    if not groups:
+        return None
+    clean = lambda s: re.sub(r'[\x00-\x1f`<>]', ' ', str(s))[:160]
+    text = LINES_TEMPLATE.read_text(encoding='utf-8')
+    values = {'GROUPS': '\n'.join(f"- {clean(g['line'])}: {', '.join(clean(m) for m in g['members'][:12])} ({clean(g['why'])})" for g in groups),
+              'OUT': str(out), 'MINUTES': str(minutes), 'LANGUAGE': 'Italian' if lang == 'it' else 'English'}
+    text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), text)
+    path = Path(out).with_suffix('.prompt.md')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding='utf-8')
+    return path
+
+
+def accept_lines(path, members, line_keys):
+    """le decisioni del lettore delle linee, controllate: solo membri chiesti, "move" solo verso una linea che esiste"""
+    try:
+        data = json.loads(Path(path).read_text(encoding='utf-8'))
+        jsonschema.validate(data, LINES_SCHEMA)
+    except (OSError, ValueError, jsonschema.ValidationError) as exc:
+        raise ValueError(f'risultato del lettore delle linee non valido: {str(getattr(exc, "message", exc))[:200]}')
+    for d in data['decisions']:
+        if d['canonical'] not in members:
+            raise ValueError(f"il lettore delle linee ha deciso su un modello non chiesto: {d['canonical'][:60]}")
+        if d['action'] == 'move' and d.get('line') not in line_keys:
+            raise ValueError(f"il lettore delle linee sposta verso una linea che non c'è: {str(d.get('line'))[:60]}")
+    return data['decisions'], [c for c in data.get('checked', []) if c in line_keys]
 
 
 def accept(path, glossary, asked=None):

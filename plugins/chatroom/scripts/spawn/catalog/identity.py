@@ -10,6 +10,7 @@ import re
 
 SERVING_SUFFIXES = ('-free', '-tee', '-maas', '-fp8')    # come il provider serve il modello, non quale modello è
 VENDOR_WORDS = ('nvidia', 'zai', 'z-ai', 'zai-org')       # vendor ripetuto in testa al nome (W&B, Mistral)
+SIZE_UNITS = ('b', 'm', 'k', 't')                         # 27b, 350m, 8k, 1t: una taglia, parte della linea
 
 
 def canonical_id(model_id):
@@ -25,6 +26,9 @@ def canonical_id(model_id):
         if base.startswith(word + '-') and len(base) > len(word) + 1:
             base = base[len(word) + 1:]
             break
+    first = base.split('-')[0]
+    if first and base.startswith(f'{first}-{first}-'):    # minimax-minimax-m2-5: il vendor ripetuto davanti al nome
+        base = base[len(first) + 1:]
     return base
 
 
@@ -46,6 +50,9 @@ def line_key(canonical):
             version.append(int(m[2]))
         elif m:
             version.append(int(m[2]))                     # v4 di deepseek-v4-flash
+        elif (n := re.fullmatch(r'(\d+)([a-z]+)', t)) and n[2] not in SIZE_UNITS:
+            version.append(int(n[1]))                     # 4o, 5v, 3n: la versione attaccata a una parola (glm-4-5v, glm-4-6v)
+            words.append(n[2])
         elif t:
             words.append(t)
     return '-'.join(words), (tuple(version), tuple(dates))

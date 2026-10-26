@@ -37,20 +37,118 @@ def order(m):
     return (-(m['aa'] if m.get('aa') is not None else -1), -(m.get('params_b') or 0), m['canonical'])
 
 
-def lines(models):
-    """le schede per linea (identity.line_key): [{'line', 'newest': scheda, 'older': [schede, dalla più nuova]}], nell'ordine
-    in cui arriva la versione più nuova di ogni linea (models già in ordine). Le card mostrano newest e, chiuse,
-    le older come "versioni precedenti (N)": restano tutte sceglibili"""
-    groups = {}
+def override_path():
+    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'lines_override.json'
+
+
+def load_override():
+    """{'move': {canonical: linea}, 'split': [canonical], 'checked': [linea]}: le scelte di Adrian (card Scheda) e del
+    lettore delle linee; vincono sulla regola"""
+    try:
+        d = json.loads(override_path().read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        d = {}
+    d = d if isinstance(d, dict) else {}
+    return {'move': dict(d.get('move') or {}), 'split': list(d.get('split') or []), 'checked': list(d.get('checked') or [])}
+
+
+def _save_override(d):
+    path = override_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'lines_override.{os.getpid()}.tmp')
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def move_line(canonical, line):
+    """la card Scheda: questo modello va nella linea `line` (una chiave di catalog.lines)"""
+    d = load_override()
+    d['move'][str(canonical)] = str(line)
+    d['split'] = [c for c in d['split'] if c != canonical]
+    _save_override(d)
+
+
+def split_line(canonical):
+    """la card Scheda: questo modello è una linea a sé"""
+    d = load_override()
+    d['move'].pop(str(canonical), None)
+    d['split'] = sorted({*d['split'], str(canonical)})
+    _save_override(d)
+
+
+def _related(a, b):
+    """due famiglie di models.dev compatibili: uguali o una dentro l'altra (gpt e gpt-sol: models.dev a volte è grossolano)"""
+    return a == b or a.startswith(b + '-') or b.startswith(a + '-')
+
+
+def lines(models, override=None):
+    """le schede per linea: [{'line', 'newest': scheda, 'older': [schede, dalla più nuova], 'doubt': motivo o ''}], nell'ordine
+    in cui arriva la versione più nuova di ogni linea (models già in ordine). La linea è identity.line_key, poi le scelte
+    di lines_override.json (sposta, separa), poi le famiglie di models.dev (campo family della scheda): famiglie davvero
+    diverse nella stessa linea la dividono. Una linea è "in dubbio" quando l'ha divisa una famiglia o quando mescola
+    versioni con numero e versioni con sola data. Le card mostrano newest e, chiuse, le older: restano tutte sceglibili"""
+    ov = load_override() if override is None else override
+    groups, why = {}, {}
     for m in models:
-        key, version = line_key(m['canonical'])
-        groups.setdefault(key or m['canonical'], []).append((version, m))
+        c = m['canonical']
+        key, version = line_key(c)
+        key = ov['move'].get(c) or (c if c in ov['split'] else key or c)
+        groups.setdefault(key, []).append((version, m))
+    for key in list(groups):
+        fams = {}
+        for v, m in groups[key]:
+            f = line_key(str(m.get('family') or '').lower())[0]
+            if f and m['canonical'] not in ov['move']:
+                fams.setdefault(f, []).append((v, m))
+        roots = []
+        for f in sorted(fams, key=len):
+            if not any(_related(f, r) for r in roots):
+                roots.append(f)
+        if len(roots) > 1 and key not in ov['checked']:
+            for f, ms in fams.items():                    # famiglie davvero diverse: una linea per famiglia
+                root = next(r for r in roots if _related(f, r))
+                sub = f'{key}~{root}'
+                groups.setdefault(sub, []).extend(ms)
+                why[sub] = f'models.dev: famiglie diverse ({", ".join(roots)})'
+                groups[key] = [x for x in groups[key] if x not in ms]
+            if not groups[key]:
+                del groups[key]
     out = []
     for key, ms in groups.items():
         ms.sort(key=lambda x: x[0], reverse=True)
-        out.append({'line': key, 'newest': ms[0][1], 'older': [m for _, m in ms[1:]]})
+        mixed = any(v[0] for v, _ in ms) and any(v[1] and not v[0] for v, _ in ms)
+        doubt = '' if key in ov['checked'] else why.get(key) or ('versioni con numero e versioni con sola data' if mixed else '')
+        out.append({'line': key, 'newest': ms[0][1], 'older': [m for _, m in ms[1:]], 'doubt': doubt})
     pos = {id(m): i for i, m in enumerate(models)}
     return sorted(out, key=lambda g: pos[id(g['newest'])])
+
+
+def line_changes(cat):
+    """il riesame dopo un aggiornamento: [{'line', 'newest', 'was'}] per le linee nuove (was None) e per quelle il cui
+    modello più nuovo è cambiato; cat['lines_seen'] tiene la fotografia per la volta dopo"""
+    now = {g['line']: g['newest']['canonical'] for g in lines(cat['models'])}
+    seen = cat.get('lines_seen')
+    changes = [] if seen is None else [{'line': k, 'newest': v, 'was': seen.get(k)} for k, v in now.items() if seen.get(k) != v]
+    cat['lines_seen'] = now
+    return changes
+
+
+MODELS_DEV = 'https://models.dev/api.json'
+FAMILY_MAX_AGE = 7 * 24 * 3600                            # 6 MB: una volta a settimana basta (connessione lenta di Adrian)
+
+
+def families(payload=None):
+    """{canonical: family} da models.dev (la famiglia più frequente tra i provider che lo elencano)"""
+    import collections
+    if payload is None:
+        import httpx
+        payload = httpx.get(MODELS_DEV, timeout=60).json()
+    count = collections.defaultdict(collections.Counter)
+    for pv in (payload or {}).values():
+        for mid, m in ((pv or {}).get('models') or {}).items() if isinstance(pv, dict) else []:
+            if isinstance(m, dict) and isinstance(m.get('family'), str) and m['family'].strip():
+                count[canonical_id(mid)][m['family'].strip()[:60]] += 1
+    return {c: n.most_common(1)[0][0] for c, n in count.items()}
 
 
 def catalog_path():
@@ -62,7 +160,8 @@ def load():
         d = json.loads(catalog_path().read_text(encoding='utf-8'))
     except (OSError, ValueError):
         d = {}
-    return {'updated': d.get('updated'), 'providers': d.get('providers') or {}, 'models': d.get('models') or []}
+    d = d if isinstance(d, dict) else {}
+    return {**d, 'updated': d.get('updated'), 'providers': d.get('providers') or {}, 'models': d.get('models') or []}   # leaders, families, lines_seen restano
 
 
 def save(cat):
@@ -192,13 +291,22 @@ def study(room_dir, lang='it'):
             entries.append({'id': n + len(entries) + 1, 'kind': kind, 'prompt': str(prompt), 'out': str(out), 'models': sorted(todo),
                             **({'board': board['id']} if board else {})})
     researcher.mark_boards([e['board'] for e in entries if e.get('board')])
+    asked = {x for e in _studies(room_dir) if e.get('kind') == 'lines' and not Path(e['out']).with_suffix('.done.json').exists()
+             and not Path(e['out']).with_suffix('.bad.json').exists() for x in e['lines']}
+    doubts = [g for g in lines(cat['models']) if g['doubt'] and g['line'] not in asked]
+    if doubts:                                            # le linee in dubbio vanno al lettore Haiku, mai a mano nel codice
+        out = Path(room_dir) / 'spawn' / 'study' / f'{n + len(entries) + 1}.json'
+        groups = [{'line': d['line'], 'members': [x['canonical'] for x in [d['newest'], *d['older']]], 'why': d['doubt']} for d in doubts]
+        prompt = researcher.prepare_lines(groups, out, lang)
+        entries.append({'id': n + len(entries) + 1, 'kind': 'lines', 'prompt': str(prompt), 'out': str(out),
+                        'models': sorted({m for gr in groups for m in gr['members']}), 'lines': [gr['line'] for gr in groups]})
     if entries:
         with (Path(room_dir) / 'spawn' / 'study.jsonl').open('a', encoding='utf-8') as f:
             f.writelines(json.dumps(e, ensure_ascii=False) + '\n' for e in entries)
     return entries
 
 
-def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None):
+def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None):
     """il giro completo, da chiamare in un thread (la card Catalogo, Prepara spawn): le liste dei provider che hanno una
     chiave, la fonte veloce Artificial Analysis una volta al giorno (con la sua chiave, D2), i risultati del ricercatore
     arrivati nella stanza; poi punti forti e stato, e il file. Il risultato di un ricercatore fuori schema è messo da
@@ -227,9 +335,33 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
         for c, s in got.items():
             scores.setdefault(c, []).extend(s)
         cat['providers'][name] = {'at': now, 'ok': not late, 'count': len(got)}
+    fst = cat['providers'].get('models_dev') or {}
+    if canon and (modelsdev is not None or force or not fst.get('ok') or now - fst.get('at', 0) > FAMILY_MAX_AGE):
+        try:                                              # le famiglie, per dividere le linee sbagliate (#544 p.2)
+            fam = families(modelsdev)
+            cat['families'] = {c: fam[c] for c in canon if c in fam}
+            cat['providers']['models_dev'] = {'at': now, 'ok': True, 'count': len(cat['families'])}
+        except Exception as exc:                          # rete giù: le linee restano quelle della regola
+            cat['providers']['models_dev'] = {**fst, 'ok': False, 'error': f'{type(exc).__name__}: {str(exc)[:120]}'}
+    for m in cat['models']:
+        m['family'] = (cat.get('families') or {}).get(m['canonical'])
     for e in _studies(room_dir) if room_dir else []:
         out = Path(e['out'])
         if not out.is_file():
+            continue
+        if e.get('kind') == 'lines':                      # le decisioni del lettore delle linee vanno nell'override
+            try:
+                decisions, checked = researcher.accept_lines(out, set(e['models']), set(e['lines']))
+                for d in decisions:
+                    (move_line(d['canonical'], d['line']) if d['action'] == 'move' else split_line(d['canonical']))
+                ov = load_override()
+                ov['checked'] = sorted({*ov['checked'], *checked, *e['lines']})
+                _save_override(ov)
+                out.replace(out.with_suffix('.done.json'))
+                cat['providers']['lines'] = {'at': now, 'ok': True, 'count': len(decisions)}
+            except ValueError as exc:
+                out.replace(out.with_suffix('.bad.json'))
+                cat['providers']['lines'] = {'at': now, 'ok': False, 'error': str(exc)[:200]}
             continue
         try:
             got, news, leaders = researcher.accept(out, g, asked=set(e['models']))
@@ -248,6 +380,7 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
             out.replace(out.with_suffix('.bad.json'))
             cat['providers']['researcher'] = {'at': now, 'ok': False, 'error': str(exc)[:200]}
     cat = add_scores(cat, scores, g, partial=partial, studied=set(researcher.studied()))
+    cat['line_changes'] = line_changes(cat)                # il riesame: linee nuove e "più nuovo" cambiato, marcati
     save(cat)
     return cat
 
@@ -266,9 +399,10 @@ def _prova_update(tmp):
     payload = {'data': [{'slug': s, 'evaluations': {'artificial_analysis_intelligence_index': v, 'gpqa': v / 100}}
                         for s, v in (('glm-5-3', 61), ('kimi-k3', 64), ('deepseek-v4-flash', 50))]}
     asked = []
+    md = {'x': {'models': {'z-ai/glm-5.3': {'family': 'glm'}, 'moonshotai/kimi-k3': {'family': 'kimi-k3'}, 'other/a': {}}}}
     orp = {'openrouter': {'meta': {'as_of': '2026-10-24T21:02:58Z', 'source_url': 'https://openrouter.ai/rankings'},
                           'data': [{'model_permaslug': 'z-ai/glm-5.3-20260901', 'benchmark_type': 'gpqa_diamond', 'accuracy': 0.8}]}}
-    cat = update(room, list_models=lambda p: asked.append(p) or lists[p], load_key=keys.get, aa_payload=payload, or_payloads=orp)
+    cat = update(room, list_models=lambda p: asked.append(p) or lists[p], load_key=keys.get, modelsdev=md, aa_payload=payload, or_payloads=orp)
     assert asked == ['open_router'] and len(cat['models']) == 3                                  # groq senza chiave; embed e safeguard fuori
     ds = next(m for m in cat['models'] if m['canonical'] == 'deepseek-v4-flash')
     assert {x['bench'] for x in ds['scores']} >= {'design-arena-website', 'aa-intelligence-index'} and '_raw' not in load()
@@ -290,7 +424,7 @@ def _prova_update(tmp):
            'new_benchmarks': [{'id': 'niche-x', 'name': 'Niche X', 'area': 'code', 'unit': '%', 'better': 'higher',
                                'url': 'https://example.org/n', 'it': 'una prova di nicchia', 'en': 'a niche test'}]}
     Path(e['out']).write_text(json.dumps(res), encoding='utf-8')
-    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, aa_payload={'data': []}, or_payloads={})
+    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, aa_payload={'data': []}, or_payloads={})
     glm = next(m for m in cat['models'] if m['canonical'] == 'glm-5-3')
     assert any(s['bench'] == 'swe-bench-pro' for s in glm['scores']) and glm['state'] == 'complete' and glm['aa'] == 61
     nx = next(x for x in glm['strengths'] if x['bench'] == 'niche-x')
@@ -305,22 +439,48 @@ def _prova_update(tmp):
     assert cat['providers']['artificial_analysis']['count'] == 3                               # AA non riletto nelle 24 ore
     assert study(room) == []                                                                     # gli altri due aspettano, classifiche lette oggi
     lists['open_router'].append({'id': 'thinkingmachines/inkling:free', 'name': 'Inkling', 'free': True})
-    cat = update(room, force=True, list_models=lambda p: lists[p], load_key=keys.get, aa_payload={'data': []}, or_payloads={})
+    cat = update(room, force=True, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, aa_payload={'data': []}, or_payloads={})
+    assert cat['line_changes'] == [{'line': 'inkling', 'newest': 'inkling', 'was': None}], cat['line_changes']   # il riesame marca il nuovo
     e2 = study(room)
     assert [x['models'] for x in e2] == [['inkling']]                                           # solo il nuovo
     Path(e2[0]['out']).write_text('{"models": [{"canonical": "glm-5-3", "scores": []}]}', encoding='utf-8')
-    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, or_payloads={})
+    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, or_payloads={})
     assert not cat['providers']['researcher']['ok'] and 'non chiesto' in cat['providers']['researcher']['error']
     assert Path(e2[0]['out']).with_suffix('.bad.json').is_file()
+    assert cat['families'] == {'glm-5-3': 'glm', 'kimi-k3': 'kimi-k3'} and cat['providers']['models_dev']['ok']
+    lists['open_router'] += [{'id': 'mistralai/codestral-2:free', 'free': True}, {'id': 'mistralai/codestral-2508:free', 'free': True}]
+    cat = update(room, force=True, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, aa_payload={'data': []}, or_payloads={})
+    e3 = study(room)
+    ln = next(x for x in e3 if x['kind'] == 'lines')
+    assert ln['lines'] == ['codestral'] and ln['models'] == ['codestral-2', 'codestral-2508'] and 'codestral' in Path(ln['prompt']).read_text(encoding='utf-8')
+    assert not any(x['kind'] == 'lines' for x in study(room))                                  # già chiesto: non due volte
+    Path(ln['out']).write_text(json.dumps({'decisions': [{'canonical': 'codestral-2', 'action': 'split'}], 'checked': ['codestral']}), encoding='utf-8')
+    cat = update(room, list_models=lambda p: lists[p], load_key=keys.get, modelsdev=md, or_payloads={})
+    ov = load_override()
+    assert ov['split'] == ['codestral-2'] and 'codestral' in ov['checked'] and cat['providers']['lines']['ok']
+    assert {g['line']: g['doubt'] for g in lines(cat['models']) if 'codestral' in g['line']} == {'codestral-2': '', 'codestral': ''}
+    move_line('codestral-2', 'codestral')
+    assert {g['line'] for g in lines(cat['models']) if 'codestral' in g['line']} == {'codestral'} and load_override()['split'] == []
+    split_line('codestral-2')
+    assert load_override()['move'] == {} and override_path().is_relative_to(Path(tmp))
 
 
 def _prova():
     import tempfile
     ms = [{'canonical': c} for c in ('glm-5-2', 'qwen3-8-flash', 'glm-5-3', 'qwen3-coder', 'glm-5', 'qwen3-8', 'gemma-4-31b-it', 'gemma-4-26b-a4b-it')]
-    got = {g['line']: (g['newest']['canonical'], [m['canonical'] for m in g['older']]) for g in lines(ms)}
+    none = {'move': {}, 'split': [], 'checked': []}
+    got = {g['line']: (g['newest']['canonical'], [m['canonical'] for m in g['older']]) for g in lines(ms, none)}
     assert got == {'glm': ('glm-5-3', ['glm-5-2', 'glm-5']), 'qwen-flash': ('qwen3-8-flash', []), 'qwen-coder': ('qwen3-coder', []),
                    'qwen': ('qwen3-8', []), 'gemma-31b-it': ('gemma-4-31b-it', []), 'gemma-26b-a4b-it': ('gemma-4-26b-a4b-it', [])}, got
-    assert [g['line'] for g in lines(ms)][:2] == ['qwen-flash', 'glm']              # l'ordine del catalogo, per la versione nuova
+    assert [g['line'] for g in lines(ms, none)][:2] == ['qwen-flash', 'glm']              # l'ordine del catalogo, per la versione nuova
+    fl = lines([{'canonical': 'deepseek-v4-1-flash', 'family': 'deepseek-flash'}, {'canonical': 'deepseek-v4-flash', 'family': 'deepseek-thinking'}], none)
+    assert sorted(g['line'] for g in fl) == ['deepseek-flash~deepseek-flash', 'deepseek-flash~deepseek-thinking'] and all(g['doubt'] for g in fl)
+    gp = lines([{'canonical': 'gpt-5-6', 'family': 'gpt-sol'}, {'canonical': 'gpt-5-5', 'family': 'gpt'}], none)
+    assert [(g['line'], g['newest']['canonical'], g['doubt']) for g in gp] == [('gpt', 'gpt-5-6', '')]      # famiglia grossa: niente divisione
+    cs = lines([{'canonical': 'codestral-2'}, {'canonical': 'codestral-2508'}], none)
+    assert len(cs) == 1 and 'data' in cs[0]['doubt']                                          # numero e sola data: in dubbio
+    assert lines([{'canonical': 'codestral-2'}, {'canonical': 'codestral-2508'}], {**none, 'checked': ['codestral']})[0]['doubt'] == ''
+    assert {g['line'] for g in lines([{'canonical': 'glm-5-3'}, {'canonical': 'glm-5'}], {**none, 'split': ['glm-5']})} == {'glm', 'glm-5'}
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bench'))
     import strengths
