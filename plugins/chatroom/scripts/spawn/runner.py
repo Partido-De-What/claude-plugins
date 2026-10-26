@@ -410,11 +410,10 @@ def snapshot(room):
     for r in roles(room).values():
         m = cards.get(r.get('canonical')) or {}
         st = m.get('strengths') or []
-        best = sorted(st, key=lambda s: (not s.get('trophy'), s.get('rank') or 10 ** 6))
         out.append({'name': r['name'], 'provider': r['route']['adapter'], 'model': r.get('canonical') or r['route']['model_id'],
                     'host': r['route']['adapter'], 'state': r.get('state', 'service'),
                     'trophy': next((s['bench'] for s in st if s.get('trophy')), None), 'aa': m.get('aa'),
-                    'strong': [s['bench'] for s in best[:3]]})
+                    'strong': [s['bench'] for s in st[:3]]})     # strengths come in order already: trophies, then strength (strengths.py)
     used = {r['provider'] for r in out} | set(lim)
     provs = [{'id': p, 'name': providers.ALL.get(p, {}).get('name', p), 'quota': (lim.get(p) or {}).get('quota'),
               'down': bool((lim.get(p) or {}).get('down'))} for p in sorted(used)]
