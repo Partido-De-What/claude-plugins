@@ -289,9 +289,11 @@ class Runner(threading.Thread):
         compact = self.compact(role)
         if bool(role.get('compact')) != compact:          # per host, again at every change of door; the role's line says it
             role = update(self.room, self.name, compact=compact)
-        return self._complete(r['adapter'], r['model_id'], h, tools=tool_defs(role, self.room, compact) if tools else None,
-                              max_tokens=max_tokens or role.get('max_tokens') or MAX_TOKENS, effort=role.get('effort'),
-                              session_id=f"{self.name}-{r['adapter']}", stop=self.stop)
+        defs = tool_defs(role, self.room, compact) if tools else None
+        mt = max_tokens or role.get('max_tokens') or MAX_TOKENS
+        return self._complete(r['adapter'], r['model_id'], h, tools=defs, max_tokens=mt, effort=role.get('effort'),
+                              session_id=f"{self.name}-{r['adapter']}", stop=self.stop,
+                              tokens=tokens(h) + (tokens(defs) if defs else 0) + mt)   # the limiter waits until the host's tokens a minute hold it
 
     def over(self):
         """the role left the room (chat.py remove) or the user or the lead closed it (CLOSED): the thread ends"""
@@ -383,6 +385,8 @@ class Runner(threading.Thread):
 
     def fail(self, role, e):
         route = role['route']
+        if e.action == 'none':                            # stopped while waiting: no fault of the host
+            return
         if e.action == 'handover':
             self.handover(role, self.history(role), full=True)
             return
@@ -583,10 +587,14 @@ def _prova():
             p, m, msgs, tools, kw = seen[0]
             assert p == 'open_router' and msgs[0]['role'] == 'system' and 'caveman ultra' in msgs[0]['content'] and 'Italian' in msgs[0]['content']
             names = {t['function']['name'] for t in tools}
+            assert kw['tokens'] > kw['max_tokens'] > 0                                       # the input estimate goes to the limiter
             assert kw['session_id'] == 'ARCH-open_router' and names >= {'chat_post', 'chat_wait', 'board', 'task'} and not names & {'shell', 'research'}
             assert seen[1][2][0] == msgs[0] and seen[1][2][-1]['role'] == 'tool'          # the same system bytes, the tool's answer carried
             assert roles(room)['ARCH']['usage'] == {'in': 20, 'out': 6, 'cost': 0.0}, roles(room)['ARCH']['usage']
             r = Runner(room, 'ARCH', fake)
+            before = roles(room)['ARCH']
+            r.fail(before, errors.ProviderError('stopped'))                                 # stopped while waiting: nothing happens
+            assert roles(room)['ARCH']['route'] == before['route'] and roles(room)['ARCH']['state'] == before['state']
             r.fail(roles(room)['ARCH'], errors.ProviderError('quota', 429))                # quota: the same model on another host
             role = roles(room)['ARCH']
             assert role['route']['adapter'] == 'kilo' and role['state'] == 'switch' and 'cambio porta open_router → kilo' in room.messages()[-1]['text']
