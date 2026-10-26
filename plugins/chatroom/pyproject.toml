@@ -5,7 +5,7 @@ name = "chatroom"
 version = "0.13.0"
 requires-python = ">=3.14"
 dependencies = [
-    "headroom-ai[proxy,code]>=0.41.0",
+    "headroom-ai>=0.41.0",               # only compress() is used: [proxy] and [code] add 380 MB (transformers, onnxruntime, tree-sitter packs)
     "openai>=2.54.0",
     "httpx>=0.28.1",
     "pydantic>=2.14.1",
