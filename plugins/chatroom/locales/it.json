@@ -1555,8 +1555,8 @@
  "spawn.cat.title": "Catalogo: i modelli gratis",
  "spawn.cat.plain": "Catalogo dei modelli gratis: aprilo nel viewer per scegliere.",
  "spawn.cat.intro": {
-  "one": "{n} modello, prima il valore Artificial Analysis migliore. Il pallino è la sua strada più veloce: verde risponde, rosso no, grigio non ancora provata.",
-  "other": "{n} modelli, prima il valore Artificial Analysis migliore. Il pallino è la sua strada più veloce: verde risponde, rosso no, grigio non ancora provata."
+  "one": "{n} linea di modelli, la versione più nuova, prima il valore Artificial Analysis migliore. Il pallino è la sua strada più veloce: verde risponde, rosso no, grigio non ancora provata.",
+  "other": "{n} linee di modelli, di ognuna la versione più nuova, prima il valore Artificial Analysis migliore. Il pallino è la sua strada più veloce: verde risponde, rosso no, grigio non ancora provata."
  },
  "spawn.cat.routes": {
   "one": "{n} strada",
@@ -1632,5 +1632,17 @@
   "other": "Catalogo aggiornato: {n} modelli."
  },
  "spawn.cat.updateFailed": "Il catalogo non è stato aggiornato: {why}",
- "spawn.cat.studyNone": "Tutti i modelli del catalogo sono già stati studiati."
+ "spawn.cat.studyNone": "Tutti i modelli del catalogo sono già stati studiati.",
+ "spawn.q.left": "quota {left}/{top}",
+ "spawn.q.pct": "quota {pct}%",
+ "spawn.q.reset": "riparte tra {s} s",
+ "spawn.q.down": "giù",
+ "spawn.cat.older": {
+  "one": "versione precedente ({n})",
+  "other": "versioni precedenti ({n})"
+ },
+ "spawn.sheet.versions": {
+  "one": "altra versione di questa linea ({n})",
+  "other": "altre versioni di questa linea ({n})"
+ }
 }

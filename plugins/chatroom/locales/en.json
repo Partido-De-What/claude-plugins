@@ -1555,8 +1555,8 @@
  "spawn.cat.title": "Catalog: the free models",
  "spawn.cat.plain": "Catalog of the free models: open it in the viewer to choose.",
  "spawn.cat.intro": {
-  "one": "{n} model, best Artificial Analysis value first. A dot is its fastest route: green answers, red does not, grey not tried yet.",
-  "other": "{n} models, best Artificial Analysis value first. A dot is its fastest route: green answers, red does not, grey not tried yet."
+  "one": "{n} model line, newest version, best Artificial Analysis value first. A dot is its fastest route: green answers, red does not, grey not tried yet.",
+  "other": "{n} model lines, newest version of each, best Artificial Analysis value first. A dot is its fastest route: green answers, red does not, grey not tried yet."
  },
  "spawn.cat.routes": {
   "one": "{n} route",
@@ -1632,5 +1632,17 @@
   "other": "Catalog updated: {n} models."
  },
  "spawn.cat.updateFailed": "The catalog was not updated: {why}",
- "spawn.cat.studyNone": "Every model of the catalog was already studied."
+ "spawn.cat.studyNone": "Every model of the catalog was already studied.",
+ "spawn.q.left": "quota {left}/{top}",
+ "spawn.q.pct": "quota {pct}%",
+ "spawn.q.reset": "reset in {s} s",
+ "spawn.q.down": "down",
+ "spawn.cat.older": {
+  "one": "older version ({n})",
+  "other": "older versions ({n})"
+ },
+ "spawn.sheet.versions": {
+  "one": "other version of this line ({n})",
+  "other": "other versions of this line ({n})"
+ }
 }

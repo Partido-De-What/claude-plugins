@@ -33,7 +33,9 @@
 .xcard.xc-off { opacity: .7; font-size: 12.5px; padding: 5px 12px; cursor: pointer; }
 @media (prefers-reduced-motion: no-preference) { .xcard .wait { animation: xc-pulse 1.4s ease-in-out infinite; } }
 @keyframes xc-pulse { 50% { opacity: .3; } }
-@media (max-width: 480px) { .xcard button.xc-act, .xcard input, .xcard select { min-height: 36px; } .xcard .xc-head .xc-x { width: 32px; height: 32px; }
+.xcard .xc-more summary { cursor: pointer; padding: 6px 0; color: var(--muted); font-size: 12.5px; }
+.xcard .xc-more .xc-row { padding-left: 14px; }
+@media (max-width: 480px) { .xcard button.xc-act, .xcard input, .xcard select, .xcard .xc-more summary { min-height: 36px; } .xcard .xc-head .xc-x { width: 32px; height: 32px; }
   .xcard a { display: inline-block; padding: 8px 0; } }`;
   const act = (a, key, ro) => `<button class="xc-act" data-act="${esc(a.id)}"${key ? ` data-key="${esc(key)}"` : ''}${a.confirm ? ` data-confirm="${esc(a.confirm)}"` : ''}${ro || a.disabled ? ' disabled' : ''}>${esc(a.label)}</button>`;
   const field = (f, ro) => {
@@ -59,6 +61,7 @@
         + `<span>${esc(x.value ?? '—')}${b.unit ? ' ' + esc(b.unit) : ''}${x.note ? ' · ' + esc(x.note) : ''}</span></div>`).join('');
     },
     actions: (b, ro) => `<div class="xc-acts">${(b.items || []).map(a => act(a, b.key, ro)).join('')}</div>`,
+    more: (b, ro) => (b.rows || []).length ? `<details class="xc-more"><summary>${esc(b.label)}</summary>${BLOCKS.rows(b, ro)}</details>` : '',   // closed by default, opened in the page
   };
   const CARDS = {
     state: {}, types: {}, msgs: new Map(),

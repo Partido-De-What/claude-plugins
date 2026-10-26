@@ -114,30 +114,72 @@ def _ctx(n):
     return f'{round(n / 1000)}k' if n else '—'
 
 
+def _quotas():
+    """what the limiter knows of each route's quota (PORTE, T30): {"adapter:model_id": {...}}; {} before it knows"""
+    try:
+        from spawn.limiter import LIMITER
+        q = LIMITER.routes()
+        return q if isinstance(q, dict) else {}
+    except (ImportError, AttributeError):
+        return {}
+
+
+def _quota_text(q):
+    """quota 37/50 · reset 12 s · 2×429, from what the provider said; '' when it said nothing"""
+    q = q or {}
+    left, top = q.get('remaining_requests'), q.get('limit_requests')
+    bits = [say('spawn.q.left', left=left, top=top) if left is not None and top else
+            say('spawn.q.pct', pct=round(q['quota'] * 100)) if q.get('quota') is not None else '',
+            say('spawn.q.reset', s=round(q['reset_s'])) if q.get('reset_s') else '',
+            f"{q['recent_429']}×429" if q.get('recent_429') else '', say('spawn.q.down') if q.get('down') else '']
+    return ' · '.join(b for b in bits if b)
+
+
+def _lines(models):
+    """[(newest, [older, ...])]: one entry per line of models, newest first (CATALOGO's one rule, catalog.lines and
+    identity.line_key, T29: glm-5, 5.2, 5.3 are one line, qwen3-coder and qwen3.8 two), in the order of `models`"""
+    from spawn.catalog import catalog as c
+    return [(g['newest'], g['older']) for g in c.lines(models)]
+
+
+def _line(canonical):
+    from spawn.catalog.identity import line_key
+    return line_key(canonical)[0] or canonical
+
+
+def _model_row(m, quotas):
+    r = _best_route(m)
+    ping = r.get('ping') or {}
+    q = quotas.get(f"{r.get('adapter')}:{r.get('model_id')}") or {}
+    state = 'bad' if q.get('down') else 'ok' if ping.get('ok') else 'bad' if ping and not ping.get('ok') else 'wait'
+    bits = [f"AA {m['aa']:g}" if m.get('aa') is not None else 'AA n.d.', say('spawn.cat.routes', n=len(m.get('routes') or [])),
+            f"{ping['ms']} ms" if ping.get('ms') else '', 'ctx ' + _ctx(r.get('ctx')), _quota_text(q)]
+    if m.get('areas_best'):
+        bits.append(say('spawn.cat.best') + ' ' + ', '.join(m['areas_best'][:3]))
+    if m.get('state') in ('pending', 'partial'):
+        bits.append(say('spawn.cat.partial'))
+    return {'key': m['canonical'], 'label': m.get('name') or m['canonical'], 'value': ' · '.join(b for b in bits if b), 'state': state,
+            'actions': [{'id': 'sheet', 'label': say('spawn.cat.sheet')}, {'id': 'compare', 'label': say('spawn.cat.compare')},
+                        {'id': 'role', 'label': say('spawn.cat.role')}]}
+
+
 def catalog(cat):
-    """the free models (D12: the 0.13 uses only free ones), best AA first: AA, routes, best ping, context; the AA chart of the top"""
+    """the free models (D12: the 0.13 uses only free ones), one row per line with its newest version, best AA first (AA,
+    routes, best ping, context, quota left); the older versions of a line under "older versions (N)", still choosable;
+    the AA chart of the top lines"""
     models = [m for m in cat.get('models', []) if _free(m)]
     models.sort(key=lambda m: (m.get('aa') is None, -(m.get('aa') or 0), m.get('name') or m.get('canonical', '')))
-    rows = []
-    for m in models[:60]:
-        r = _best_route(m)
-        ping = r.get('ping') or {}
-        state = 'ok' if ping.get('ok') else 'bad' if ping and not ping.get('ok') else 'wait'
-        bits = [f"AA {m['aa']:g}" if m.get('aa') is not None else 'AA n.d.', say('spawn.cat.routes', n=len(m.get('routes') or [])),
-                f"{ping['ms']} ms" if ping.get('ms') else '', 'ctx ' + _ctx(r.get('ctx'))]
-        if m.get('areas_best'):
-            bits.append(say('spawn.cat.best') + ' ' + ', '.join(m['areas_best'][:3]))
-        if m.get('state') in ('pending', 'partial'):
-            bits.append(say('spawn.cat.partial'))
-        rows.append({'key': m['canonical'], 'label': m.get('name') or m['canonical'], 'value': ' · '.join(b for b in bits if b), 'state': state,
-                     'actions': [{'id': 'sheet', 'label': say('spawn.cat.sheet')}, {'id': 'compare', 'label': say('spawn.cat.compare')},
-                                 {'id': 'role', 'label': say('spawn.cat.role')}]})
-    bars = [{'label': m.get('name') or m['canonical'], 'value': m['aa'], 'max': 100} for m in models if m.get('aa') is not None][:TOP]
-    blocks = [{'t': 'text', 'text': say('spawn.cat.intro', n=len(models))}]
+    lines, quotas = _lines(models)[:60], _quotas()
+    lines.sort(key=lambda l: (l[0].get('aa') is None, -(l[0].get('aa') or 0), l[0].get('name') or l[0]['canonical']))
+    blocks = [{'t': 'text', 'text': say('spawn.cat.intro', n=len(lines))}]
+    bars = [{'label': m.get('name') or m['canonical'], 'value': m['aa'], 'max': 100} for m, _ in lines if m.get('aa') is not None][:TOP]
     if bars:
         blocks.append({'t': 'bars', 'title': say('spawn.cat.aaChart'), 'unit': '', 'items': bars})
-    blocks += [{'t': 'rows', 'rows': rows}, {'t': 'actions', 'items': [{'id': 'update', 'label': say('spawn.cat.update')},
-                                                                         {'id': 'study', 'label': say('spawn.cat.study')}]}]
+    for newest, older in lines:
+        blocks.append({'t': 'rows', 'rows': [_model_row(newest, quotas)]})
+        if older:
+            blocks.append({'t': 'more', 'label': say('spawn.cat.older', n=len(older)), 'rows': [_model_row(m, quotas) for m in older]})
+    blocks.append({'t': 'actions', 'items': [{'id': 'update', 'label': say('spawn.cat.update')}, {'id': 'study', 'label': say('spawn.cat.study')}]})
     return {'title': say('spawn.cat.title'), 'icon': '📚', 'blocks': blocks}
 
 
@@ -153,10 +195,12 @@ def sheet(cat, canonical, lang='en'):
     if not m:
         raise ValueError(say('spawn.err.noModel', model=canonical))
     gl, areas = glossary()
+    quotas = _quotas()
     name = lambda bid: gl.get(bid, {}).get('name', bid)
     routes = [{'key': f"{r.get('adapter')}:{r.get('model_id')}", 'label': r.get('adapter', '?'),
                'value': ' · '.join(x for x in [r.get('model_id', ''), say('spawn.sheet.free') if r.get('free') else '', 'ctx ' + _ctx(r.get('ctx')),
-                                                say('spawn.sheet.tools') if r.get('tools') else '', f"{(r.get('ping') or {}).get('ms')} ms" if (r.get('ping') or {}).get('ms') else ''] if x),
+                                                say('spawn.sheet.tools') if r.get('tools') else '', f"{(r.get('ping') or {}).get('ms')} ms" if (r.get('ping') or {}).get('ms') else '',
+                                                _quota_text(quotas.get(f"{r.get('adapter')}:{r.get('model_id')}"))] if x),
                'state': 'ok' if (r.get('ping') or {}).get('ok') else 'wait' if not r.get('ping') else 'bad'} for r in m.get('routes') or []]
     strong = [{'label': ('🏆 ' if s.get('trophy') else '') + name(s.get('bench')), 'value': s.get('value'),
                'note': ' · '.join(x for x in [(areas.get(s.get('area')) or {}).get(lang, s.get('area', '')),
@@ -171,6 +215,11 @@ def sheet(cat, canonical, lang='en'):
         blocks.append({'t': 'bars', 'title': say('spawn.sheet.strong'), 'items': strong})
     if scores:
         blocks.append({'t': 'rows', 'rows': scores})
+    same = [x for x in cat.get('models', []) if x['canonical'] != canonical and _line(x['canonical']) == _line(canonical)]
+    if same:                                           # the other versions of its line, each with its own sheet
+        blocks.append({'t': 'more', 'label': say('spawn.sheet.versions', n=len(same)),
+                       'rows': [{'key': x['canonical'], 'label': x.get('name') or x['canonical'], 'value': f"AA {x['aa']:g}" if x.get('aa') is not None else 'AA n.d.',
+                                 'actions': [{'id': 'sheet', 'label': say('spawn.cat.sheet')}]} for x in same]})
     return {'title': m.get('name') or canonical, 'icon': '🧾', 'blocks': blocks}
 
 
