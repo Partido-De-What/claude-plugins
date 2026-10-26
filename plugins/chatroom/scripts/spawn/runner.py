@@ -68,7 +68,9 @@ TEXT = {  # shortcut: the room's own words for the notices, until the i18n pass 
            'stopped': '⛔ {name} fermo: {kind} su {provider}. @{user} la chiave o l\'account chiedono te.',
            'replaced': '🔁 {name} ora gira su {model} ({provider}).',
            'handover': '🧳 {name}: contesto rinnovato dalle sue consegne.'}}
+CAVEMAN_FACTOR = 1.5     # shortcut: caveman ultra cuts about 60% of an answer's tokens, so a role that wrote N saved ~1.5 N; an estimate, said so in /spawn.json
 RUNNERS = {}                                             # (room folder, name) -> Runner
+_RTK_SAVED = {}                                          # room folder -> (when, tokens): `rtk gain` asked at most every 30 s
 RTK_RECENT = deque(maxlen=200)                           # when the roles' shell commands went through RTK (the Hangar's funnel)
 _lock = threading.Lock()
 
@@ -139,12 +141,17 @@ def tokens(messages):
 
 
 # ------------------------------------------------------------------ the tools
-def tool_defs(role):
-    """the room's MCP tools as OpenAI tools (without room and as: the runner fills them), plus shell when given"""
+def research_room(room):
+    return room is not None and (Path(room.dir) / 'research' / 'contract.json').is_file()
+
+
+def tool_defs(role, room=None):
+    """the room's MCP tools as OpenAI tools (without room and as: the runner fills them), plus shell when given. In a
+    research room (mode C) also the research kernel's tool, whose roles the kernel enforces"""
     import chat
     out = []
     for t in chat.MCP_TOOLS:
-        if t['name'] == 'research':
+        if t['name'] == 'research' and not research_room(room):
             continue
         params = copy.deepcopy(t['inputSchema'])
         for k in ('room', 'as'):
@@ -184,7 +191,7 @@ def run_tool(room, role, call, stop):
         return 'error: the arguments are not JSON'
     if name == 'shell' and 'shell' in role.get('tools', []):
         return run_shell(room, role, str(args.get('command', '')))
-    if not isinstance(args, dict) or name not in {t['name'] for t in chat.MCP_TOOLS} or name == 'research':
+    if not isinstance(args, dict) or name not in {t['name'] for t in chat.MCP_TOOLS} or (name == 'research' and not research_room(room)):
         return f'error: no tool {name}'
     if name == 'chat_wait':
         args['timeout'] = min(int(args.get('timeout') or 100), WAIT)
@@ -227,7 +234,7 @@ class Runner(threading.Thread):
 
     def call(self, role, h, tools=True, max_tokens=None):
         r = role['route']
-        return self._complete(r['adapter'], r['model_id'], h, tools=tool_defs(role) if tools else None,
+        return self._complete(r['adapter'], r['model_id'], h, tools=tool_defs(role, self.room) if tools else None,
                               max_tokens=max_tokens or role.get('max_tokens') or MAX_TOKENS, effort=role.get('effort'),
                               session_id=f"{self.name}-{r['adapter']}", stop=self.stop)
 
@@ -305,7 +312,7 @@ class Runner(threading.Thread):
             try:                                          # the Sostituisci card in the chat at once (VETRINA's cards_spawn.py)
                 from spawn import cards_spawn
                 cards_spawn.post_replace(self.room, self.name)
-            except ImportError:
+            except Exception:                              # no card is no reason to stop the role: the message above says it
                 pass
 
 
@@ -370,6 +377,25 @@ def replace(room, name, canonical, route):
     return role
 
 
+def rtk_saved(room):
+    """the tokens RTK saved on the commands the roles ran in their folders (rtk gain -p counts a folder and those inside)"""
+    from activity import rtk_path
+    key, now = str(Path(room.dir).resolve()), time.time()
+    hit = _RTK_SAVED.get(key)
+    if hit and now - hit[0] < 30:
+        return hit[1]
+    saved, exe = 0, rtk_path()
+    if exe:
+        import subprocess
+        try:
+            r = subprocess.run([exe, 'gain', '-p', '-f', 'json'], cwd=_dir(room), capture_output=True, timeout=10, stdin=subprocess.DEVNULL)
+            saved = int(json.loads(r.stdout.decode('utf-8', 'replace') or '{}').get('summary', {}).get('total_saved') or 0)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+    _RTK_SAVED[key] = (now, saved)
+    return saved
+
+
 def snapshot(room):
     """what GET /spawn.json gives the Hangar (contract #104 #134 of the 0.13 room)"""
     from spawn.catalog import catalog
@@ -395,7 +421,9 @@ def snapshot(room):
     except Exception:
         cs = {'saved': 0, 'recent': 0}
     now = time.time()
-    return {'providers': provs, 'roles': out, 'saved': {'headroom': cs['saved'], 'rtk': 0, 'caveman': 0},
+    out_tokens = sum(int((r.get('usage') or {}).get('out', 0)) for r in roles(room).values())
+    return {'providers': provs, 'roles': out, 'saved': {'headroom': cs['saved'], 'rtk': rtk_saved(room),
+                                                         'caveman': int(out_tokens * CAVEMAN_FACTOR)}, 'caveman_estimated': True,
             'press': cs['recent'], 'funnel': sum(1 for t in RTK_RECENT if now - t < 10)}
 
 
@@ -457,7 +485,8 @@ def _prova():
             role = roles(room)['ARCH']
             assert role['route']['adapter'] == 'kilo' and role['state'] == 'service' and 'cambio porta open_router → kilo' in room.messages()[-1]['text']
             r.fail(role, errors.ProviderError('rate_limit', 429))                           # the limiter gave up: no host left
-            last = room.messages()[-1]
+            last = [m for m in room.messages() if m['from'] == 'ARCH' and not m.get('kind')][-1]
+            assert any(m.get('kind') == 'card' for m in room.messages()) or not (Path(__file__).parent / 'cards_spawn.py').is_file()
             assert roles(room)['ARCH']['state'] == 'notokens' and '@Adrian' in last['text'] and 'senza token' in last['text'] and not last.get('kind')
             snap = snapshot(room)['roles'][0]
             assert snap == {'name': 'ARCH', 'provider': 'kilo', 'model': 'm', 'host': 'kilo', 'state': 'notokens',
@@ -476,11 +505,18 @@ def _prova():
             assert roles(room)['ARCH']['state'] == 'stopped' and '⛔ ARCH fermo: payment' in room.messages()[-1]['text']
             shell_role = {**roles(room)['ARCH'], 'tools': ['shell']}
             assert 'shell' in {t['function']['name'] for t in tool_defs(shell_role)}
+            assert 'research' not in {t['function']['name'] for t in tool_defs(shell_role, room)}
+            (room.dir / 'research').mkdir()
+            (room.dir / 'research' / 'contract.json').write_text('{}', encoding='utf-8')     # mode C: the kernel's tool, its roles enforced by it
+            assert 'research' in {t['function']['name'] for t in tool_defs(shell_role, room)}
             out = run_tool(room, shell_role, {'function': {'name': 'shell', 'arguments': json.dumps({'command': 'echo hello'})}}, threading.Event())
             assert out.startswith('exit 0') and 'hello' in out and (room.dir / 'spawn' / 'work-ARCH').is_dir(), out
             no = run_tool(room, roles(room)['ARCH'], {'function': {'name': 'shell', 'arguments': '{"command": "echo x"}'}}, threading.Event())
             assert no.startswith('error'), no                                               # no shell unless the user gave it
             assert 'sk-' not in json.dumps(roles(room))
+            s = snapshot(room)
+            assert s['saved']['caveman'] == int(roles(room)['ARCH']['usage']['out'] * CAVEMAN_FACTOR) > 0 and s['caveman_estimated'], s
+            assert isinstance(s['saved']['rtk'], int) and s['saved']['rtk'] >= 0, s
         finally:
             keys.load = real_load
     print('runner ok')

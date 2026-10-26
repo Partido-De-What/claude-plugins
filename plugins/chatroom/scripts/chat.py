@@ -932,6 +932,8 @@ def cmd_init(room, a):
         config['profiles'].setdefault(name, {}).update(profile)
     if a.ask_mode:                            # the viewer asks the user normal or research; the lead waits for the answer
         config['mode'] = 'choose'
+    elif getattr(a, 'spawn', False):          # a spawn room (mode A of /spawn): roles on external models, the Hangar as its office
+        config['mode'] = 'spawn'
     room.save_config(config)
     write_agents_md(room)
     if a.ask_mode:
@@ -3810,6 +3812,7 @@ def main():
                    help=f'wait: at most {WAIT_MAX} s, or {IDLE_WAIT_MAX} s while you are idle')
     p.add_argument('--topic')
     p.add_argument('--ask-mode', dest='ask_mode', action='store_true', help='init: the viewer asks the user to choose normal or research')
+    p.add_argument('--spawn', action='store_true', help='init: a spawn room, for roles on external models (/spawn)')
     p.add_argument('--participants')
     p.add_argument('--title')
     p.add_argument('--subtitle')
