@@ -140,13 +140,37 @@ class Limiter:
                 lane.ready_at = self.clock() + max(backoff, error.retry_after or 0.0)
             self.cond.notify_all()
 
-    def run(self, provider, key, model, fn, stop=None):
+    def _tokens(self, provider, key, model, tokens, stop):
+        """wait until the provider's token window (x-ratelimit-remaining-tokens) holds this request, then take its tokens
+        at once so that two roles do not both pass on the same remainder. A request larger than the whole window waits for a
+        full window (the provider then refuses it and the adapter cuts its max_tokens to fit); a window never seen does not wait"""
+        name = self._name(provider, key, model)
+        with self.cond:
+            while True:
+                if stop is not None and stop.is_set():
+                    raise errors.ProviderError('network', None, None, 'stopped')
+                now = self.clock()
+                wins = [w for k, w in self.windows.get(name, {}).items() if 'token' in k and w.get('limit') and w.get('remaining') is not None]
+                for w in wins:                          # a window past its reset is full again
+                    if w.get('reset_at') is not None and w['reset_at'] <= now:
+                        w['remaining'], w['reset_at'] = w['limit'], now + WINDOW     # shortcut: the next reset is unknown until an answer says it; a minute, as TPM windows are
+                short = [w for w in wins if w['remaining'] < min(tokens, w['limit']) and w.get('reset_at')]
+                if not short:
+                    for w in wins:
+                        w['remaining'] = max(0.0, w['remaining'] - tokens)
+                    return
+                self.cond.wait(min(max(0.05, min(w['reset_at'] for w in short) - now), 1.0))
+
+    def run(self, provider, key, model, fn, stop=None, tokens=None):
         """fn() under the limiter, attempted up to 10 times while the failure is one a wait can fix. fn raises
         errors.ProviderError (or an httpx error); anything else goes straight up. stop: a threading.Event that ends the
-        waiting (the role was stopped)"""
+        waiting (the role was stopped). tokens: what the request will count against the provider's tokens per minute
+        (its input and its max_tokens): it waits for the window to hold them"""
         lane = self._lane(provider, key, model)
         last = None
         for _ in range(ATTEMPTS):
+            if tokens:
+                self._tokens(provider, key, model, tokens, stop)
             probe = self._admit(lane, stop)
             self._count(provider, key, model)
             try:
@@ -198,7 +222,9 @@ class Limiter:
         if got:
             with self.cond:
                 self.seen.add((provider, model))
-                self.windows.setdefault(self._name(provider, key, model), {}).update(got)
+                wins = self.windows.setdefault(self._name(provider, key, model), {})
+                for wname, vals in got.items():             # an answer may give only some fields of a window: merge them
+                    wins.setdefault(wname, {}).update(vals)
 
     def note_daily(self, provider, key, limit):
         """a daily limit of free requests (OpenRouter /key free_model_daily_requests)"""
@@ -409,6 +435,25 @@ def _prova():
     t[0] += RECENT + 1
     assert q.route('groq', 'llama')['recent_429'] == 0
     assert q.snapshot()['cerebras']['quota'] == 0.5 and fingerprint('o') not in json.dumps([q.routes(), q.snapshot()])
+    # tokens per minute: a request waits for the window to hold it, and takes its tokens at once
+    tp = Limiter(clock=lambda: t[0])
+    tp.observe('groq', 'g', 'oss', {'x-ratelimit-limit-tokens': '8000', 'x-ratelimit-remaining-tokens': '8000', 'x-ratelimit-reset-tokens': '60s'})
+    tp.run('groq', 'g', 'oss', lambda: 'first', tokens=7000)
+    assert tp.route('groq', 'oss')['remaining_tokens'] == 1000
+    start = t[0]
+    threading.Timer(0.3, lambda: t.__setitem__(0, t[0] + 61)).start()      # the window resets a minute later
+    assert tp.run('groq', 'g', 'oss', lambda: 'second', tokens=7000) == 'second' and t[0] - start >= 61
+    start = t[0]
+    threading.Timer(0.3, lambda: t.__setitem__(0, t[0] + 61)).start()
+    assert tp.run('groq', 'g', 'oss', lambda: 'huge', tokens=50000) == 'huge' and t[0] - start >= 61    # larger than the window: a full one
+    stop2 = threading.Event()
+    tp.observe('groq', 'g', 'oss', {'x-ratelimit-remaining-tokens': '10', 'x-ratelimit-reset-tokens': '600s'})
+    threading.Timer(0.2, stop2.set).start()
+    try:
+        tp.run('groq', 'g', 'oss', lambda: 'x', stop=stop2, tokens=7000)
+        raise AssertionError('stop ignored while waiting for tokens')
+    except errors.ProviderError:
+        pass
     done.set()
     print('limiter ok')
 

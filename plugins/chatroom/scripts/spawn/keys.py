@@ -205,7 +205,7 @@ def _probe(provider, probe, key, extra, client):
     except (KeyError, IndexError):
         return 'unverified', 'missing_extra'
     url = path if path.startswith('https://') else catalog.base_url(provider, extra).rstrip('/') + path
-    headers = {'Accept': 'application/json', **catalog.auth_headers(provider, key)}
+    headers = {'Accept': 'application/json', **catalog.auth_headers(provider, key, verify=True)}
     try:
         if client is None:
             with httpx.Client(timeout=TIMEOUT, follow_redirects=False) as c:

@@ -351,24 +351,59 @@ def _num(v):
         return None
 
 
-def list_models(provider, key=None, client=None):
+def _gemini_models(payload, next_page, pages=10):
+    """Google's native list (models/NAME, token limits, generation methods, thinking), every page, as list_models rows;
+    only what generates text"""
+    out = []
+    for _ in range(pages):
+        for m in payload.get('models') or []:
+            methods = m.get('supportedGenerationMethods') or []
+            name = str(m.get('name') or '')
+            if 'generateContent' not in methods or not name:
+                continue
+            mid = name.split('/', 1)[1] if name.startswith('models/') else name
+            out.append({'id': mid, 'name': str(m.get('displayName') or mid), 'ctx': m.get('inputTokenLimit'),
+                        'max_out': m.get('outputTokenLimit'), 'tools': True if mid.startswith('gemini-') else None,
+                        'reasoning': m.get('thinking') if isinstance(m.get('thinking'), bool) else None,
+                        'free': True, 'price_in': None, 'price_out': None, 'modalities': ['text']})
+        token = payload.get('nextPageToken')
+        if not token:
+            break
+        payload = next_page(token)
+    return out
+
+
+def estimate_tokens(messages, tools=None):
+    """the input tokens of a request, prudently: 3.2 characters a token (above what cl100k counts on prose and JSON)"""
+    # shortcut: no tokenizer here (tiktoken would download its tables at first use); use FCC's bundled cl100k file if it must be exact
+    return int(len(json.dumps([messages, tools or []], ensure_ascii=False)) / 3.2) + 1
+
+
+def list_models(provider, key=None, client=None, extra=None):
     """[{'id', 'name', 'ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price_out', 'modalities'}]: None
     where the provider does not say. Prices in dollars per million tokens"""
-    extra = None
     if key is None:
         from spawn import keys
         k = keys.load(provider)
         key, extra = (k['key'], k['extra']) if k else (None, None)
-    url = catalog.base_url(provider, extra).rstrip('/') + '/models'
-    h = {'Accept': 'application/json', **(catalog.auth_headers(provider, key) if key else {})}
-
-    def get():
+    own = catalog.get(provider).get('models')        # a provider whose OpenAI-compatible /models does not answer
+    if own:
         try:
+            url, shape = own[0].format(**(extra or {})), own[1]
+        except (KeyError, IndexError):
+            raise errors.ProviderError('auth', None, None, f'{provider} needs: {", ".join(catalog.get(provider).get("extra", ()))}')
+    else:
+        url, shape = catalog.base_url(provider, extra).rstrip('/') + '/models', 'openai'
+    h = {'Accept': 'application/json', **(catalog.auth_headers(provider, key, verify=shape == 'gemini') if key else {})}
+
+    def get(page=None):
+        try:
+            u = url + (f'&pageToken={page}' if page else '')
             if client is None:
                 with httpx.Client(timeout=20) as c:
-                    r = c.get(url, headers=h)
+                    r = c.get(u, headers=h)
             else:
-                r = client.get(url, headers=h)
+                r = client.get(u, headers=h)
         except httpx.HTTPError as exc:
             raise errors.from_exception(exc)
         LIMITER.observe(provider, key or '', '', r.headers)
@@ -377,7 +412,11 @@ def list_models(provider, key=None, client=None):
         return r.json()
     from spawn.limiter import LIMITER                 # the model list counts against the same free limits
     payload = LIMITER.run(provider, key or '', '', get)
+    if shape == 'gemini':
+        return _gemini_models(payload, lambda token: LIMITER.run(provider, key or '', '', lambda: get(token)))
     rows = payload.get('data') if isinstance(payload, dict) else payload
+    if isinstance(payload, dict) and rows is None and isinstance(payload.get('result'), list):
+        rows = payload['result']                    # Cloudflare's own envelope, when the OpenRouter format is not honoured
     out = []
     for m in rows if isinstance(rows, list) else []:
         if not isinstance(m, dict) or not m.get('id'):
@@ -395,24 +434,37 @@ def list_models(provider, key=None, client=None):
                     'tools': ('tools' in params) if params is not None else (m.get('capabilities') or {}).get('function_calling') if isinstance(m.get('capabilities'), dict) else None,
                     'reasoning': ('reasoning' in params) if params is not None else None,
                     'free': free, 'price_in': None if pin is None else pin * 1e6, 'price_out': None if pout is None else pout * 1e6,
-                    'modalities': arch.get('input_modalities') or ['text']})
+                    'modalities': arch.get('input_modalities') or ['text'],
+                    'benchmarks': m.get('benchmarks') if isinstance(m.get('benchmarks'), dict) else None})   # OpenRouter's AA and Design Arena
     return out
 
 
 def _prova():
     """no network: a fake provider (httpx.MockTransport) streams answers and refusals. python -m spawn.providers.openai_compat"""
     sse = lambda *chunks: ''.join(f'data: {json.dumps(c)}\n\n' for c in chunks) + 'data: [DONE]\n\n'
-    seen, seen_headers = [], []
+    seen, seen_headers, gemini_hdrs, cf_urls = [], [], [], []
 
     def answer(request):
         body = json.loads(request.content) if request.content else {}
         seen.append(body)
         seen_headers.append(request.headers)
         model = body.get('model', '')
+        if 'v1beta/models' in str(request.url):
+            gemini_hdrs.append(request.headers)
+            if 'pageToken=p2' in str(request.url):
+                return httpx.Response(200, json={'models': [{'name': 'models/gemma-4-31b-it', 'supportedGenerationMethods': ['generateContent']}]})
+            return httpx.Response(200, json={'models': [
+                {'name': 'models/gemini-3-flash', 'displayName': 'Gemini 3 Flash', 'inputTokenLimit': 1048576, 'outputTokenLimit': 65536,
+                 'supportedGenerationMethods': ['generateContent', 'countTokens'], 'thinking': True},
+                {'name': 'models/text-embedding-5', 'supportedGenerationMethods': ['embedContent']}], 'nextPageToken': 'p2'})
+        if 'models/search' in str(request.url):
+            cf_urls.append(str(request.url))
+            return httpx.Response(200, json={'data': [{'id': '@cf/meta/llama-4-scout', 'name': 'Llama 4 Scout', 'context_length': 131072}]})
         if request.url.path.endswith('/models'):
             return httpx.Response(200, json={'data': [
                 {'id': 'a/free-one:free', 'name': 'Free One', 'context_length': 131072, 'pricing': {'prompt': '0', 'completion': '0'},
-                 'supported_parameters': ['tools', 'reasoning'], 'top_provider': {'max_completion_tokens': 8192}},
+                 'supported_parameters': ['tools', 'reasoning'], 'top_provider': {'max_completion_tokens': 8192},
+                 'benchmarks': {'artificial_analysis': {'intelligence_index': 61.2}}},
                 {'id': 'b/paid', 'pricing': {'prompt': '0.000002', 'completion': '0.000008'}, 'supported_parameters': ['max_tokens']}]})
         if model == 'refuses-reasoning' and 'reasoning_effort' in body:
             return httpx.Response(400, json={'error': {'message': 'reasoning_effort is not supported for this model'}})
@@ -484,9 +536,18 @@ def _prova():
     assert set(PROFILES) == set(catalog.FREE), set(PROFILES) ^ set(catalog.FREE)
     ms = list_models('open_router', key='k', client=client)
     assert ms[0] == {'id': 'a/free-one:free', 'name': 'Free One', 'ctx': 131072, 'max_out': 8192, 'tools': True, 'reasoning': True,
-                     'free': True, 'price_in': 0.0, 'price_out': 0.0, 'modalities': ['text']}, ms[0]
+                     'free': True, 'price_in': 0.0, 'price_out': 0.0, 'modalities': ['text'],
+                     'benchmarks': {'artificial_analysis': {'intelligence_index': 61.2}}}, ms[0]
     assert ms[1]['free'] is False and ms[1]['tools'] is False and abs(ms[1]['price_out'] - 8.0) < 1e-9
     assert all(m['free'] for m in list_models('groq', key='k', client=client))       # a free tier without prices: every model free
+    gm = list_models('gemini', key='gk', client=client)
+    assert [m['id'] for m in gm] == ['gemini-3-flash', 'gemma-4-31b-it'] and gm[0]['ctx'] == 1048576 and gm[0]['tools'] is True
+    assert gm[0]['reasoning'] is True and gm[1]['tools'] is None and all(m['free'] for m in gm)
+    assert gemini_hdrs and all(h.get('x-goog-api-key') == 'gk' and 'authorization' not in h for h in gemini_hdrs)
+    cm = list_models('cloudflare', key='ck', client=client, extra={'account_id': 'acc1'})
+    assert cm[0]['id'] == '@cf/meta/llama-4-scout' and cm[0]['free'] is True and cf_urls[-1].endswith('/accounts/acc1/ai/models/search?format=openrouter')
+    chat('gemini', 'g', msgs, key='gk', client=client)
+    assert seen_headers[-1]['authorization'] == 'Bearer gk' and 'x-goog-api-key' not in seen_headers[-1]   # chat: the OpenAI layer's bearer
     assert m['_origin'] == 'open_router'
     moved = prepare_history(hist, 'groq')
     assert not any(f in moved[2] for f in HISTORY_REASONING) and 'extra_content' not in moved[2]['tool_calls'][0] and '_origin' not in moved[2]

@@ -18,8 +18,10 @@ FREE = {
     'groq': {'all_free': True, 'name': 'Groq', 'base': 'https://api.groq.com/openai/v1', 'signup': 'https://console.groq.com/keys',
              'env': 'GROQ_API_KEY', 'offer': 'free tier', 'verify': ('/models', 'data', (401,))},
     'gemini': {'all_free': True, 'name': 'Google AI Studio', 'base': 'https://generativelanguage.googleapis.com/v1beta/openai', 'signup': 'https://aistudio.google.com/apikey',
-               'env': 'GEMINI_API_KEY', 'offer': 'free tier', 'auth': 'x-goog-api-key',
-               'verify': ('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', 'models', ())},
+               'env': 'GEMINI_API_KEY', 'offer': 'free tier', 'verify_auth': 'x-goog-api-key',
+               'verify': ('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', 'models', ()),
+               # the OpenAI-compatible layer answers 404 to its own model list: the native one, with Google's own header
+               'models': ('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', 'gemini')},
     'mistral': {'all_free': True, 'name': 'Mistral La Plateforme', 'base': 'https://api.mistral.ai/v1', 'signup': 'https://console.mistral.ai/',
                 'env': 'MISTRAL_API_KEY', 'offer': 'Experiment plan', 'verify': ('/models', 'data', ())},
     'mistral_codestral': {'all_free': True, 'name': 'Mistral Codestral', 'base': 'https://codestral.mistral.ai/v1', 'signup': 'https://console.mistral.ai/',
@@ -34,7 +36,9 @@ FREE = {
                    'signup': 'https://dash.cloudflare.com/profile/api-tokens', 'env': 'CLOUDFLARE_API_TOKEN', 'offer': 'daily free neurons',
                    'extra': ('account_id',), 'verify': ('https://api.cloudflare.com/client/v4/accounts/{account_id}/tokens/verify', 'result', (401,)),
                    # an account token (the dashboard's default) is only known to its account's endpoint; a user token to /user
-                   'verify_fallback': ('https://api.cloudflare.com/client/v4/user/tokens/verify', 'result', (401,))},
+                   'verify_fallback': ('https://api.cloudflare.com/client/v4/user/tokens/verify', 'result', (401,)),
+                   # /ai/v1/models answers 405: the account's model search, in OpenRouter's format (as free-claude-code asks it)
+                   'models': ('https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/models/search?format=openrouter', 'openai')},
     'huggingface': {'all_free': True, 'name': 'Hugging Face', 'base': 'https://router.huggingface.co/v1', 'signup': 'https://huggingface.co/settings/tokens',
                     'env': 'HUGGINGFACE_API_KEY', 'offer': 'monthly credits', 'verify': ('https://huggingface.co/api/whoami-v2', 'name', (401,))},
     'siliconflow': {'name': 'SiliconFlow', 'base': 'https://api.siliconflow.com/v1', 'signup': 'https://cloud.siliconflow.com/account/ak',
@@ -97,7 +101,8 @@ def base_url(provider, extra=None):
     return get(provider)['base'].format(**(extra or {}))
 
 
-def auth_headers(provider, key):
-    """how the key travels: a bearer token, or the provider's own header"""
-    how = get(provider).get('auth', 'bearer')
+def auth_headers(provider, key, verify=False):
+    """how the key travels: a bearer token, or the provider's own header (verify: the one its key probe needs)"""
+    p = get(provider)
+    how = (p.get('verify_auth') if verify else None) or p.get('auth', 'bearer')
     return {'Authorization': f'Bearer {key}'} if how == 'bearer' else {how: key}

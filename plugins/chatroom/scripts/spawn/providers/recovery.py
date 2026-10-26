@@ -98,7 +98,9 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         if not k:
             raise errors.ProviderError('auth', None, None, f'no key for {provider}')
         key, kw['extra'] = k['key'], kw.get('extra') or k['extra']
-    call = lambda msgs, t: lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, msgs, tools=t, key=key, **kw), stop)
+    budget = int(kw.get('max_tokens') or 4096)        # what a request counts against tokens per minute: its input and its max_tokens
+    call = lambda msgs, t: lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, msgs, tools=t, key=key, **kw), stop,
+                                   tokens=openai_compat.estimate_tokens(msgs, t) + budget)
     text, thinking, result = '', '', None
     for attempt in range(RESUMES + 1):
         try:
@@ -128,7 +130,8 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         # the reasoning ate the whole output budget and nothing visible came out: once more without the effort and with
         # twice the budget; still nothing, and the role moves to another host
         kw2 = {**kw, 'effort': None, 'max_tokens': 2 * int(kw.get('max_tokens') or 4096)}
-        again = lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, messages, tools=tools, key=key, **kw2), stop)
+        again = lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, messages, tools=tools, key=key, **kw2), stop,
+                        tokens=openai_compat.estimate_tokens(messages, tools) + kw2['max_tokens'])
         if again['finish'] == 'length' and not (again['text'] or '').strip() and not again['tool_calls']:
             raise errors.ProviderError('no_output', None, None, 'the reasoning used the whole output budget', again)
         result = again
