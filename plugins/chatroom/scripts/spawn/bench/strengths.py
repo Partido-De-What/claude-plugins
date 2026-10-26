@@ -1,0 +1,155 @@
+"""I 10 punti forti di ogni modello, dai punteggi raccolti dalle fonti e dal glossario (scripts/bench_glossary.json).
+
+Per ogni benchmark i modelli misurati vanno in classifica; la frontiera è il migliore. Un punteggio vale tanto quanto
+è vicino alla frontiera, per 1.0 se misurato da una fonte indipendente (Artificial Analysis, una classifica pubblica)
+e per 0.8 se dichiarato dal produttore. I punti forti di un modello sono i suoi punteggi più forti, al massimo 3 per
+ambito e 10 in tutto; gli indici (ambito "index") vanno nel grafico AA, non tra i punti forti. Trofeo 🏆: primo in un
+benchmark dove almeno 3 modelli sono misurati (primo da solo non è una gara). Funzioni pure: niente rete, niente file
+tranne il glossario."""
+import json
+import re
+from pathlib import Path
+
+GLOSSARY = Path(__file__).resolve().parents[2] / 'bench_glossary.json'
+TOP, PER_AREA, TROPHY_MIN, DECLARED = 10, 3, 3, 0.8
+
+
+def norm(name):
+    return re.sub(r'[^a-z0-9²τ]+', '', str(name or '').lower())
+
+
+def load_glossary(path=GLOSSARY):
+    return json.loads(Path(path).read_text(encoding='utf-8'))
+
+
+def check_glossary(d):
+    """gli errori del glossario ([] se va bene): campi, ambiti noti, verso, testi, url, nomi e alias unici"""
+    areas, seen, errs = d.get('_meta', {}).get('areas', {}), {}, []
+    for b in d.get('benchmarks', []):
+        missing = [k for k in ('id', 'name', 'area', 'unit', 'better', 'aliases', 'url', 'it', 'en') if k not in b]
+        if missing:
+            errs.append(f"{b.get('id')}: manca {', '.join(missing)}")
+            continue
+        if b['area'] not in areas:
+            errs.append(f"{b['id']}: ambito sconosciuto {b['area']}")
+        if b['better'] not in ('higher', 'lower'):
+            errs.append(f"{b['id']}: better è higher o lower")
+        if not str(b['it']).strip() or not str(b['en']).strip():
+            errs.append(f"{b['id']}: testo vuoto")
+        if not str(b['url']).startswith('https://'):
+            errs.append(f"{b['id']}: url non https")
+        for n in {norm(x) for x in [b['id'], b['name'], *b['aliases']]}:
+            if seen.get(n, b['id']) != b['id']:
+                errs.append(f"{b['id']}: il nome {n} è già di {seen[n]}")
+            seen[n] = b['id']
+    return errs
+
+
+def lookup(name, glossary):
+    """l'id del glossario per un nome come lo scrive una fonte ("GPQA", "τ²-Bench Telecom"), o None"""
+    key = norm(name)
+    for b in glossary['benchmarks']:
+        if key in {norm(x) for x in [b['id'], b['name'], *b['aliases']]}:
+            return b['id']
+    return None
+
+
+def _best(scores):
+    """un punteggio per benchmark: prima l'indipendente, poi il più recente"""
+    out = {}
+    for s in scores:
+        old = out.get(s['bench'])
+        if old is None or (bool(s.get('independent')), str(s.get('date') or '')) > (bool(old.get('independent')), str(old.get('date') or '')):
+            out[s['bench']] = s
+    return out
+
+
+def _frontier(value, values, better):
+    """quanto value è vicino al migliore, da 0 a 1: rapporto sui valori positivi, altrimenti tra peggiore e migliore"""
+    best, worst = (max(values), min(values)) if better == 'higher' else (min(values), max(values))
+    if best > 0 and worst > 0:
+        f = value / best if better == 'higher' else best / value
+    else:
+        f = 1.0 if best == worst else (value - worst) / (best - worst)
+    return round(max(0.0, min(1.0, f)), 4)
+
+
+def annotate(scores_by_model, glossary):
+    """{canonical: [{'bench', 'value', 'source', 'date', 'independent'}]} -> {canonical: {'scores', 'strengths', 'areas_best'}}.
+    bench è un id del glossario (lookup) o il nome della fonte se il glossario non lo conosce: ambito "other"."""
+    gl = {b['id']: b for b in glossary['benchmarks']}
+    best = {m: _best(s) for m, s in scores_by_model.items()}
+    columns = {}
+    for m, by in best.items():
+        for bench, s in by.items():
+            columns.setdefault(bench, []).append((m, float(s['value'])))
+    out = {}
+    for m, by in best.items():
+        scores, items = [], []
+        for bench, s in by.items():
+            g = gl.get(bench, {})
+            better, col = g.get('better', 'higher'), columns[bench]
+            vals = [v for _, v in col]
+            value = float(s['value'])
+            rank = 1 + sum(1 for _, v in col if (v > value if better == 'higher' else v < value))
+            f = _frontier(value, vals, better)
+            scores.append({**s, 'frontier': f})
+            area = g.get('area', 'other')
+            if area != 'index':
+                items.append({'bench': bench, 'area': area, 'value': value, 'source': s.get('source', ''), 'rank': rank,
+                              'of': len(col), 'trophy': rank == 1 and len(col) >= TROPHY_MIN,
+                              'weight': round(f * (1.0 if s.get('independent') else DECLARED), 4)})
+        items.sort(key=lambda x: (-x['trophy'], -x['weight'], x['bench']))
+        picked, per = [], {}
+        for it in items:
+            if len(picked) < TOP and per.get(it['area'], 0) < PER_AREA:
+                picked.append(it)
+                per[it['area']] = per.get(it['area'], 0) + 1
+        mean = {a: sum(x['weight'] for x in picked if x['area'] == a) / n for a, n in per.items()}
+        out[m] = {'scores': scores, 'strengths': picked, 'areas_best': sorted(mean, key=lambda a: (-mean[a], a))[:3]}
+    return out
+
+
+def _prova():
+    g = load_glossary()
+    assert check_glossary(g) == [], check_glossary(g)
+    assert lookup('GPQA', g) == 'gpqa-diamond' and lookup('τ²-Bench Telecom', g) == 'tau2-telecom' and lookup('nope', g) is None
+    bad = {'_meta': {'areas': {'code': {}}}, 'benchmarks': [
+        {'id': 'a', 'name': 'A', 'area': 'code', 'unit': '%', 'better': 'up', 'aliases': ['x'], 'url': 'http://a', 'it': 'a', 'en': ''},
+        {'id': 'b', 'name': 'B', 'area': 'nope', 'unit': '%', 'better': 'higher', 'aliases': ['X'], 'url': 'https://b', 'it': 'b', 'en': 'b'},
+        {'id': 'c'}]}
+    errs = ' | '.join(check_glossary(bad))
+    for want in ('better', 'testo vuoto', 'non https', 'ambito sconosciuto', 'già di a', 'manca'):
+        assert want in errs, (want, errs)
+    s = lambda b, v, ind=True, date='2026-10-01', src='artificialanalysis': {'bench': b, 'value': v, 'independent': ind, 'date': date, 'source': src}
+    code = ['livecodebench', 'swe-bench-verified', 'terminal-bench-2', 'aider-polyglot', 'humaneval']
+    data = {
+        'alfa': [s(b, 90) for b in code] + [s('gpqa-diamond', 80), s('aa-intelligence-index', 70), s('aa-ttft', 0.5),
+                                              s('aa-omniscience', -10), s('niche-bench', 3)],
+        'beta': [s(b, 60) for b in code] + [s('gpqa-diamond', 85, False, '2026-10-10', 'vendor'), s('gpqa-diamond', 79),
+                                              s('aa-ttft', 2.0), s('aa-omniscience', 20)],
+        'gamma': [s('livecodebench', 30), s('gpqa-diamond', 40), s('aa-ttft', 1.0), s('aa-omniscience', 5)],
+    }
+    out = annotate(data, g)
+    a, b = out['alfa'], out['beta']
+    assert len([x for x in a['strengths'] if x['area'] == 'code']) == 3, a['strengths']             # al massimo 3 per ambito
+    assert not any(x['bench'] == 'aa-intelligence-index' for x in a['strengths'])                    # gli indici no
+    assert any(x['bench'] == 'aa-intelligence-index' for x in a['scores'])                           # ma restano tra i punteggi
+    ttft = next(x for x in a['strengths'] if x['bench'] == 'aa-ttft')
+    assert ttft['rank'] == 1 and ttft['trophy'] and ttft['of'] == 3                                   # lower è meglio
+    lcb = next(x for x in a['strengths'] if x['bench'] == 'livecodebench')
+    assert lcb['trophy'] and lcb['of'] == 3
+    two = [x for x in a['strengths'] if x['area'] == 'code' and x['of'] == 2]
+    assert two and not any(x['trophy'] for x in two) and all(x['rank'] == 1 for x in two)             # primo su 2: niente trofeo
+    gp = next(x for x in b['scores'] if x['bench'] == 'gpqa-diamond')
+    assert gp['independent'] and gp['value'] == 79                                                   # indipendente prima del dichiarato
+    om = {m: next(x for x in out[m]['scores'] if x['bench'] == 'aa-omniscience')['frontier'] for m in out}
+    assert om == {'alfa': 0.0, 'beta': 1.0, 'gamma': 0.5}, om                                        # valori negativi: tra peggiore e migliore
+    assert next(x for x in a['strengths'] if x['bench'] == 'niche-bench')['area'] == 'other'         # fuori glossario: ambito other
+    assert len(a['strengths']) <= TOP and a['areas_best'][0] in ('code', 'efficiency', 'science'), a['areas_best']
+    assert all(x['source'] for m in out for x in out[m]['scores'])                                   # la fonte sempre presente (#117)
+    print('strengths ok')
+
+
+if __name__ == '__main__':
+    _prova()
