@@ -143,9 +143,11 @@ const VISIT_URL = 'visit.json' + (new URLSearchParams(location.search).get('visi
 const getJson = url => fetch(url, {cache: 'no-store'}).then(r => r.ok ? r.json() : null).catch(() => null);
 // the pack models (before the room is built), the user's own office if they furnished one, their look, a friend's office on a visit: together
 const [, saved, settingsJson, visitJson, cfgJson] = await Promise.all([V.loadPack('vendor/office-pack.json'), getJson('office.json'), getJson('settings.json'), VISIT ? getJson(VISIT_URL) : null, getJson('config.json')]);
-// a research room (config mode 'research') is the laboratory: office-lab.js recolours the floor, the walls, the ceiling and the light; the normal office never loads it
-const LAB = !VISIT && cfgJson?.mode === 'research' ? await import('./office-lab.js') : null;
-const RES = LAB ? await import('./office-research.js') : null;                  // the research of the room, drawn on the laboratory's walls
+// a research room (config mode 'research') is the laboratory: office-lab.js recolours the floor, the walls, the ceiling and the light; a spawn room
+// (mode 'spawn') is the Hangar of the Gates, office-hangar.js, with the same interface and live pieces of its own; the normal office loads neither
+const LAB = VISIT ? null : cfgJson?.mode === 'research' ? await import('./office-lab.js') : cfgJson?.mode === 'spawn' ? await import('./office-hangar.js') : null;
+const HANGAR = LAB?.HANGAR ? LAB : null;
+const RES = LAB && !HANGAR ? await import('./office-research.js') : null;       // the research of the room, drawn on the laboratory's walls
 let visit = visitJson, myLook = settingsJson?.avatar || null;
 // the console of the first default offices stood at the height of the TV's picture, in front of it, and an office saved then keeps it there:
 // it is set on the floor beside the TV when the layout loads (only the one that was never moved)
@@ -316,7 +318,7 @@ let scoresKey = '';
 const ghBoard = board(2.2, 1.3, 768), ghAt = LAYOUT.boards.github || {x: 1.1, y: 1.6, z: -9.85, rot: 0};
 add(ghBoard.mesh, ghAt.x, ghAt.y, ghAt.z, ghAt.rot || 0);
 const ghFrame = V.mesh(new V.Vox().box(0, 0, 0, 23, 14, 0, '#2a2412'), {pivot: [12, 7.5, 1]}); ghFrame.position.copy(ghBoard.mesh.position); ghFrame.rotation.y = ghBoard.mesh.rotation.y; ghFrame.translateZ(-0.02); scene.add(ghFrame);
-const signs = visit ? null : buildSigns({THREE, scene, V, signs: LAYOUT.signs || [], lang: () => DATA.config.lang, lab: !!LAB});          // the neon signs and the guide at the entrance
+const signs = visit ? null : buildSigns({THREE, scene, V, signs: LAYOUT.signs || [], lang: () => DATA.config.lang, lab: !!LAB && !HANGAR});          // the neon signs and the guide at the entrance
 let github = null;                                                         // made below, once the clickable things exist
 ghBoard.mesh.visible = false; ghFrame.visible = false;
 
@@ -454,6 +456,7 @@ const people = new Map();               // name -> Person
 const raycastables = [];
 let viz = null;                                                            // what the harness knows, made visible (office-viz.js)
 let research = null;                                                       // the research walls of the laboratory (office-research.js)
+let hangar = null;                                                         // the live pieces of the hangar (office-hangar.js start())
 let racks = null;                                                          // the rack by each desk (office-rack.js), made once the clickable things exist
 // every cubicle desk is furnished from the start, so an office with few agents still looks lived in; an agent takes
 // the first free desk in the layout's order: its colour goes on the chair cushion and the mug, its screen comes alive
@@ -1725,7 +1728,9 @@ renderer.domElement.addEventListener('click', e => {
   if (hit?.object.userData.arcade) return arcade?.open();                          // the arcade cabinet: play
   if (hit?.object.userData.lofi) return lofi.toggle();                           // the common room's speakers: music on or off
   if (hit?.object.userData.game) return openGame(hit.object.userData.game);       // a games table: play
+  if (hit?.object.userData.hangar) return hangar?.click(hit.object.userData.hangar, hit);   // the hangar: a gate, the cave painting, a pager
   const name = hit?.object.userData.person;
+  if (name) hangar?.clickPerson(name);                                         // a role with no tokens asks for its replacement (and is selected as usual)
   if (name && !name.endsWith('·sub') && !(pov && name === D.user)) return select(name);
   select(null);
   if (pov) return;
@@ -1951,7 +1956,7 @@ function frame(now) {
   if (now - shadowAt > (speed === 'use' ? 33 : speed === 'work' ? 66 : 600)) { shadowAt = now; renderer.shadowMap.needsUpdate = true; }   // figures move, the furniture does not: shadows keep up at 30 a second
   watchCinema();
   nearestLights(t);
-  camera.updateMatrixWorld(); loungeTv.update(t); radio?.update(t); lofi?.update(t); arcade?.update(t, boss?.pos); github?.update(); racks?.update(); viz?.update(dt, t); research?.update(t); lift?.update(dt, level === 'office' ? boss?.pos : null); paintball.update(dt);
+  camera.updateMatrixWorld(); loungeTv.update(t); radio?.update(t); lofi?.update(t); arcade?.update(t, boss?.pos); github?.update(); racks?.update(); viz?.update(dt, t); research?.update(t); hangar?.update(dt, t); lift?.update(dt, level === 'office' ? boss?.pos : null); paintball.update(dt);
   const drawAt = performance.now();
   if (quality === 'bassa') renderer.render(scene, camera); else composer.render(dt);
   if (FORCE) window.__officeTimes = {logic: drawAt - startAt, draw: performance.now() - drawAt, scale: dynScale};   // measuring: where a frame's time goes
@@ -2115,10 +2120,13 @@ const VD = {
 };
 {
   const sign = (LAYOUT.signs || []).find(s => s.text?.en === 'CONTROL ROOM') || {x: 0.9, y: 2.72, z: -4.7, w: 1.9}, table = LAYOUT.items.find(it => it.type === 'confTable' && it.z < 0);
-  viz = visit || LAB ? null : createViz({THREE, scene, V, raycastables, data: () => VD, lang: () => DATA.config.lang, say: t => ui.placeName(t), setLang: lg => post('config', {lang: lg}),
+  viz = visit || (LAB && !HANGAR) ? null : createViz({THREE, scene, V, raycastables, data: () => VD, lang: () => DATA.config.lang, say: t => ui.placeName(t), setLang: lg => post('config', {lang: lg}),
     jump: n => { if (n && window.chatroom) { if (mode === 'office') { mode = 'split'; applyMode(); } window.chatroom.jumpTo(n); } }, bridge: LAYOUT.bridge || null,
     active: () => mode !== 'chat' && !document.hidden, check: {x: -3.83, y: 1.75, z: -9.85}, lamp: {x: table?.x ?? 1, y: 0.9, z: table?.z ?? -6.6}, flag: {x: sign.x + (sign.w || 1.9) / 2 + 0.3, y: sign.y, z: sign.z}});
 }
+// the live pieces of the Hangar of the Gates (office-hangar.js): its data, its board, its gates, its easter eggs
+hangar = HANGAR ? HANGAR.start({camera, raycastables, emit, say: t => ui.placeName(t), figure: n => people.get(n), desk: n => SPOTS.get(n)?.g,
+                                names: () => D.names.filter(n => !D.per[n]?.neighbor), lang: () => DATA.config.lang, active: () => !officeUnseen()}) : null;
 research = RES ? RES.createResearch({THREE, V, scene, renderer, camera, dom: renderer.domElement, raycastables, lang: () => DATA.config.lang, paused: officeUnseen, pov: () => pov && povLocked, lab: LAB}) : null;
 if (!visit) github = createGithubWall({board: ghBoard, frame: ghFrame, raycastables, root, lang: () => DATA.config.lang, paused: officeUnseen, onEnabled: () => ui.addExtra('github', '🐙', 'GitHub', () => github.open())});
 const GAME_TABLES = ITEM_MESHES.filter(m => CATALOG[itemOf(m)?.type]?.game).map(m => {
