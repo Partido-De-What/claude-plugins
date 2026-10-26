@@ -143,7 +143,7 @@ def _lines(models):
     """[(newest, [older, ...])]: one entry per line of models, newest first (CATALOGO's one rule, catalog.lines and
     identity.line_key, T29: glm-5, 5.2, 5.3 are one line, qwen3-coder and qwen3.8 two), in the order of `models`"""
     from spawn.catalog import catalog as c
-    return [(g['newest'], g['older']) for g in c.lines(models)]
+    return [(g['newest'], g['older'], g.get('doubt')) for g in c.lines(models)]
 
 
 def _line(canonical):
@@ -176,11 +176,14 @@ def catalog(cat):
     lines, quotas = _lines(models)[:60], _quotas()
     lines.sort(key=lambda l: (l[0].get('aa') is None, -(l[0].get('aa') or 0), l[0].get('name') or l[0]['canonical']))
     blocks = [{'t': 'text', 'text': say('spawn.cat.intro', n=len(lines))}]
-    bars = [{'label': m.get('name') or m['canonical'], 'value': m['aa'], 'max': 100} for m, _ in lines if m.get('aa') is not None][:TOP]
+    bars = [{'label': m.get('name') or m['canonical'], 'value': m['aa'], 'max': 100} for m, _, _ in lines if m.get('aa') is not None][:TOP]
     if bars:
         blocks.append({'t': 'bars', 'title': say('spawn.cat.aaChart'), 'unit': '', 'items': bars})
-    for newest, older in lines:
-        blocks.append({'t': 'rows', 'rows': [_model_row(newest, quotas)]})
+    for newest, older, doubt in lines:
+        row = _model_row(newest, quotas)
+        if doubt:                                         # the reason is in the Sheet's Line box: move or split there
+            row['value'] += ' · ' + say('spawn.cat.doubt')
+        blocks.append({'t': 'rows', 'rows': [row]})
         if older:
             blocks.append({'t': 'more', 'label': say('spawn.cat.older', n=len(older)), 'rows': [_model_row(m, quotas) for m in older]})
     blocks.append({'t': 'actions', 'items': [{'id': 'update', 'label': say('spawn.cat.update')}, {'id': 'study', 'label': say('spawn.cat.study')}]})

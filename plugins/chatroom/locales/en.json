@@ -1653,5 +1653,6 @@
  "spawn.sheet.moved": "{model} is now in the line {line}.",
  "spawn.sheet.splitDone": "{model} is now a line of its own.",
  "spawn.err.noOverride": "Moving lines is not available yet.",
- "spawn.role.compact": "compact prompt"
+ "spawn.role.compact": "compact prompt",
+ "spawn.cat.doubt": "line in doubt: check it in the Sheet"
 }

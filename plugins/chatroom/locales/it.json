@@ -1653,5 +1653,6 @@
  "spawn.sheet.moved": "{model} ora è nella linea {line}.",
  "spawn.sheet.splitDone": "{model} ora è una linea a sé.",
  "spawn.err.noOverride": "Spostare le linee non è ancora disponibile.",
- "spawn.role.compact": "prompt compatto"
+ "spawn.role.compact": "prompt compatto",
+ "spawn.cat.doubt": "linea in dubbio: controllala nella Scheda"
 }
