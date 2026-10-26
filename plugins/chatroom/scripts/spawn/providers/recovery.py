@@ -88,9 +88,10 @@ def accept_repair(prefix, candidate, schema):
     return None
 
 
-def complete(provider, model, messages, *, tools=None, key=None, stop=None, limiter=None, **kw):
+def complete(provider, model, messages, *, tools=None, key=None, stop=None, limiter=None, tokens=None, **kw):
     """the whole answer of one step of a role: limiter, resume of a broken stream, repair of broken tool JSON.
-    Returns chat()'s result; raises errors.ProviderError for what neither a wait nor a repair can fix"""
+    tokens: what the first request counts against tokens per minute (input + max_tokens), when the caller counts it better
+    than the estimate here. Returns chat()'s result; raises errors.ProviderError for what neither a wait nor a repair can fix"""
     lim = limiter or LIMITER
     if key is None:
         from spawn import keys
@@ -100,7 +101,7 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         key, kw['extra'] = k['key'], kw.get('extra') or k['extra']
     budget = int(kw.get('max_tokens') or 4096)        # what a request counts against tokens per minute: its input and its max_tokens
     call = lambda msgs, t: lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, msgs, tools=t, key=key, **kw), stop,
-                                   tokens=openai_compat.estimate_tokens(msgs, t) + budget)
+                                   tokens=tokens if tokens and msgs is messages else openai_compat.estimate_tokens(msgs, t) + budget)
     text, thinking, result = '', '', None
     for attempt in range(RESUMES + 1):
         try:
