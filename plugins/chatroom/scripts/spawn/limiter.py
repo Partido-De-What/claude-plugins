@@ -11,9 +11,19 @@ straight back to the caller, which moves to another host or stops the role.
 
 The limits are the free tiers' (FREE_LIMITS), so the room never causes a 429 itself; Retry-After and the probe handle
 the rest. snapshot() is what the Hangar's tanks and doors read: per provider the free quota left (when known) and
-whether it is down."""
+whether it is down.
+
+Quota per route (provider and model): every answer's x-ratelimit-* headers (observe(), called by the adapter, 429s
+included) say what is left in each of the provider's windows (requests and tokens, per minute or per day) and when it
+resets; OpenRouter's /key adds the free daily requests (refresh_openrouter, called explicitly: no hidden network call),
+counted down with the requests started today. route() gives, for one route, the share left in its tightest window, the
+requests and tokens left, when that window resets and the 429s of the last 10 minutes: what the runner uses to pick a
+host, and what the cards show. Nothing is known about a route before its first answer."""
+import email.utils
 import hashlib
+import math
 import random
+import re
 import threading
 import time
 from collections import deque
@@ -29,6 +39,34 @@ FREE_LIMITS = {'open_router': (20, 16, 'key'), 'nvidia_nim': (40, 4, 'key'), 'gr
                'mistral': (60, 2, 'key'), 'cerebras': (30, 4, 'model'), 'sambanova': (20, 2, 'model'), 'cohere': (20, 2, 'key'),
                'cloudflare': (300, 4, 'key'), 'huggingface': (30, 2, 'key')}
 DEFAULT = (20, 2, 'key')
+RECENT = 600.0                                      # the 429s that count against a route: the last 10 minutes
+_RL = re.compile(r'x-ratelimit-(limit|remaining|reset)(?:-(.+))?', re.I)
+_DURATION = re.compile(r'(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?')
+
+
+def reset_seconds(value, now=None):
+    """seconds until a window resets, from what providers write: seconds ("7.66"), a duration ("1m26.4s", "120ms"),
+    an epoch in seconds or milliseconds, or an HTTP date; None when it is none of these"""
+    v, now = str(value or '').strip(), time.time() if now is None else now
+    m = _DURATION.fullmatch(v)
+    if v and m and any(m.groups()) and not v.replace('.', '').isdigit():
+        h, mi, s, ms = (float(x) if x else 0.0 for x in m.groups())
+        return h * 3600 + mi * 60 + s + ms / 1000
+    try:
+        n = float(v)
+    except ValueError:
+        try:
+            n = email.utils.parsedate_to_datetime(v).timestamp() - now
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return max(0.0, n)
+    if not math.isfinite(n):
+        return None
+    return max(0.0, n / 1000 - now if n > 1e12 else n - now if n > 1e9 else n)
+
+
+def _window_name(suffix):
+    return (suffix or 'requests').lower()
 
 
 def fingerprint(key):
@@ -47,11 +85,16 @@ class Limiter:
     def __init__(self, sleep=time.sleep, clock=time.monotonic):
         self.cond = threading.Condition()
         self.lanes, self.quota, self.sleep, self.clock = {}, {}, sleep, clock
+        self.windows, self.hits, self.seen = {}, {}, set()       # lane name -> {window: {limit, remaining, reset_at}}; route -> 429 times
+        self.daily, self.today = {}, {}                          # (provider, key) -> free requests a day; -> [UTC day, requests started]
+
+    def _name(self, provider, key, model):
+        scope = FREE_LIMITS.get(provider, DEFAULT)[2]
+        return (provider, fingerprint(key), model if scope == 'model' else '*')
 
     def _lane(self, provider, key, model):
-        rpm, conc, scope = FREE_LIMITS.get(provider, DEFAULT)
-        name = (provider, fingerprint(key), model if scope == 'model' else '*')
-        return self.lanes.setdefault(name, _Lane(rpm, conc))
+        rpm, conc, _ = FREE_LIMITS.get(provider, DEFAULT)
+        return self.lanes.setdefault(self._name(provider, key, model), _Lane(rpm, conc))
 
     def _admit(self, lane, stop):
         """wait for a start in the window, a free slot and (during an episode) the probe's turn; True when this one is
@@ -105,10 +148,14 @@ class Limiter:
         last = None
         for _ in range(ATTEMPTS):
             probe = self._admit(lane, stop)
+            self._count(provider, key, model)
             try:
                 out = fn()
             except Exception as exc:
                 err = errors.from_exception(exc) if not isinstance(exc, errors.ProviderError) else exc
+                if err.kind in ('rate_limit', 'quota'):
+                    with self.cond:
+                        self.hits.setdefault((provider, model), deque(maxlen=200)).append(self.clock())
                 if err.kind != 'stream_cut' and err.kind not in errors.RETRYABLE:
                     self._done(lane, probe, None, neutral=not probe)    # not the lane's fault; a probe that got an answer reopens it
                     raise err
@@ -120,6 +167,99 @@ class Limiter:
             self._done(lane, probe, None)
             return out
         raise last
+
+    def _count(self, provider, key, model):
+        """one request started today on this key (OpenRouter counts the free requests per UTC day)"""
+        day = time.strftime('%Y-%m-%d', time.gmtime())
+        with self.cond:
+            self.seen.add((provider, model))
+            c = self.today.setdefault((provider, fingerprint(key)), [day, 0])
+            if c[0] != day:
+                c[:] = [day, 0]
+            c[1] += 1
+
+    def observe(self, provider, key, model, headers):
+        """what an answer's x-ratelimit-* headers say of the provider's windows (any answer, a 429 too)"""
+        got = {}
+        for name, value in (headers.items() if hasattr(headers, 'items') else []):
+            m = _RL.fullmatch(str(name).strip())
+            if not m:
+                continue
+            w = got.setdefault(_window_name(m[2]), {})
+            if m[1].lower() == 'reset':
+                s = reset_seconds(value)
+                if s is not None:
+                    w['reset_at'] = self.clock() + s
+            else:
+                try:
+                    w[m[1].lower()] = float(str(value).strip())
+                except ValueError:
+                    pass
+        if got:
+            with self.cond:
+                self.seen.add((provider, model))
+                self.windows.setdefault(self._name(provider, key, model), {}).update(got)
+
+    def note_daily(self, provider, key, limit):
+        """a daily limit of free requests (OpenRouter /key free_model_daily_requests)"""
+        if isinstance(limit, (int, float)) and limit > 0:
+            with self.cond:
+                self.daily[(provider, fingerprint(key))] = float(limit)
+
+    def refresh_openrouter(self, key, client=None):
+        """OpenRouter's /key into the quota (credits) and the daily free requests: one GET, only when called"""
+        from spawn import keys
+        info = keys.openrouter_limits(key, client)
+        self.note_quota('open_router', key, info.get('limit_remaining'), info.get('limit'))
+        self.note_daily('open_router', key, info.get('free_model_daily_requests'))
+        return info
+
+    def route(self, provider, model, key=None):
+        """what is left on one route: {quota 0..1|None, remaining_requests, limit_requests, remaining_tokens, limit_tokens,
+        reset_s (of the tightest window), recent_429 (10 min), cooldown_s, down, inflight}. key None: the best key seen"""
+        now, wall = self.clock(), time.time()
+        with self.cond:
+            scope = FREE_LIMITS.get(provider, DEFAULT)[2]
+            names = [n for n in set(self.windows) | set(self.lanes) | {(p, f, '*') for p, f in self.daily}
+                     if n[0] == provider and n[2] == (model if scope == 'model' else '*')
+                     and (key is None or n[1] == fingerprint(key))]
+            best = None
+            for name in names:
+                wins = {k: dict(v) for k, v in self.windows.get(name, {}).items()}
+                limit = self.daily.get(name[:2])
+                if limit:
+                    day = time.strftime('%Y-%m-%d', time.gmtime())
+                    used = self.today.get(name[:2], [day, 0])
+                    midnight = (int(wall // 86400) + 1) * 86400
+                    wins['requests-day-free'] = {'limit': limit, 'remaining': max(0.0, limit - (used[1] if used[0] == day else 0)),
+                                                 'reset_at': now + midnight - wall}
+                for w in wins.values():                     # a window past its reset is full again
+                    if w.get('reset_at') is not None and w['reset_at'] <= now and w.get('limit'):
+                        w['remaining'] = w['limit']
+                rated = [(w['remaining'] / w['limit'], k, w) for k, w in wins.items()
+                         if w.get('limit') and w.get('remaining') is not None]
+                tight = min(rated, key=lambda x: x[0]) if rated else None
+                req = min(((s, w) for s, k, w in rated if 'token' not in k), key=lambda x: x[0], default=(None, {}))[1]
+                tok = min(((s, w) for s, k, w in rated if 'token' in k), key=lambda x: x[0], default=(None, {}))[1]
+                lane = self.lanes.get(name)
+                d = {'quota': round(max(0.0, min(1.0, tight[0])), 3) if tight else None,
+                     'remaining_requests': req.get('remaining'), 'limit_requests': req.get('limit'),
+                     'remaining_tokens': tok.get('remaining'), 'limit_tokens': tok.get('limit'),
+                     'reset_s': round(max(0.0, tight[2]['reset_at'] - now), 1) if tight and tight[2].get('reset_at') is not None else None,
+                     'cooldown_s': round(max(0.0, lane.ready_at - now)) if lane and lane.failures else 0,
+                     'down': bool(lane and lane.failures >= 3), 'inflight': lane.inflight if lane else 0}
+                if best is None or (d['quota'] if d['quota'] is not None else -1) > (best['quota'] if best['quota'] is not None else -1):
+                    best = d
+            best = best or {'quota': None, 'remaining_requests': None, 'limit_requests': None, 'remaining_tokens': None,
+                            'limit_tokens': None, 'reset_s': None, 'cooldown_s': 0, 'down': False, 'inflight': 0}
+            best['recent_429'] = sum(1 for x in self.hits.get((provider, model), ()) if now - x <= RECENT)
+            return best
+
+    def routes(self):
+        """{"provider:model": route()} of every route that has been used or has answered"""
+        with self.cond:
+            seen = sorted(self.seen)
+        return {f'{p}:{m}': self.route(p, m) for p, m in seen if m}
 
     def note_quota(self, provider, key, left=None, limit=None):
         """what the provider says of its free quota (OpenRouter /key: limit_remaining, limit)"""
@@ -139,6 +279,12 @@ class Limiter:
                 if isinstance(left, (int, float)) and isinstance(limit, (int, float)) and limit > 0:
                     d = out.setdefault(provider, {'quota': None, 'down': False, 'cooldown_s': 0})
                     d['quota'] = round(max(0.0, min(1.0, left / limit)), 3)
+            credits = {p for p, _ in self.quota}
+        for name, r in self.routes().items():               # no credits figure: the best route of the provider
+            p = name.split(':', 1)[0]
+            d = out.setdefault(p, {'quota': None, 'down': False, 'cooldown_s': 0})
+            if r['quota'] is not None and p not in credits:
+                d['quota'] = max(d['quota'] or 0.0, r['quota'])
         return out
 
 
@@ -226,6 +372,43 @@ def _prova():
         pass
     lim.note_quota('open_router', 'k', 30, 50)
     assert lim.snapshot()['open_router']['quota'] == 0.6
+    # quota per route, from the headers of three providers
+    import json
+    now = time.time()
+    assert abs(reset_seconds('1m26.4s') - 86.4) < 1e-9 and reset_seconds('120ms') == 0.12 and reset_seconds('7.66') == 7.66
+    assert abs(reset_seconds(str(int((now + 30) * 1000)), now) - 30) < 0.01 and abs(reset_seconds(str(now + 45), now) - 45) < 0.01
+    assert 29 <= reset_seconds(email.utils.formatdate(now + 30, usegmt=True)) <= 31 and reset_seconds('soon') is None
+    q = Limiter(clock=lambda: t[0])
+    q.observe('groq', 'g', 'llama', {'x-ratelimit-limit-requests': '1000', 'x-ratelimit-remaining-requests': '999',
+                                     'x-ratelimit-reset-requests': '1m26.4s', 'x-ratelimit-limit-tokens': '6000',
+                                     'x-ratelimit-remaining-tokens': '1500', 'x-ratelimit-reset-tokens': '7.66s', 'content-type': 'x'})
+    r = q.route('groq', 'llama')
+    assert r['quota'] == 0.25 and r['remaining_requests'] == 999 and r['limit_tokens'] == 6000 and abs(r['reset_s'] - 7.7) < 0.11, r
+    assert q.route('groq', 'other')['quota'] is None                          # Groq counts per model
+    q.observe('cerebras', 'c', 'qwen', {'X-RateLimit-Limit-Requests-Day': '14400', 'X-RateLimit-Remaining-Requests-Day': '7200',
+                                        'X-RateLimit-Reset-Requests-Day': '33011.38', 'x-ratelimit-limit-tokens-minute': '60000',
+                                        'x-ratelimit-remaining-tokens-minute': '59000'})
+    r = q.route('cerebras', 'qwen')
+    assert r['quota'] == 0.5 and r['remaining_requests'] == 7200 and r['remaining_tokens'] == 59000, r
+    q.observe('open_router', 'o', 'a:free', {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '5',
+                                             'X-RateLimit-Reset': str(int((time.time() + 30) * 1000))})
+    r = q.route('open_router', 'b:free')                                        # OpenRouter counts per key: every model of it
+    assert r['quota'] == 0.25 and 29 <= r['reset_s'] <= 31, r
+    t[0] += 40
+    assert q.route('open_router', 'a:free')['quota'] == 1.0                     # past its reset the window is full again
+    q.note_daily('open_router', 'o', 50)
+    for _ in range(10):
+        q.run('open_router', 'o', 'a:free', lambda: 'ok')
+    r = q.route('open_router', 'a:free')
+    assert r['remaining_requests'] == 40 and r['quota'] == 0.8, r
+    try:
+        q.run('groq', 'g', 'llama', lambda: (_ for _ in ()).throw(errors.ProviderError('quota', 429)))
+    except errors.ProviderError:
+        pass
+    assert q.route('groq', 'llama')['recent_429'] == 1 and set(q.routes()) >= {'groq:llama', 'cerebras:qwen', 'open_router:a:free'}
+    t[0] += RECENT + 1
+    assert q.route('groq', 'llama')['recent_429'] == 0
+    assert q.snapshot()['cerebras']['quota'] == 0.5 and fingerprint('o') not in json.dumps([q.routes(), q.snapshot()])
     done.set()
     print('limiter ok')
 

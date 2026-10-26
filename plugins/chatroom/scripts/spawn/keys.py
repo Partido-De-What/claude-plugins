@@ -45,7 +45,8 @@ if os.name == 'nt':
         _fields_ = [('cbData', w.DWORD), ('pbData', ctypes.POINTER(ctypes.c_char))]
 
     _P = ctypes.POINTER(_Blob)
-    _c32, _k32 = ctypes.windll.crypt32, ctypes.windll.kernel32
+    # own DLL objects: their argtypes never clash with another copy of this module or another library (ctypes.windll is shared)
+    _c32, _k32 = ctypes.WinDLL('crypt32', use_last_error=True), ctypes.WinDLL('kernel32', use_last_error=True)
     for _f in (_c32.CryptProtectData, _c32.CryptUnprotectData):    # without argtypes, 64-bit pointers fail (error 998)
         _f.argtypes = [_P, ctypes.c_void_p, _P, ctypes.c_void_p, ctypes.c_void_p, w.DWORD, _P]
         _f.restype = w.BOOL
@@ -240,7 +241,8 @@ def check(provider, slot=None, client=None):
 
 
 def openrouter_limits(key, client=None):
-    """OpenRouter's GET /key: {'limit', 'limit_remaining', 'usage', 'is_free_tier'} (the card and the quota tank), or {}"""
+    """OpenRouter's GET /key: {'limit', 'limit_remaining', 'usage', 'is_free_tier', 'free_model_daily_requests',
+    'rate_limit'} (the card, the quota tank, the daily free requests of the limiter), or {}"""
     try:
         c = client or httpx.Client(timeout=TIMEOUT)
         try:
@@ -251,7 +253,8 @@ def openrouter_limits(key, client=None):
         data = r.json().get('data') if r.is_success else None
     except (httpx.HTTPError, ValueError, AttributeError):
         return {}
-    return {k: data.get(k) for k in ('limit', 'limit_remaining', 'usage', 'is_free_tier')} if isinstance(data, dict) else {}
+    return {k: data.get(k) for k in ('limit', 'limit_remaining', 'usage', 'is_free_tier', 'free_model_daily_requests', 'rate_limit')} \
+        if isinstance(data, dict) else {}
 
 
 # ------------------------------------------------------------------ OpenRouter login (OAuth PKCE)
@@ -394,7 +397,8 @@ def _prova():
             if 'googleapis' in u:
                 return httpx.Response(400, json={'error': {'details': [{'reason': 'API_KEY_INVALID'}]}}) if 'bad' in auth else httpx.Response(200, json={'models': []})
             if 'good' in auth or fake in auth:
-                return httpx.Response(200, json={'data': {'limit': 10, 'limit_remaining': 4, 'usage': 6, 'is_free_tier': True}} if u.endswith('/key') else {'data': []})
+                return httpx.Response(200, json={'data': {'limit': 10, 'limit_remaining': 4, 'usage': 6, 'is_free_tier': True,
+                                                          'free_model_daily_requests': 1000}} if u.endswith('/key') else {'data': []})
             if 'down' in auth:
                 return httpx.Response(503, text='upstream down')
             return httpx.Response(401, json={'error': {'message': 'invalid key'}})
@@ -437,7 +441,12 @@ def _prova():
             raise AssertionError('a state was used twice')
         except ValueError:
             pass
-        assert openrouter_limits(fake, client) == {'limit': 10, 'limit_remaining': 4, 'usage': 6, 'is_free_tier': True}
+        assert openrouter_limits(fake, client) == {'limit': 10, 'limit_remaining': 4, 'usage': 6, 'is_free_tier': True,
+                                                   'free_model_daily_requests': 1000, 'rate_limit': None}
+        from spawn.limiter import Limiter
+        lim = Limiter()
+        lim.refresh_openrouter(fake, client)
+        assert lim.route('open_router', 'x:free')['limit_requests'] == 1000 and lim.snapshot()['open_router']['quota'] == 0.4
         text = scrub(f'error with {fake} and cf_token and sk-or-v1-zzzzzzzzzzzz')
         assert fake not in text and 'cf_token' not in text and 'sk-or-v1-zzzz' not in text, text
         code, ctype, out = handle('POST', '/spawn/keys', '', {'provider': 'groq', 'key': 'good-key-1'}, 8777, client)

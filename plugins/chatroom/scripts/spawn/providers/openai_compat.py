@@ -282,8 +282,10 @@ class Answer:
                 'tool_calls': msg.get('tool_calls', []), 'finish': self.finish, 'usage': self.usage}
 
 
-def _stream(client, url, hdrs, body, answer):
+def _stream(client, url, hdrs, body, answer, seen=None):
     with client.stream('POST', url, headers=hdrs, json=body) as r:
+        if seen:
+            seen(r.headers)                        # the provider's x-ratelimit-* windows, a refusal's too
         if r.status_code >= 400:
             raise errors.classify(r.status_code, r.read().decode('utf-8', 'replace'), r.headers)
         if 'json' in r.headers.get('content-type', '') and 'event-stream' not in r.headers.get('content-type', ''):
@@ -314,13 +316,14 @@ def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None,
         key, extra = k['key'], extra or k['extra']
     url = catalog.base_url(provider, extra).rstrip('/') + '/chat/completions'
     body, used = build_body(provider, model, messages, tools, max_tokens, effort, session_id), set()
+    from spawn.limiter import LIMITER
     own = client is None
     client = client or httpx.Client(timeout=httpx.Timeout(READ, connect=CONNECT))
     try:
         while True:
             answer = Answer(on_delta, provider)
             try:
-                _stream(client, url, headers(provider, key), body, answer)
+                _stream(client, url, headers(provider, key), body, answer, lambda h: LIMITER.observe(provider, key, model, h))
             except errors.ProviderError as e:
                 fixed = correct(body, e.status, e.detail, used) if e.status in (400, 413) else None
                 if fixed is None:
@@ -368,6 +371,7 @@ def list_models(provider, key=None, client=None):
                 r = client.get(url, headers=h)
         except httpx.HTTPError as exc:
             raise errors.from_exception(exc)
+        LIMITER.observe(provider, key or '', '', r.headers)
         if r.status_code >= 400:
             raise errors.classify(r.status_code, r.text, r.headers)
         return r.json()
@@ -418,7 +422,8 @@ def _prova():
             return httpx.Response(413, json={'error': {'message': 'Request too large: tokens per minute (TPM): Limit 6000, Requested 9000, please reduce',
                                                        'type': 'tokens', 'code': 'rate_limit_exceeded'}})
         if model == 'busy':
-            return httpx.Response(429, headers={'retry-after': '3'}, json={'error': {'message': 'rate limit'}})
+            return httpx.Response(429, headers={'retry-after': '3', 'x-ratelimit-limit-requests': '30', 'x-ratelimit-remaining-requests': '0',
+                                                'x-ratelimit-reset-requests': '3s'}, json={'error': {'message': 'rate limit'}})
         if model == 'cut':
             return httpx.Response(200, headers={'content-type': 'text/event-stream'},
                                   content='data: ' + json.dumps({'choices': [{'delta': {'content': 'half an ans'}}]}) + '\n\n')
@@ -462,6 +467,9 @@ def _prova():
         raise AssertionError('429 not raised')
     except errors.ProviderError as e:
         assert e.kind == 'rate_limit' and e.retry_after == 3.0 and e.action == 'retry'
+    from spawn.limiter import LIMITER
+    r = LIMITER.route('groq', 'busy')
+    assert r['quota'] == 0.0 and r['remaining_requests'] == 0 and r['limit_requests'] == 30, r       # a 429's headers reach the limiter
     try:
         chat('groq', 'cut', msgs, key='k', client=client)
         raise AssertionError('cut stream not raised')
