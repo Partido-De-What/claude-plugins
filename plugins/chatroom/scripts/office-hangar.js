@@ -332,7 +332,7 @@ export function install(ctx) {
   board.position.set(5.0, 2.3, 1.32); H.board = board; group.add(board);
   const body = V.mesh(new V.Vox().box(0, 0, 0, 65, 19, 1, '#12151c').box(4, 20, 0, 4, 33, 0, '#8a929e').box(61, 20, 0, 61, 33, 0, '#8a929e'), {pivot: [33, 10, 2], scale: 0.05, jitter: 0.02});
   body.position.set(5.0, 2.3, 1.3); group.add(body);
-  // the cave painting, on the north wall between the mysterious gate and the whiteboard
+  // the cave painting, on the west wall between the lounge and the games corner (the north wall is the gates' and the CHECK panel's)
   const pc = canvas(256, 180), p = pc.getContext('2d'), r = rnd(7);
   p.fillStyle = '#6b5440'; p.fillRect(0, 0, 256, 180);
   for (let i = 0; i < 900; i++) { p.fillStyle = r() < 0.5 ? '#5c4836' : '#7a624b'; p.fillRect(r() * 256, r() * 180, 3, 2); }
@@ -343,7 +343,7 @@ export function install(ctx) {
   for (const [x, y] of [[200, 140], [225, 120], [180, 160]]) { p.beginPath(); p.arc(x, y, 7, 0, 7); p.fill(); }
   p.fillStyle = '#2b2118'; p.font = '700 18px serif'; p.fillText('UGH. FEW WORD.', 20, 165);
   const paint = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.7), basic({map: tex(pc)}));
-  paint.position.set(-3.65, 1.55, -9.86); paint.userData.hangar = {kind: 'cave'}; group.add(paint); H.cave = paint;
+  paint.position.set(-14.86, 1.6, -4.6); paint.rotation.y = Math.PI / 2; paint.userData.hangar = {kind: 'cave'}; group.add(paint); H.cave = paint;
   // the pager over a role with no tokens, and its ring on the floor (made on demand, at most a few)
   const qc = canvas(128, 128), q = qc.getContext('2d');
   q.fillStyle = '#ff1744'; q.beginPath(); q.arc(64, 64, 60, 0, 7); q.fill(); q.font = '72px sans-serif'; q.textAlign = 'center'; q.textBaseline = 'middle'; q.fillText('📟', 64, 70);
@@ -371,7 +371,7 @@ export function start(ctx) {
   return {update, click, clickPerson};
 }
 async function poll() {
-  if (busy || !S.active() || (miss > 0 && miss++ % 2)) return;      // a 404 (no spawn yet): ask every 6 s
+  if (busy || !S.active() || (miss > 0 && miss++ % 10)) return;     // a 404 (no spawn yet): ask every 30 s
   busy = true;
   try {
     if (DEMO) return setData(demo(performance.now() / 1000, S.names()));
