@@ -40,8 +40,12 @@ def glossary():
     try:
         g = strengths.load_glossary()
     except (OSError, ValueError, KeyError):
-        g = {}
-    return {b['id']: b for b in g.get('benchmarks', []) if isinstance(b, dict) and b.get('id')}, (g.get('_meta') or {}).get('areas') or {}
+        g = {'benchmarks': []}
+
+    class Entries(dict):                               # an id of a family (design-arena-website) finds its family's entry
+        def get(self, k, default=None):
+            return super().get(k) or strengths.entry(k, g) or default
+    return Entries({b['id']: b for b in g.get('benchmarks', []) if isinstance(b, dict) and b.get('id')}), (g.get('_meta') or {}).get('areas') or {}
 
 
 # ------------------------------------------------------------------ Prepara spawn
