@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/Partido-De-What/claude-plugins/tree/main/plugins/chatroom",
   "repository": "https://github.com/Partido-De-What/claude-plugins",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "keywords": [
     "multi-agent",
     "debate",
