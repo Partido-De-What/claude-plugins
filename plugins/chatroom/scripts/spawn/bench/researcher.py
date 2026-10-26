@@ -19,8 +19,12 @@ import jsonschema
 
 try:
     from .strengths import lookup
+    from ..catalog.identity import canonical_id, no_size
 except ImportError:                                      # lanciato come script (_prova)
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'catalog'))
     from strengths import lookup
+    from identity import canonical_id, no_size
 
 TEMPLATE = Path(__file__).resolve().parents[3] / 'templates' / 'bench_researcher.md'
 BOARD_TEMPLATE = TEMPLATE.with_name('bench_board.md')
@@ -63,12 +67,12 @@ SCHEMA = {
                 'scores': {'type': 'array', 'maxItems': 200, 'items': {
                     'type': 'object', 'required': ['bench', 'value', 'source', 'date', 'independent'], 'additionalProperties': False,
                     'properties': {'bench': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.-]{0,60}$'}, 'value': {'type': 'number'},
-                                   'source': _URL, 'date': {'type': 'string', 'pattern': r'^\d{4}-\d{2}(-\d{2})?$'},
+                                   'source': _URL, 'date': {'anyOf': [{'type': 'string', 'pattern': r'^\d{4}-\d{2}(-\d{2})?$'}, {'type': 'null'}]}, 'seen': {'type': 'string', 'pattern': r'^\d{4}-\d{2}(-\d{2})?$'},
                                    'independent': {'type': 'boolean'}}}}}}},
         'leaders': {'type': 'array', 'maxItems': 300, 'items': {
             'type': 'object', 'required': ['bench', 'model', 'value', 'source', 'date'], 'additionalProperties': False,
             'properties': {'bench': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.-]{0,60}$'}, 'model': _TEXT, 'value': {'type': 'number'},
-                           'source': _URL, 'date': {'type': 'string', 'pattern': r'^\d{4}-\d{2}(-\d{2})?$'}}}},
+                           'source': _URL, 'date': {'anyOf': [{'type': 'string', 'pattern': r'^\d{4}-\d{2}(-\d{2})?$'}, {'type': 'null'}]}, 'seen': {'type': 'string', 'pattern': r'^\d{4}-\d{2}(-\d{2})?$'}}}},
         'new_benchmarks': {'type': 'array', 'maxItems': 100, 'items': {
             'type': 'object', 'required': ['id', 'name', 'area', 'unit', 'better', 'url', 'it', 'en'], 'additionalProperties': False,
             'properties': {'id': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.-]{0,60}$'}, 'name': _TEXT, 'area': _TEXT,
@@ -172,6 +176,19 @@ def accept_lines(path, members, line_keys):
     return data['decisions'], [c for c in data.get('checked', []) if c in line_keys]
 
 
+def resolve(name, asked):
+    """il modello chiesto a cui il ricercatore si riferisce: il canonical come gli è stato dato, o il nome di un provider
+    (mistralai/mistral-large-4), o il nome senza taglia quando nel gruppo chiesto è unico (nemotron-3-ultra); None se non
+    è nessuno di questi"""
+    if asked is None or name in asked:
+        return name
+    c = canonical_id(name)
+    if c in asked:
+        return c
+    hits = [a for a in asked if no_size(a) == no_size(c)]
+    return hits[0] if len(hits) == 1 else None
+
+
 def accept(path, glossary, asked=None):
     """il file del ricercatore, controllato: ({canonical: [score]}, [nuovi benchmark], [leaders]). Un modello non
     chiesto, un numero non finito o un file fuori schema: ValueError (il file intero è scartato, non corretto a metà)"""
@@ -185,19 +202,22 @@ def accept(path, glossary, asked=None):
         raise ValueError(f'risultato del ricercatore fuori schema: {exc.message[:200]}')
     areas = set(glossary['_meta']['areas'])
     news = [b for b in data.get('new_benchmarks', []) if b['area'] in areas and lookup(b['id'], glossary) is None]
+    today = time.strftime('%Y-%m-%d')
+    dated = lambda x: {**x, 'date': x.get('date') or x.get('seen') or today, **({} if x.get('date') else {'seen': x.get('seen') or today})}
     out = {}
     for m in data['models']:
-        if asked is not None and m['canonical'] not in asked:
+        c = resolve(m['canonical'], asked)
+        if c is None:
             raise ValueError(f"il ricercatore ha risposto per un modello non chiesto: {m['canonical'][:60]}")
         for s in m['scores']:
             if not math.isfinite(s['value']):
                 raise ValueError(f"valore non finito per {s['bench']}")
-            out.setdefault(m['canonical'], []).append({**s, 'bench': lookup(s['bench'], glossary) or s['bench']})
+            out.setdefault(c, []).append({**dated(s), 'bench': lookup(s['bench'], glossary) or s['bench']})
     leaders = []
     for x in data.get('leaders', []):
         if not math.isfinite(x['value']):
             raise ValueError(f"valore non finito per {x['bench']}")
-        leaders.append({**x, 'bench': lookup(x['bench'], glossary) or x['bench'], 'model': re.sub(r'[\x00-\x1f<>`]', ' ', x['model'])[:80]})
+        leaders.append({**dated(x), 'bench': lookup(x['bench'], glossary) or x['bench'], 'model': re.sub(r'[\x00-\x1f<>`]', ' ', x['model'])[:80]})
     return out, news, leaders
 
 
@@ -240,6 +260,19 @@ def _prova():
         t = prepare({'new-one': ['x/new']}, Path(tmp) / 'm1.json', strengths.GLOSSARY, ['code'], skip=['gpqa-diamond', 'hle']).read_text(encoding='utf-8')
         assert 'gpqa-diamond, hle' in t and 'Vals AI' in t and '"leaders"' in t
         assert [b['id'] for b in boards_due('2026-10-26')][:1] == ['vals']
+        assert resolve('mistralai/mistral-large-4', {'mistral-large-4'}) == 'mistral-large-4' and resolve('x', {'y'}) is None
+        assert resolve('nemotron-3-ultra', {'nemotron-3-ultra-550b-a55b', 'glm-5-3'}) == 'nemotron-3-ultra-550b-a55b'
+        assert resolve('gemma-4', {'gemma-4-31b-it', 'gemma-4-26b-a4b-it'}) is None                    # due taglie: nessuna
+        real = Path(r'E:\claudecode pesante\claude-plugins-dev-tools\cantiere013\prove\payload\research')   # file veri della prova del LEAD (#599)
+        if real.is_dir():
+            three = {'mistral-large-4', 'nemotron-3-ultra-550b-a55b', 'glm-5-3'}
+            for f, ask in (('m1', {'mistral-large-4'}), ('b1', three), ('b2', {'mistral-large-4'}), ('b11', three)):
+                sc, nw, ld = accept(real / f'{f}.json', g, asked=ask)
+                assert sc and all(x['date'] for v in sc.values() for x in v) and all(x['date'] for x in ld), f
+            sc, _, ld = accept(real / 'b2.json', g, asked={'mistral-large-4'})
+            assert sc['mistral-large-4'][0]['seen'] == time.strftime('%Y-%m-%d') and all(x.get('seen') for x in ld)   # pagina senza data
+            sc, _, _ = accept(real / 'm1.json', g, asked={'mistral-large-4'})
+            assert len(sc['mistral-large-4']) == 34
         for bad in ({**good, 'extra': 1}, {'models': [{'canonical': 'x', 'scores': [{**good['models'][0]['scores'][0], 'source': 'http://a.b/c'}]}]},
                     {'models': [{'canonical': 'x', 'scores': [{**good['models'][0]['scores'][0], 'value': '71'}]}]},
                     {'models': [{'canonical': 'x', 'scores': [{**good['models'][0]['scores'][0], 'bench': 'Bad Id'}]}]}):

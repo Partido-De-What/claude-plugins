@@ -26,8 +26,8 @@ Then search the model's name with "benchmark" for anything else (Cybench, EQ-Ben
 
 HOW TO WRITE A SCORE:
 - Only from a page you opened yourself, with its link and its date (the page's date or the leaderboard's update date;
-  YYYY-MM-DD, or YYYY-MM when only the month is given). Never a number from memory, a search snippet or another model's
-  answer.
+  YYYY-MM-DD, or YYYY-MM when only the month is given). A page with no date: "date": null and today's date in "seen".
+  Never a number from memory, a search snippet or another model's answer.
 - "independent": true only when someone other than the maker measured it (a leaderboard, AA, Vals, a third-party
   evaluation); the maker's own numbers are "independent": false.
 - The value as the page gives it (a percentage as 71.2, not 0.712; an Elo as 1402).
@@ -39,7 +39,7 @@ HOW TO WRITE A SCORE:
 
 THE RESULT: write exactly this JSON (UTF-8) to {{OUT}}, nothing else in the file:
 
-{"models": [{"canonical": "<the canonical id above>",
+{"models": [{"canonical": "<the canonical id above, exactly as written there (e.g. mistral-large-4), not a provider's name>",
              "scores": [{"bench": "<glossary id or your own id>", "value": 71.2, "source": "https://...",
                          "date": "2026-10-20", "independent": true}]}],
  "leaders": [{"bench": "<the same id>", "model": "<the leader's name as the page writes it>", "value": 82,

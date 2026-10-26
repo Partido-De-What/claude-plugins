@@ -19,9 +19,9 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 try:
-    from .identity import canonical_id, line_key
+    from .identity import canonical_id, line_key, no_size
 except ImportError:                                      # lanciato come script (_prova)
-    from identity import canonical_id, line_key
+    from identity import canonical_id, line_key, no_size
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from research import _params_b                            # noqa: E402  la taglia dall'id ('550b-a55b' -> 550), come il panel
@@ -221,7 +221,8 @@ def add_scores(cat, scores, glossary, partial=False, studied=()):
             continue
         keep = {(s['bench'], s['source']) for s in new}
         models[c]['scores'] = [s for s in models[c]['scores'] if (s['bench'], s['source']) not in keep] + list(new)
-    raw = {c: [{k: s[k] for k in ('bench', 'value', 'source', 'date', 'independent')} for s in m['scores']] for c, m in models.items() if m['scores']}
+    raw = {c: [{k: s[k] for k in ('bench', 'value', 'source', 'date', 'independent', 'seen') if k in s} for s in m['scores']]
+           for c, m in models.items() if m['scores']}
     lead = {b: [x['value'] for x in xs if not any(s['bench'] == b for s in models.get(canonical_id(x['model']), {}).get('scores', []))]
             for b, xs in (cat.get('leaders') or {}).items()}     # un leader che è già nel catalogo conta una volta sola
     notes = annotate(raw, glossary, leaders=lead)
@@ -283,7 +284,11 @@ def study(room_dir, lang='it'):
                and not Path(e['out']).with_suffix('.done.json').exists() and not Path(e['out']).with_suffix('.bad.json').exists()
                for c in e['models']}                    # un ricercatore già chiesto e non ancora tornato: non un secondo
     jobs = [('model', {c: names}, None) for c, names in models.items() if c not in researcher.studied() and c not in waiting]
-    jobs += [('board', models, b) for b in (researcher.boards_due() if models else [])]
+    short = {}                                             # il nome senza taglia, quando è unico: le classifiche lo scrivono così (#599)
+    for c in models:
+        short.setdefault(no_size(c), []).append(c)
+    named = {c: [*names, *([no_size(c)] if no_size(c) != c and len(short[no_size(c)]) == 1 else [])] for c, names in models.items()}
+    jobs += [('board', named, b) for b in (researcher.boards_due() if models else [])]
     for kind, todo, board in jobs:
         out = Path(room_dir) / 'spawn' / 'study' / f'{n + len(entries) + 1}.json'
         prompt = researcher.prepare(todo, out, strengths.GLOSSARY, list(g['_meta']['areas']), lang, skip=skip, board=board)

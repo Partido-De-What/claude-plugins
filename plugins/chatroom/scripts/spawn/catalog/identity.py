@@ -58,6 +58,12 @@ def line_key(canonical):
     return '-'.join(words), (tuple(version), tuple(dates))
 
 
+def no_size(canonical):
+    """la chiave senza le taglie (550b, a55b, e4b): "nemotron-3-ultra" per nemotron-3-ultra-550b-a55b, come lo scrivono
+    le classifiche; vale come nome solo quando nel catalogo è unico"""
+    return '-'.join(t for t in str(canonical or '').split('-') if not re.fullmatch(r'[ae]?\d+[bmkt]', t))
+
+
 def merge(records):
     """{canonical: [record, ...]} dai record della scoperta ({'adapter', 'model_id', ...}), nell'ordine in cui arrivano"""
     out = {}
@@ -112,6 +118,7 @@ def _prova():
     assert line_key('deepseek-v4-1-flash-1017') > line_key('deepseek-v4-flash-0731') and line_key('mistral-large-4-0') > line_key('mistral-large-2512')
     assert line_key('kimi-k3') > line_key('kimi-k2-0905') > line_key('kimi-k2') and line_key('') == ('', ((), ()))
     assert line_key('qwen3-7-plus') > line_key('qwen-plus-2025-07-28') and line_key('qwen-plus-2025-07-28')[0] == 'qwen-plus'   # #506 p.1
+    assert no_size('nemotron-3-ultra-550b-a55b') == 'nemotron-3-ultra' and no_size('gemma-4-26b-a4b-it') == 'gemma-4-it' and no_size('glm-5-3') == 'glm-5-3'
     print('identity ok')
 
 
