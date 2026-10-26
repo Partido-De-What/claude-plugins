@@ -1652,6 +1652,6 @@
  "spawn.sheet.splitConfirm": "Separo {model} in una linea a sé?",
  "spawn.sheet.moved": "{model} ora è nella linea {line}.",
  "spawn.sheet.splitDone": "{model} ora è una linea a sé.",
- "spawn.err.noOverride": "Spostare le linee non è ancora disponibile.",
+ "spawn.err.noOverride": "Spostare le linee non è ancora disponibile.",
  "spawn.role.compact": "prompt compatto"
 }
