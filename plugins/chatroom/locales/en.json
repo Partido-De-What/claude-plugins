@@ -1510,5 +1510,16 @@
  "viewer.view": "View",
  "viewer.walls.0": "Dots",
  "viewer.walls.1": "Grid",
- "viewer.walls.2": "Plain"
+ "viewer.walls.2": "Plain",
+ "card.dismiss": "Put the card away",
+ "card.link": "open",
+ "card.failed": "The card did not answer",
+ "card.unreachable": "The viewer server cannot be reached",
+ "viewer.hrMissing": "Headroom is not installed: what the agents read is not compressed.",
+ "viewer.hrHere": "Install it here",
+ "viewer.hrClose": "Close until the next session",
+ "viewer.hrBusy": "Installing Headroom…",
+ "viewer.hrFail": "Headroom was not installed:",
+ "viewer.hrConfirm": "Install Headroom now? It runs uv sync in the chatroom environment (a few minutes, a download). Restart the session afterwards.",
+ "chat.err.headroom.no_uv": "uv is not installed: install it from https://docs.astral.sh/uv/ and try again"
 }

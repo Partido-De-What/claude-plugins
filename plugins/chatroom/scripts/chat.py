@@ -699,7 +699,7 @@ class Room:
             n = len(items) + 1
             entry = {'n': n, 'time': time.strftime('%H:%M:%S'), 'ts': time.time(), 'from': name, 'text': text}
             if status:
-                entry['kind'] = IDLE if status == IDLE else status if status in ('board', 'finding', *SETUP_KINDS) else 'status'
+                entry['kind'] = IDLE if status == IDLE else status if status in ('board', 'finding', 'card', *SETUP_KINDS) else 'status'
             if state:
                 entry['state'] = state
             if images:
@@ -769,7 +769,7 @@ class Room:
         if m.get('from') == name:
             return False
         users = self.user_names() if users is None else users
-        if m.get('kind') in SETUP_KINDS:      # the mode card and the choice: the lead's business, nobody else's
+        if m.get('kind') in (*SETUP_KINDS, 'card'):      # the mode card, the choice and the cards (cards.py): the user's and the lead's, nobody else's
             return name in users
         text = m.get('text', '')
         return (m.get('from') in users or tags(text, name) or tags_everyone(text)
@@ -812,7 +812,7 @@ class Room:
         """message m is for `name` to read in full: tags, the user, the lead, plans and votes, findings, board lines and
         needs that name it"""
         users = self.user_names() if users is None else users
-        if m.get('kind') in SETUP_KINDS:
+        if m.get('kind') in (*SETUP_KINDS, 'card'):
             return m['from'] != name and name in users
         return m['from'] != name and (self.wakes(m, name, users) or tags(m.get('text', ''), name)
                 or m.get('kind') == 'finding' or (m.get('kind') == 'board' and names(m.get('text', ''), name))
@@ -2919,6 +2919,31 @@ def reset_office_once():
     OFFICE_RESET.write_text('the new default office replaced the saved one once; delete this file to let it happen again\n', encoding='utf-8')
 
 
+HEADROOM = {'busy': False, 'error': None, 'done': False}         # the install the viewer's warning (or the setup card) started
+
+
+def start_headroom_install():
+    """after the user confirmed in the page: the room's one environment as uv.lock says (Headroom included), in the background"""
+    def run():
+        try:
+            uv = shutil.which('uv')
+            if not uv:
+                raise OSError(say('chat.err.headroom.no_uv'))
+            r = subprocess.run([uv, 'sync', '--frozen', '--inexact', '--project', str(PLUGIN_DIR)], capture_output=True, text=True, encoding='utf-8',
+                               errors='replace', stdin=subprocess.DEVNULL, timeout=1800, env={**os.environ, 'UV_PROJECT_ENVIRONMENT': str(ENV_DIR)})
+            out = (r.stderr or r.stdout or '').strip().splitlines()
+            HEADROOM.update(done=r.returncode == 0, error=None if r.returncode == 0 else (out[-1] if out else f'exit {r.returncode}')[:300])
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            HEADROOM['error'] = str(exc)[:300]
+        import importlib
+        importlib.invalidate_caches()                         # find_spec sees the new package at once
+        HEADROOM['busy'] = False
+    if not HEADROOM['busy']:
+        HEADROOM.update(busy=True, error=None, done=False)
+        threading.Thread(target=run, daemon=True).start()
+    return HEADROOM
+
+
 def cmd_serve(room, a):
     import threading
     reset_office_once()
@@ -3202,9 +3227,14 @@ def cmd_serve(room, a):
             if not self.trusted():
                 return self.send(403, 'forbidden', 'text/plain')
             path = self.path.split('?')[0]
+            if path.startswith('/spawn/'):            # the spawn keys and the OpenRouter login (spawn/keys.py), after trusted() above
+                from spawn import keys
+                r = keys.handle('GET', path, self.path.partition('?')[2], {}, a.port)
+                if r:
+                    return self.send(r[0], r[2], r[1])
             if path in ('/', '/index.html'):
                 return self.send(200, viewer.read_bytes(), 'text/html; charset=utf-8')
-            if re.fullmatch(r'/(office(-[a-z]+)*|i18n)\.js', path):
+            if re.fullmatch(r'/(office(-[a-z]+)*|i18n|cards)\.js', path):
                 body = (HERE / path[1:]).read_bytes()
                 if path == '/i18n.js':                 # English inside the loader: the page has its texts in the same request
                     en = (HERE.parent / 'locales' / 'en.json').read_text(encoding='utf-8-sig')
@@ -3216,7 +3246,7 @@ def cmd_serve(room, a):
                 return self.send(200, f.read_bytes(), 'application/json; charset=utf-8') if f.is_file() else self.send(404, say('chat.say.do_GET.no_such_language'), 'text/plain')
             if path == '/settings.json':              # the user's lasting choices: how far a lent helper goes, the figure's look
                 import importlib.util                  # headroom: the viewer warns while it is missing
-                return self.send(200, json.dumps({**settings(), 'headroom': importlib.util.find_spec('headroom') is not None},
+                return self.send(200, json.dumps({**settings(), 'headroom_install': HEADROOM, 'headroom': importlib.util.find_spec('headroom') is not None},
                                                  ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/tv/search':                  # the TV's search: YouTube titles through yt-dlp (nothing is downloaded)
                 q = urllib.parse.parse_qs(self.path.partition('?')[2]).get('q', [''])[0].strip()[:100]
@@ -3295,6 +3325,9 @@ def cmd_serve(room, a):
                 if target.suffix not in kinds or vendor not in target.parents or not target.is_file():
                     return self.send(404, say('chat.say.do_GET.not_found'), 'text/plain')
                 return self.send(200, target.read_bytes(), kinds[target.suffix])
+            if path == '/cards.json':                 # the state of the room's cards (cards.py), drawn by cards.js
+                import cards
+                return self.send(200, json.dumps(cards.states(room), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/board.json':                 # the task board: facts and tasks (task add/take/done)
                 return self.send(200, json.dumps(Board(room).load(), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/check.json':                 # the CHECKs the room would print now, and each agent's chat calls against its budget (the office shows both)
@@ -3482,6 +3515,19 @@ def cmd_serve(room, a):
                 body = self.body()
             except (ValueError, json.JSONDecodeError):
                 return self.send(400, say('chat.say.do_POST.bad_request'), 'text/plain')
+            if path.startswith('/spawn/'):            # the spawn keys (spawn/keys.py): a key travels in this body only, to this computer
+                from spawn import keys
+                r = keys.handle('POST', path, '', body if isinstance(body, dict) else {}, a.port)
+                if r:
+                    return self.send(r[0], r[2], r[1])
+            if path == '/card_action':            # a click on a card: its module answers, cards.py keeps the state
+                import cards
+                try:
+                    return self.send(200, json.dumps(cards.action(room, body), ensure_ascii=False), 'application/json; charset=utf-8')
+                except ValueError as exc:
+                    return self.send(400, str(exc), 'text/plain; charset=utf-8')
+            if path == '/headroom_install':       # the warning's "here" link, confirmed by the user in the page
+                return self.send(200, json.dumps(start_headroom_install()), 'application/json')
             if path == '/hook':                    # an event from the chatroom mod inside Claude Code
                 with lock:
                     for ev in body if isinstance(body, list) else [body]:

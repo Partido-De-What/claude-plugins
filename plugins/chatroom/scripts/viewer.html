@@ -97,6 +97,12 @@
                border: 1px dashed var(--border); }
   .pill.idle .tag { font-style: normal; font-weight: 600; }
   .hidden { display: none !important; }
+  /* Headroom missing (0.13): one line under the header, closed with its ✕ */
+  .hr-warn { display: flex; gap: 8px; align-items: center; padding: 2px 6px 2px 14px; background: #fff3c4; color: #5d4500; font-size: 12.5px;
+             border-bottom: 1px solid var(--border); position: relative; z-index: 2; }
+  :root[data-theme="dark"] .hr-warn { background: #3b3a1a; color: #f5e6a8; }
+  .hr-warn[hidden] { display: none; } .hr-warn span { flex: 1; min-width: 0; } .hr-warn a { color: inherit; font-weight: 700; }
+  .hr-warn button { width: 32px; height: 32px; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 15px; flex: none; }
   code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5px; background: rgba(127,127,127,.16);
          padding: 0 3px; border-radius: 3px; }
   mark { background: #ffe066; color: #111; border-radius: 2px; }
@@ -286,6 +292,7 @@
   <button class="icon-btn" id="soundBtn" title="">🔕</button>
   <button class="icon-btn" id="gear" title="">⚙</button>
 </header>
+<div class="hr-warn" id="hrWarn" role="status" hidden><span id="hrText"></span><a href="#" id="hrHere"></a><button id="hrX">✕</button></div>
 <div class="strip" id="strip"></div>
 <div class="scope" id="scope" hidden></div>
 <main id="feed"><div id="empty"></div></main>
@@ -334,6 +341,7 @@
 <div id="scrim"></div>
 
 <script src="i18n.js"></script>
+<script src="cards.js"></script>
 <script>
 // the texts are in locales/<lang>.json (viewer.*): the functions' fields in call order, and the one that holds logic
 const VIEW_ARGS = {newer: ['n'], placeholder: ['u'], idleSince: ['time', 'n'], messages: ['n'], members: ['n']};
@@ -461,7 +469,11 @@ function card(m) {                          // a JSON status: the task, the bar,
 }
 function build(m) {
   let el;
-  if (isStatus(m) && m.state && typeof m.state === 'object') {
+  if (m.kind === 'card') {                               // a card (cards.py): drawn by cards.js, else its plain text
+    el = window.CARDS?.build(m, !!m._room);
+    if (!el) { el = document.createElement('div'); el.className = 'pill'; el.innerHTML = `🗂 ${inline(m.text)} <span class="num">#${m.n} ${esc(m.time || '')}</span>`; }
+    lastFrom = null;
+  } else if (isStatus(m) && m.state && typeof m.state === 'object') {
     el = card(m);
     if (!$('optStatus').checked) el.classList.add('hidden');
     lastFrom = null;
@@ -618,6 +630,7 @@ function applyLook() {
   if (COMMANDS.length && COMMANDS._lang !== config.lang) loadCommands().then(() => { COMMANDS._lang = config.lang; });
   $('search').placeholder = L.search;
   $('searchBtn').title = L.search; $('soundBtn').title = L.sound; $('gear').title = L.settings;
+  $('hrHere').textContent = L.hrHere; $('hrX').title = L.hrClose;
   $('pTitle').textContent = L.settings; $('pSave').textContent = L.save; $('pCancel').textContent = L.cancel;
   document.querySelectorAll('[data-t]').forEach(el => el.textContent = L[el.dataset.t]);
   [...$('fTheme').options].forEach((o, i) => o.textContent = L.themes[i]);
@@ -1122,12 +1135,31 @@ window.addEventListener('chatroom:data', rsSync);
 addEventListener('resize', () => { if (RS.open && RS.data) rsRender(); });
 setInterval(() => { if (RS.open) rsLoad(); }, 2500);
 setInterval(() => { if (RS.open && RS.data) rsBars(); }, 1000);
+/* Headroom missing (0.13): a warning closed with ✕ for this viewer session (it comes back in the next one while Headroom is missing),
+   and a link that installs it after a confirm. Hidden when the server says nothing (an older one) */
+async function headroomCheck() {
+  try {
+    const s = await (await fetch('settings.json', {cache: 'no-store'})).json(), st = s.headroom_install || {}, L = t();
+    let closed = false; try { closed = sessionStorage.getItem('chatroom.hrClosed') === '1'; } catch (e) {}
+    $('hrWarn').hidden = closed || (s.headroom !== false && !st.busy && !st.error);
+    $('hrText').textContent = st.busy ? L.hrBusy : st.error ? L.hrFail + ' ' + st.error : L.hrMissing;
+    $('hrHere').hidden = !!st.busy;
+    if (st.busy) setTimeout(headroomCheck, 3000);
+  } catch (e) {}
+}
+$('hrX').addEventListener('click', () => { try { sessionStorage.setItem('chatroom.hrClosed', '1'); } catch (e) {} $('hrWarn').hidden = true; });
+$('hrHere').addEventListener('click', async e => {
+  e.preventDefault();
+  if (!confirm(t().hrConfirm)) return;
+  try { await fetch('headroom_install', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}); } catch (err) {}
+  headroomCheck();
+});
 /* the 3D office (office.js) reads the chat through these */
 window.chatroom = {
   jumpTo, snapshot: () => ({all, config}),
   tag(name) { box.value = (box.value && !/\s$/.test(box.value) ? box.value + ' ' : box.value) + '@' + name + ' '; box.focus(); },
 };
-I18N_READY.then(() => loadConfig(true)).then(() => { poll(); setInterval(poll, 1500); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); });
+I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); setInterval(poll, 1500); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); });
 </script>
 <script type="module" src="office.js"></script>
 </body>
