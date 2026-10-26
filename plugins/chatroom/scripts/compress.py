@@ -16,6 +16,7 @@ from pathlib import Path
 THRESHOLD = 1500                      # tokens (D9)
 CHARS = 4 * THRESHOLD                 # about 4 characters a token: a shorter text never leaves the agent's process
 MARK = '⟨compressed: {id} · chat.py expand {id}⟩'
+WAIT, BATCH = 5, 50                   # a read waits at most 5 s for the viewer (a Codex chat_wait is cut at 60 s); 50 texts per request
 _lock = threading.Lock()              # one compression at a time in the server: Headroom's pipeline is shared
 
 
@@ -85,14 +86,19 @@ def texts(room, items):
     url = viewer_url(room)
     if not url:
         return items
-    req = urllib.request.Request(url + '/compress', data=json.dumps({'texts': items}).encode('utf-8'),
-                                 headers={'Content-Type': 'application/json'})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            out = json.loads(r.read().decode('utf-8')).get('texts')
-    except (OSError, ValueError):
-        return items
-    return out if isinstance(out, list) and len(out) == len(items) and all(isinstance(t, str) for t in out) else items
+    out, end = list(items), time.time() + WAIT
+    for i in range(0, len(items), BATCH):         # what is not back in WAIT seconds stays whole: a read never waits long
+        part = items[i:i + BATCH]
+        req = urllib.request.Request(url + '/compress', data=json.dumps({'texts': part}).encode('utf-8'),
+                                     headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=max(0.5, end - time.time())) as r:
+                got = json.loads(r.read().decode('utf-8')).get('texts')
+        except (OSError, ValueError):
+            break
+        if isinstance(got, list) and len(got) == len(part) and all(isinstance(t, str) for t in got):
+            out[i:i + BATCH] = got
+    return out
 
 
 def expand(room, k):

@@ -369,8 +369,10 @@ def clean_look(key, value):
         raise ValueError(say('chat.err.clean_look.must_be_one_of', key=key, CHOICES=CHOICES[key]))
     if key == 'accent' and not COLOR.match(value):
         raise ValueError(say('chat.err.clean_look.accent_must_be_rrggbb'))
-    if key in ('closing_gate', 'compress') and value not in (0, 1):
+    if key == 'closing_gate' and value not in (0, 1):
         raise ValueError(say('chat.err.clean_look.closing_gate_is_closed'))
+    if key == 'compress' and value not in (0, 1):
+        raise ValueError('compress is 1 (Headroom on what the room hands back, the default) or 0 (everything whole)')   # shortcut: English until F8 moves it to locales
     if key == 'budget_calls' and not 0 <= value <= 100000:
         raise ValueError(say('chat.err.clean_look.budget_calls_must_be'))
     if key == 'heartbeat' and not 30 <= value <= 3600:
