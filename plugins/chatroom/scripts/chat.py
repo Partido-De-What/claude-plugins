@@ -86,7 +86,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
-             'heartbeat': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int}
+             'heartbeat': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int}
 CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
 IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -369,7 +369,7 @@ def clean_look(key, value):
         raise ValueError(say('chat.err.clean_look.must_be_one_of', key=key, CHOICES=CHOICES[key]))
     if key == 'accent' and not COLOR.match(value):
         raise ValueError(say('chat.err.clean_look.accent_must_be_rrggbb'))
-    if key == 'closing_gate' and value not in (0, 1):
+    if key in ('closing_gate', 'compress') and value not in (0, 1):
         raise ValueError(say('chat.err.clean_look.closing_gate_is_closed'))
     if key == 'budget_calls' and not 0 <= value <= 100000:
         raise ValueError(say('chat.err.clean_look.budget_calls_must_be'))
@@ -778,6 +778,9 @@ class Room:
     def show(self, items):
         users = self.user_names()
         leads = set(self.config().get('self_names', []))
+        import compress                       # Headroom at the source: the long messages of agents come compressed, the user's never
+        big = [m for m in items if m['from'] not in users and len(m.get('text') or '') >= compress.CHARS]
+        short = dict(zip((m['n'] for m in big), compress.texts(self, [m['text'] for m in big]))) if big else {}
         for m in items:
             kind = m.get('kind')
             tag = (' [IDLE]' if kind == IDLE else ' [BOARD]' if kind == 'board' else ' [FINDING]' if kind == 'finding'
@@ -788,7 +791,7 @@ class Room:
                 print(say('chat.say.show.message_from_the_lead'))
             elif m['from'] in users:
                 print(say('chat.say.show.message_from_the_user'))
-            print(f"--- #{m['n']} {m['time']} {m['from']}{tag}:\n{m['text']}", flush=True)
+            print(f"--- #{m['n']} {m['time']} {m['from']}{tag}:\n{short.get(m['n'], m['text'])}", flush=True)
             if m.get('doc'):
                 from share import doc_path
                 p = doc_path(self.dir, m['doc'])
@@ -1676,7 +1679,8 @@ def cmd_task(room, a):
 
 
 def cmd_board(room, a):
-    print(Board(room).show())
+    import compress
+    print(compress.texts(room, [Board(room).show()])[0])
 
 
 def cmd_notebook(room, a):
@@ -1694,7 +1698,14 @@ def cmd_notebook(room, a):
         if len(lines) > 200:                         # the newest 200 lines: a notebook, not a diary
             path.write_text('\n'.join(lines[-200:]) + '\n', encoding='utf-8')
         return print(say('chat.say.cmd_notebook.noted_in', path=path))
-    print(path.read_text(encoding='utf-8') if path.exists() else say('chat.say.cmd_notebook.your_notebook_is_empty'))
+    import compress
+    print(compress.texts(room, [path.read_text(encoding='utf-8')])[0] if path.exists() else say('chat.say.cmd_notebook.your_notebook_is_empty'))
+
+
+def cmd_expand(room, a):
+    """chat.py expand ID: the original of a text the room handed back compressed (the id after "compressed:")"""
+    import compress
+    print(compress.expand(room, (a.pairs or [''])[0]))
 
 
 def call_budget(room, config=None):
@@ -1892,6 +1903,8 @@ MCP_TOOLS = [
     {'name': 'check', 'description': 'What is going wrong in the room: tasks closed without proof or with gaps, one file in two '
                                      'statuses, tags left unanswered, a status repeated or stalled, a vote flipped without evidence, '
                                      'an agent over its call budget.', 'inputSchema': {'type': 'object', 'properties': {}}},
+    {'name': 'chat_expand', 'description': 'The original of a text the room gave back compressed: the id after "compressed:".',
+     'inputSchema': {'type': 'object', 'required': ['id'], 'properties': {'id': {'type': 'string'}}}},
 ]
 for _t in MCP_TOOLS:      # one server for every agent (subagents share their lead's MCP config): each call may say where and who
     _t['inputSchema']['properties'].update({'room': {'type': 'string', 'description': 'the room folder, when the server was started without --room'},
@@ -2016,6 +2029,9 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 cmd_notebook(room, ns)
             elif tool == 'check':
                 cmd_check(room, ns)
+            elif tool == 'chat_expand':
+                ns.pairs = [str(args.get('id', ''))]
+                cmd_expand(room, ns)
             else:
                 return say('chat.say.mcp_call.unknown_tool', tool=tool), True
     except SystemExit as exc:
@@ -3325,6 +3341,11 @@ def cmd_serve(room, a):
                 if target.suffix not in kinds or vendor not in target.parents or not target.is_file():
                     return self.send(404, say('chat.say.do_GET.not_found'), 'text/plain')
                 return self.send(200, target.read_bytes(), kinds[target.suffix])
+            if path == '/spawn.json':                 # the Hangar and the role cards: roles, hosts, quotas, what Headroom and RTK saved
+                if not (room.dir / 'spawn' / 'roles.json').is_file():
+                    return self.send(404, 'no roles', 'text/plain')
+                from spawn import runner
+                return self.send(200, json.dumps(runner.snapshot(room), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/cards.json':                 # the state of the room's cards (cards.py), drawn by cards.js
                 import cards
                 return self.send(200, json.dumps(cards.states(room), ensure_ascii=False), 'application/json; charset=utf-8')
@@ -3520,6 +3541,12 @@ def cmd_serve(room, a):
                 r = keys.handle('POST', path, '', body if isinstance(body, dict) else {}, a.port)
                 if r:
                     return self.send(r[0], r[2], r[1])
+            if path == '/compress':               # Headroom at the source: the room's agents send their long texts here, where it is loaded
+                import compress
+                texts = body.get('texts') if isinstance(body, dict) else None
+                if not isinstance(texts, list) or len(texts) > 50 or not all(isinstance(x, str) for x in texts):
+                    return self.send(400, 'texts: a list of strings', 'text/plain')
+                return self.send(200, json.dumps({'texts': [compress.shrink(room, x) for x in texts]}, ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/card_action':            # a click on a card: its module answers, cards.py keeps the state
                 import cards
                 try:
@@ -3747,6 +3774,12 @@ def cmd_serve(room, a):
             except OSError:
                 pass
     threading.Thread(target=heartbeat, daemon=True).start()
+    import compress
+    if room.config().get('compress', 1):
+        threading.Thread(target=compress.warm, daemon=True).start()     # Headroom loaded now, not at the first long read
+    if (room.dir / 'spawn' / 'roles.json').is_file():
+        from spawn import runner
+        runner.start_all(room)                    # the spawn roles go on where they were
     print(say('chat.say.cmd_serve.viewer_on_http_room', host=a.host, port=a.port, dir=room.dir), flush=True)
     try:
         server.serve_forever()
@@ -3758,7 +3791,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
-                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go'])
+                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -3881,7 +3914,7 @@ def main():
                     'serve': cmd_serve, 'command': cmd_command, 'alerts': cmd_alerts, 'add': cmd_add, 'remove': cmd_remove,
                     'task': cmd_task, 'board': cmd_board, 'check': cmd_check, 'notebook': cmd_notebook, 'mcp': cmd_mcp,
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
-                    'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire}
+                    'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand}
         if a.command in commands:
             return commands[a.command](room, a)
     except ValueError as exc:
