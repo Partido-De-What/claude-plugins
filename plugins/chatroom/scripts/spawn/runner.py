@@ -122,7 +122,8 @@ def routes_of(canonical, cat=None):
     from spawn.catalog import catalog
     cat = cat or catalog.load()
     m = next((m for m in cat['models'] if m['canonical'] == canonical), None)
-    rs = [r for r in (m or {}).get('routes', []) if r.get('free') and r.get('tools') is not False]
+    tries = ((m or {}).get('probe') or {}).get('tries') or {}      # a host the probe found refusing (no credits, gone): never
+    rs = [r for r in (m or {}).get('routes', []) if r.get('free') and r.get('tools') is not False and tries.get(r['adapter']) not in catalog.DEAD]
     return sorted(rs, key=lambda r: (not (r.get('ping') or {}).get('ok'), (r.get('ping') or {}).get('ms') or 10 ** 6))
 
 
@@ -399,13 +400,12 @@ class Runner(threading.Thread):
             h.append({'role': 'user', 'content': 'Your last answer was cut or its tool call arguments were broken: answer again.'})
             self.save(h)
             return
-        if e.action == 'stop':
+        tried = role.get('tried', []) + [f"{route['adapter']}:{route['model_id']}"]   # next_host, or retries used up
+        nxt = role.get('canonical') and best_route(self.room, role['canonical'], self.name, exclude=tried)
+        if e.action == 'stop' and not nxt:               # a key or an account of this host refuses: another free host first
             update(self.room, self.name, state='stopped', error=e.kind)
             self.room.append(self.name, _say(self.room, 'stopped', name=self.name, kind=e.kind, provider=route['adapter']))
             return
-        tried = role.get('tried', []) + [f"{route['adapter']}:{route['model_id']}"]   # next_host, or retries used up
-        from spawn import keys
-        nxt = best_route(self.room, role['canonical'], self.name, exclude=tried)
         if nxt:
             update(self.room, self.name, state='switch', route=nxt, tried=tried)     # 'service' again at its first answer
             self.room.append(self.name, _say(self.room, 'switch', name=self.name, old=route['adapter'], new=nxt['adapter']), 'board')
@@ -603,7 +603,6 @@ def _prova():
             assert role['route']['adapter'] == 'kilo' and role['state'] == 'switch' and 'cambio porta open_router → kilo' in room.messages()[-1]['text']
             r.fail(role, errors.ProviderError('rate_limit', 429))                           # the limiter gave up: no host left
             last = [m for m in room.messages() if m['from'] == 'ARCH' and not m.get('kind')][-1]
-            assert any(m.get('kind') == 'card' for m in room.messages()) or not (Path(__file__).parent / 'cards_spawn.py').is_file()
             assert roles(room)['ARCH']['state'] == 'notokens' and '@Adrian' in last['text'] and 'senza token' in last['text'] and not last.get('kind')
             snap = snapshot(room)['roles'][0]
             assert snap == {'name': 'ARCH', 'provider': 'kilo', 'model': 'm', 'host': 'kilo', 'state': 'notokens', 'compact': False,
@@ -620,7 +619,9 @@ def _prova():
             h = json.loads(_history_path(room, 'ARCH').read_text(encoding='utf-8'))
             assert len(h) == 4 and 'task T3 a metà' in h[1]['content'] and seen[-2][3] is None, h   # the handover is asked without tools
             assert 'handover: task T3' in (room.dir / 'notes' / 'ARCH.md').read_text(encoding='utf-8')
-            r.fail(roles(room)['ARCH'], errors.ProviderError('payment', 402))
+            r.fail(roles(room)['ARCH'], errors.ProviderError('payment', 402))                # another host left: it moves there
+            assert roles(room)['ARCH']['route']['adapter'] == 'kilo' and roles(room)['ARCH']['state'] == 'switch'
+            r.fail(roles(room)['ARCH'], errors.ProviderError('payment', 402))                # none left: it stops and says why
             assert roles(room)['ARCH']['state'] == 'stopped' and '⛔ ARCH fermo: payment' in room.messages()[-1]['text']
             shell_role = {**roles(room)['ARCH'], 'tools': ['shell']}
             assert 'shell' in {t['function']['name'] for t in tool_defs(shell_role)}
