@@ -243,13 +243,17 @@ export const register: Register = on => {
     const text = await inbox($, e as any)
     return text ? { ...out, additionalContext: [...(out.additionalContext || []), text] } : out
   }).catch(($, e, next) => next(e))          // fail open: a fault here never blocks the session
-  for (const ev of ['classic.Stop', 'classic.SubagentStop'] as const) {
-    on(ev, async ($, e, next) => {
-      const out = await next(e)
-      const text = await inbox($, e as any)
-      return text && !out.block ? { ...out, block: text } : out
-    }).catch(($, e, next) => next(e))        // fail open: a fault here never blocks the session
-  }
+  // the engine wants each event name written out at its on() call: no loop over names
+  on('classic.Stop', async ($, e, next) => {
+    const out = await next(e)
+    const text = await inbox($, e as any)
+    return text && !out.block ? { ...out, block: text } : out
+  }).catch(($, e, next) => next(e))          // fail open: a fault here never blocks the session
+  on('classic.SubagentStop', async ($, e, next) => {
+    const out = await next(e)
+    const text = await inbox($, e as any)
+    return text && !out.block ? { ...out, block: text } : out
+  }).catch(($, e, next) => next(e))
 
   // the roster writes itself
   on('agent.spawn', async ($, e, next) => {
