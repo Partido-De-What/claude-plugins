@@ -86,8 +86,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
-             'heartbeat': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int}
-CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it')}
+             'heartbeat': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str}
+CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
 IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
                '.gif': 'image/gif'}
@@ -323,6 +323,92 @@ def digest_of(msgs):
 def ping_tool(roster):
     """Codex addresses agents by path (/root/name), Claude Code by agent ID"""
     return 'send_message' if any(str(v).startswith('/') for v in roster.values()) else 'SendMessage'
+
+
+def recipients(room, m):
+    """who message m is for: the participants (and the lead and the user) it tags, all of them for @all; never its author"""
+    c = room.config()
+    team, text = c.get('participants', []), m.get('text', '')
+    pool = dict.fromkeys([*team, *c.get('self_names', []), c.get('user_name', 'USER')])
+    # @all reaches the lead and the user only if they have read the room at least once (LEAD, COORDINATOR... are aliases of one)
+    return [k for k in pool if k != m['from'] and (tags(text, k) or (tags_everyone(text) and (k in team or room.cursor(k))))]
+
+
+def receipts(room, items=None, last=300):
+    """{n: {NAME: 'sent'|'delivered'|'read'|'replied'}} for the last `last` messages that tag someone: delivered = the session
+    took it in (delivered_NAME.txt, by the monitor or a hook), read = the cursor of NAME is past it, replied = a message
+    of NAME starts with its reply mark (↪ #n)"""
+    items = room.messages() if items is None else items
+    cur, dev, out = {}, {}, {}
+    for m in items[-last:]:
+        if m.get('kind') or not m.get('text'):
+            continue
+        for k in recipients(room, m):
+            if k not in cur:
+                cur[k], dev[k] = room.cursor(k), room.delivered(k)
+            if any(x['from'] == k and x['n'] > m['n'] and x.get('text', '').startswith(f"↪ #{m['n']} ") for x in items[m['n']:]):
+                st = 'replied'
+            else:
+                st = 'read' if cur[k] >= m['n'] else 'delivered' if dev[k] >= m['n'] else 'sent'
+            out.setdefault(m['n'], {})[k] = st
+    return out
+
+
+def file_claimed(target, files, cwd=None):
+    """the file a tool changes (usually absolute) is one of the files a task declares (relative to the task's folder): the
+    same file, or inside a declared folder. Without the task's folder (cwd) a declared path matches where the target ends
+    with it; shortcut: two worktrees of one repo then look like one tree, so the lead gives such tasks a --cwd"""
+    t = norm_file(target)
+    root = norm_file(cwd).rstrip('/') + '/' if cwd else None
+    if root and not t.startswith(root):
+        return False
+    t = t[len(root):] if root else t
+    for f in files:
+        f = norm_file(f)
+        if f == '/' or t == f or (f.endswith('/') and t.startswith(f)) or (not root and (t.endswith('/' + f) or (f.endswith('/') and '/' + f in t))):
+            return True
+    return False
+
+
+def guard_on(room):
+    """the guard of a room: `config guard=on|off`; unset, it is on in a research room"""
+    c = room.config()
+    return (c.get('guard') or ('on' if c.get('mode') == 'research' else 'off')) == 'on'
+
+
+def guard_reason(room, name, tool, target):
+    """why `name` may not change `target` with `tool`: the file is declared by a task another participant holds with a
+    lease that has not lapsed (the same rule that stops a second take); '' when it may. Nothing is known about the
+    lead or the user, who are never stopped"""
+    if not target or name in room.user_names() or not guard_on(room):
+        return ''
+    board, items = Board(room), room.messages()
+    for t in board.load()['tasks']:
+        if (t['state'] == 'taken' and t['owner'] and t['owner'] != name and not board.lapsed(t, items, name)
+                and file_claimed(target, t['files'], t.get('cwd'))):
+            return say('chat.say.guard.denied', file=Path(target).name, id=t['id'], owner=t['owner'], tool=tool)
+    return ''
+
+
+def write_handoff(room, name, notes):
+    """ROOM/handoff/NAME.md: the handover a spawn role wrote for itself (🧳), the latest one, readable without opening the notebook"""
+    if re.fullmatch(r'[A-Za-z0-9_-]{1,40}', name or ''):
+        d = room.dir / 'handoff'
+        d.mkdir(exist_ok=True)
+        write_atomic(d / f'{name}.md', f"# {name} · {time.strftime('%Y-%m-%d %H:%M')}\n\n{notes.strip()}\n")
+
+
+def waiting_names(room):
+    """who waits for a permission of the user right now: asked of the served viewer, which gets the hooks of the mod
+    (a plain shell does not see them); nothing known gives []"""
+    info = live_rooms().get(str(room.dir.resolve()))
+    if not info:
+        return []
+    try:
+        with urllib.request.urlopen(info['url'] + '/state.json', timeout=1) as r:
+            return [k for k, v in json.load(r).get('agents', {}).items() if v.get('waiting')]
+    except (OSError, ValueError):
+        return []
 
 
 def print_alert(room, author, n, text, images=()):
@@ -567,6 +653,52 @@ class Room:
             write_atomic(path, json.dumps(c))
         except (OSError, ValueError, TypeError):
             pass
+        self.note_session(name)
+
+    def note_session(self, name):
+        """the Claude Code session of the lead or the user, from their own calls (CLAUDE_CODE_SESSION_ID in the shell or
+        the MCP server): ROOM/sessions.json {session id: name}, written only when it changes. Sub-agents may share the id,
+        so only the lead's own names count. The registry publishes the ids (`sessions`): the monitor finds its room by them"""
+        sid = os.environ.get('CLAUDE_CODE_SESSION_ID', '').strip()
+        c = self.config()
+        if not sid or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', sid) or name not in {c.get('user_name', 'USER'), *c.get('user_aliases', []), *c.get('self_names', [])}:
+            return
+        path = self.dir / 'sessions.json'
+        if read_json(path, {}).get(sid) == name:
+            return
+
+        def run():
+            d = read_json(path, {})
+            d[sid] = name
+            write_atomic(path, json.dumps(d, indent=1))
+        try:
+            self.locked(run)
+        except OSError:
+            pass
+
+    def sessions(self):
+        """{session id: name} of the lead and the user, as noted by their own calls"""
+        d = read_json(self.dir / 'sessions.json', {})
+        return d if isinstance(d, dict) else {}
+
+    def delivered(self, name):
+        """the last message number the session of `name` took in (the monitor or a hook of the mod wrote it); 0 if none"""
+        try:
+            return int((self.dir / f'delivered_{name}.txt').read_text().strip())
+        except (OSError, ValueError):
+            return 0
+
+    def mark_delivered(self, name, n):
+        """the session of `name` has taken in messages up to #n: only ever goes up, written by that session's own hooks"""
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,40}', name or '') or n <= self.delivered(name):
+            return False
+
+        def run():
+            if n <= self.delivered(name):         # checked again under the lock: the monitor and a hook may write together
+                return False
+            write_atomic(self.dir / f'delivered_{name}.txt', str(int(n)))
+            return True
+        return self.locked(run)
 
     def counters(self):
         """{name: {post, read, wait}} of every agent; an unreadable file counts as nothing"""
@@ -1029,6 +1161,11 @@ def cmd_post(room, a, text=None):
         text = '' if sys.stdin.isatty() else sys.stdin.buffer.read().decode('utf-8', errors='replace').strip()
     if sum(map(bool, (a.status, a.idle, a.finding))) > 1:
         sys.exit(say('chat.err.cmd_post.error_use_one_of'))
+    key = getattr(a, 'key', None)
+    if key:                                           # a retry of a post that already went through: no second copy (checked before the lock: two retries at once are not a case)
+        same = next((m for m in room.messages() if m['from'] == a.name and m.get('key') == key), None)
+        if same:
+            return print(say('chat.say.cmd_post.same_key_already', n=same['n'], key=key))
     if a.finding:                                     # a finding: something the others should know now, no alert, no percentage
         if not text:
             sys.exit(say('chat.err.cmd_post.error_a_finding_needs'))
@@ -1071,7 +1208,7 @@ def cmd_post(room, a, text=None):
         images = [room.store_image_file(p, i) for i, p in enumerate(a.image or [])]
     except ValueError as exc:
         sys.exit(say('chat.err.cmd_post.error', exc=exc))
-    flags = None
+    flags = {'key': key} if key else None
     if not kind and a.name in room.config().get('participants', []):
         items = room.messages()
         if not any(m['from'] == a.name and not m.get('kind') for m in items):     # its first real message
@@ -1105,6 +1242,10 @@ def cmd_post(room, a, text=None):
     if kind:
         return
     print_alert(room, a.name, n, text, images)
+    stuck = waiting_names(room)
+    for k in stuck:
+        if k != a.name and k in recipients(room, {'from': a.name, 'text': text}):
+            print(say('chat.say.cmd_post.waits_for_permission', name=k))
     every = checkpoint_every(room)
     if every and a.name in room.config().get('participants', []):
         mine = sum(1 for m in room.messages() if m['from'] == a.name and not m.get('kind'))
@@ -1314,6 +1455,7 @@ class Board:
 
     def __init__(self, room):
         self.room, self.path = room, room.dir / 'board.json'
+        self.by = self.expect = None      # cmd_task: who acts (for the history), and (task id, version) the actor read
 
     def load(self):
         try:
@@ -1326,10 +1468,33 @@ class Board:
         """apply fn(board) under the room's lock and save; fn returns the line to post, or raises ValueError"""
         def run():
             b = self.load()
+            expect, self.expect = self.expect, None
+            if expect:                          # two actions on the same version: the first wins, the second is told to read again
+                t = self.find(b, expect[0])
+                if t.get('v', 1) != expect[1]:
+                    raise ValueError(say('chat.err.change.stale_version', id=t['id'], v=t.get('v', 1), seen=expect[1]))
+            was = {t['id']: (json.dumps(t, sort_keys=True), self.holder(t)) for t in b['tasks']}
             line = fn(b)
+            for t in b['tasks']:
+                old = was.get(t['id'])
+                if old and old[0] == json.dumps(t, sort_keys=True):
+                    continue
+                t['v'] = t.get('v', 1) + 1 if old else 1
+                if t['state'] != 'open':
+                    t.pop('assigned_to', None), t.pop('assigned_by', None)
+                if not old or old[1][0] != t['owner']:
+                    t.pop('offer_to', None)
+                if not old or old[1] != self.holder(t):      # append-only: who held the task, and how, at each version
+                    t['hist'] = [*t.get('hist', []), {'v': t['v'], 'ts': time.time(), 'by': self.by, 'owner': t['owner'], 'state': t['state'],
+                                                       'to': t.get('assigned_to') or t.get('offer_to')}][-200:]
             write_atomic(self.path, json.dumps(b, ensure_ascii=False, indent=1))
             return line
         return self.room.locked(run)
+
+    @staticmethod
+    def holder(t):
+        """what the history records: who owns the task, its state, and who it is assigned or offered to"""
+        return (t['owner'], t['state'], t.get('assigned_to'), t.get('offer_to'))
 
     @staticmethod
     def find(b, tid):
@@ -1372,12 +1537,15 @@ class Board:
                 return False
             if not t.get('accepted', True) and time.time() - t.get('lent_ts', t.get('ts', 0)) > ACCEPT_MIN * 60:
                 return True
-        items = self.room.messages() if items is None else items
-        if self.room.idle_entry(t['owner'], items):
+        return self.silent(t['owner'], t.get('ts'), self.room.messages() if items is None else items)
+
+    def silent(self, who, since, items):
+        """`who` has said nothing for LEASE_HEARTBEATS heartbeats since `since` and is not idle (an idle one waits on purpose)"""
+        if self.room.idle_entry(who, items):
             return False
-        age = self.room.silence(t['owner'], items)
-        age = time.time() - t.get('ts', time.time()) if age is None else min(age, time.time() - t.get('ts', 0))
-        return age > LEASE_HEARTBEATS * self.room.heartbeat()
+        age, spent = self.room.silence(who, items), None if since is None else time.time() - since
+        age = spent if age is None else age if spent is None else min(age, spent)
+        return age is not None and age > LEASE_HEARTBEATS * self.room.heartbeat()
 
     def blockers(self, b, t, name, items):
         """why `name` cannot take t now: [] when it can"""
@@ -1385,6 +1553,8 @@ class Board:
             return [say('chat.say.blockers.is_already_done', id=t['id'])]
         if t['owner'] and t['owner'] != name and not self.lapsed(t, items, name):
             return [say('chat.say.blockers.is_taken_by_ask', id=t['id'], owner=t['owner'])]
+        if t.get('assigned_to') not in (None, name) and not self.silent(t['assigned_to'], t.get('assigned_ts'), items):
+            return [say('chat.say.blockers.assigned_to', id=t['id'], to=t['assigned_to'])]
         todo = [d for d in t['deps'] if self.find(b, d)['state'] != 'done']
         if todo:
             return [say('chat.say.blockers.waits_for_take_it', id=t['id'], todo=', '.join(todo))]
@@ -1551,13 +1721,67 @@ class Board:
         return self.change(fn)
 
     def accept(self, name, tid):
-        """the helper confirms a lent piece: until then, after ACCEPT_MIN minutes, it goes back to its lender"""
+        """an assignment (the task becomes mine), an offer (the task passes from its owner to me), or a lent piece (the helper
+        confirms it; until then, after ACCEPT_MIN minutes, it goes back to its lender)"""
         def fn(b):
             t = self.find(b, tid)
+            if t.get('assigned_to') == name and t['state'] == 'open':
+                why = self.blockers(b, t, name, self.room.messages())
+                if why:
+                    raise ValueError(why[0])
+                t.update(owner=name, state='taken', ts=time.time())
+                return say('chat.say.fn.accepted_by', id=t['id'], name=name, title=t['title'][:120])
+            if t.get('offer_to') == name and t['state'] == 'taken':
+                was = t['owner']
+                t.update(owner=name, ts=time.time())
+                return say('chat.say.fn.offer_accepted', id=t['id'], name=name, was=was, title=t['title'][:120])
             if not t.get('lender') or t['owner'] != name:
                 raise ValueError(say('chat.err.fn.is_not_a_piece', id=t['id']))
             t['accepted'] = True
             return say('chat.say.fn.accepted_by', id=t['id'], name=name, title=t['title'][:120])
+        return self.change(fn)
+
+    def decline(self, name, tid, note=''):
+        """refuse an assignment (the task is open again) or an offer (it stays with its owner)"""
+        def fn(b):
+            t = self.find(b, tid)
+            if t.get('assigned_to') == name and t['state'] == 'open':
+                t.pop('assigned_to')
+                where = say('chat.word.open_again')
+            elif t.get('offer_to') == name and t['state'] == 'taken':
+                t.pop('offer_to')
+                where = say('chat.word.stays_with', owner=t['owner'])
+            else:
+                raise ValueError(say('chat.err.fn.nothing_to_decline', id=t['id']))
+            return say('chat.say.fn.declined', id=t['id'], name=name, where=where) + (f' · {note[:200]}' if note else '')
+        return self.change(fn)
+
+    def assign(self, name, tid, to, note=''):
+        """give an open task to someone: it stays assigned (nobody else takes it) until they accept or decline. The lead, or whoever proposed it"""
+        def fn(b):
+            t = self.find(b, tid)
+            if t['state'] != 'open':
+                raise ValueError(say('chat.err.fn.assign_open_only', id=t['id'], state=t['state']))
+            if name not in self.room.user_names() and t['by'] != name:
+                raise ValueError(say('chat.err.fn.assign_not_yours', id=t['id']))
+            t.update(assigned_to=to, assigned_by=name, assigned_ts=time.time())
+            if note:
+                t['notes'] = (t['notes'] + [f'{name}: {note[:300]}'])[-10:]
+            return say('chat.say.fn.assigned_to', id=t['id'], name=name, to=to, title=t['title'][:100]) + (f' · {note[:200]}' if note else '')
+        return self.change(fn)
+
+    def offer(self, name, tid, to, note=''):
+        """offer a task I hold: it stays mine until `to` accepts it (handoff passes it at once)"""
+        def fn(b):
+            t = self.find(b, tid)
+            if t['owner'] != name or t['state'] != 'taken':
+                raise ValueError(say('chat.err.fn.offer_not_yours', id=t['id']))
+            if to == name:
+                raise ValueError(say('chat.err.fn.you_cannot_lend_a'))
+            t['offer_to'] = to
+            if note:
+                t['notes'] = (t['notes'] + [f'{name}: {note[:300]}'])[-10:]
+            return say('chat.say.fn.offered_to', id=t['id'], name=name, to=to, title=t['title'][:100]) + (f' · {note[:200]}' if note else '')
         return self.change(fn)
 
     def giveback(self, name, tid, note=''):
@@ -1576,6 +1800,31 @@ class Board:
             t['notes'] = (t['notes'] + [say('chat.say.fn.given_back_by', name=name, note=note[:300])])[-10:]
             return say('chat.say.fn.given_back_by_to', id=t['id'], name=name, lender=t['lender'], title=t['title'][:90]) + (f' · {note[:200]}' if note else '')
         return self.change(fn)
+
+    def review_packet(self, tid, touched=None):
+        """ROOM/review/T<n>.md, written when a task closes with its proof: the goal, the files, the tests and their outcome,
+        the risks, the chat messages that name it (#n), who did it. The lead checks a task from this page, not from the chat"""
+        b = self.load()
+        t = self.find(b, tid)
+        if t['state'] != 'done':
+            return None
+        w = lambda key, **kw: say('chat.packet.' + key, **kw)
+        linked = [m for m in self.room.messages() if re.search(rf"\b{re.escape(t['id'])}\b", m.get('text', ''), re.IGNORECASE)][:30]
+        files = t['files'] + [f for f in t.get('extra_files', []) if f not in t['files']]
+        risks = [t['gaps']] if t.get('gaps') else []
+        risks += [w('touched', touched=touched)] if touched else []
+        out = [f"# {t['id']} · {t['title']}", '', w('author', owner=t['owner'], v=t.get('v', 1), when=time.strftime('%Y-%m-%d %H:%M', time.localtime(t['ts']))), '',
+               f"## {w('goal')}", '', t['title'] + (f" ({w('done_when', done_when=t['done_when'])})" if t.get('done_when') else ''), '',
+               f"## {w('files')}", '', *([f'- `{f}`' + (f" ({w('beyond')})" if f in t.get('extra_files', []) and f not in t['files'] else '') for f in files] or [w('none')]), '',
+               f"## {w('tests')}", '', *([f'- {x}' for x in t['proof'].split('; ') if x] or [w('none')]), '',
+               f"## {w('risks')}", '', *([f'- {x}' for x in risks] or [w('none')]), '',
+               f"## {w('messages')}", '', *([f"- #{m['n']} {m['from']}: {' '.join(m.get('text', '').split())[:100]}" for m in linked] or [w('none')]), '',
+               f"## {w('history')}", '', *[f"- v{h['v']} {time.strftime('%H:%M:%S', time.localtime(h['ts']))} {h.get('by') or '?'}: {h['state']} {h['owner'] or ''}"
+                                            + (f" -> {h['to']}" if h.get('to') else '') for h in t.get('hist', [])]]
+        d = self.room.dir / 'review'
+        d.mkdir(exist_ok=True)
+        write_atomic(d / f"{t['id']}.md", '\n'.join(out) + '\n')
+        return d / f"{t['id']}.md"
 
     def decide(self, name, text):
         def fn(b):
@@ -1605,7 +1854,10 @@ class Board:
                      + (say('chat.word.verify', cmd=t['verify']) if t.get('verify') and t['state'] != 'done' else '')
                      + (say('chat.say.show.merge_into', merge_into=t['merge_into']) if t.get('merge_into') and t['state'] != 'done' else '')
                      + (say('chat.say.fn.proof', proof=t['proof']) if t['proof'] else '') + (say('chat.say.show.not_done', gaps=t['gaps']) if t.get('gaps') else '')
-                     + (say('chat.say.show.lease_lapsed') if self.lapsed(t, items) else ''))
+                     + (say('chat.say.show.assigned_to', to=t['assigned_to']) if t.get('assigned_to') and t['state'] == 'open' else '')
+                     + (say('chat.say.show.offered_to', to=t['offer_to']) if t.get('offer_to') else '')
+                     + (say('chat.say.show.lease_lapsed') if self.lapsed(t, items) else '')
+                     + (f" · v{t['v']}" if t.get('v', 1) > 1 and t['state'] != 'done' else ''))
             lines.append(f"{t['id']} [{state}] {t['title']}{extra}")
             shown = t['notes'][-2:]
             packet = t.get('packet') or (t['notes'][0] if t['notes'] and t['notes'][0].startswith('packet from') else None)
@@ -1622,6 +1874,9 @@ def cmd_task(room, a):
     if not a.pairs:
         sys.exit(say('chat.err.cmd_task.task_add_title_deps'))
     act, rest, b = a.pairs[0], a.pairs[1:], Board(room)
+    b.by = a.name
+    if getattr(a, 'expect_version', None) is not None and rest and act not in ('add', 'fact', 'decide'):
+        b.expect = (rest[0], a.expect_version)
     split = lambda v: [x.strip() for x in (v or '').split(',') if x.strip()]
     if act == 'add' and rest:
         if (getattr(a, 'verify', None) or getattr(a, 'merge_into', None)) and a.name not in room.user_names():
@@ -1634,12 +1889,20 @@ def cmd_task(room, a):
         line = b.next(a.name)
     elif act == 'amend' and rest:
         line = b.amend(a.name, rest[0], split(a.files), a.force)
-    elif act == 'accept' and rest:
-        line = b.accept(a.name, rest[0])
+    elif act in ('accept', 'decline') and rest:
+        t = Board.find(b.load(), rest[0])      # who is waiting for the answer to an assignment or an offer: tagged and woken
+        who = t.get('assigned_by') if t.get('assigned_to') == a.name else t['owner'] if t.get('offer_to') == a.name else None
+        line = b.accept(a.name, rest[0]) if act == 'accept' else b.decline(a.name, rest[0], a.note or '')
+        if who and who != a.name:
+            line = f'{line} · @{who}'
+            n = room.append(a.name, line)
+            print(say('chat.say.posted', n=n))
+            return print_alert(room, a.name, n, line, [])
     elif act == 'done' and rest:
         line = b.done(a.name, rest[0], a.proof or '', a.force, getattr(a, 'gaps', None) or '', getattr(a, 'mcp', False))
         if getattr(a, 'touched', None):           # interfaces changed: a finding everyone reads, read --focus included
             room.append(a.name, say('chat.say.cmd_task.changed_what_others_may', upper=rest[0].upper(), touched=a.touched[:300]), 'finding')
+        b.review_packet(rest[0], getattr(a, 'touched', None))
         lender = Board.find(b.load(), rest[0]).get('lender')
         if lender and lender != a.name:               # a lent piece is back: its lender is tagged and woken
             line = f'{line} · @{lender}'
@@ -1660,11 +1923,13 @@ def cmd_task(room, a):
         line = b.fact(a.name, ' '.join(rest))
     elif act == 'decide' and rest:
         line = b.decide(a.name, ' '.join(rest))
-    elif act in ('handoff', 'help') and len(rest) > 1:
+    elif act in ('handoff', 'help', 'assign', 'offer') and len(rest) > 1:
         want = rest[1].lstrip('@')                    # the name as the room writes it, in any case; a stranger in capitals
         known = [*room.config().get('participants', []), *room.roster()]
         to = next((n for n in known if n.lower() == want.lower()), want.upper())
         line = (b.handoff(a.name, rest[0], to, a.note or '') if act == 'handoff'
+                else b.assign(a.name, rest[0], to, a.note or '') if act == 'assign'
+                else b.offer(a.name, rest[0], to, a.note or '') if act == 'offer'
                 else b.help(a.name, rest[0], to, a.scope or '', split(a.files), a.done_when or '', a.note or ''))
         n = room.append(a.name, line)                 # a real message: it tags the new owner, who must be woken
         print(say('chat.say.posted', n=n))
@@ -1882,7 +2147,8 @@ MCP_TOOLS = [
                                          'with the percentage, or state as JSON), an idle status, a finding, or a reply to #reply.',
      'inputSchema': {'type': 'object', 'properties': {
          'text': {'type': 'string'}, 'status': {'type': 'boolean'}, 'idle': {'type': 'boolean'}, 'finding': {'type': 'boolean'},
-         'reply': {'type': 'integer'}, 'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
+         'reply': {'type': 'integer'}, 'key': {'type': 'string', 'description': 'idempotency key: a retry with the same key posts nothing twice'},
+         'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
                                                                                    'blocked_by, next, needs, done, evidence, risks, '
                                                                                    'free_min (minutes you expect to wait still)'}}}},
     {'name': 'chat_wait', 'description': 'Wait for someone to write (up to 110 s, 540 s while idle). focus=true (default): what '
@@ -1892,13 +2158,17 @@ MCP_TOOLS = [
     {'name': 'task', 'description': 'Change the task board: add (text, files, deps), take (id, force), next (take the first free one), '
                                     'amend (id, files: widen yours), accept (id: a piece lent to you), done (id, proof naming an artifact, gaps, touched), drop (id), '
                                     'note (id, text), handoff (id, to, note), help (id, to, scope, files, done_when, note: '
-                                    'lend a piece of your task to who waits), giveback (id, note), decide (text), fact (text).',
+                                    'lend a piece of your task to who waits), giveback (id, note), decide (text), fact (text), assign (id, to, note: an open task, '
+                                    'held for them until accept or decline), offer (id, to, note: a task you hold, yours until they accept), '
+                                    'decline (id, note: an assignment or an offer to you); accept (id) also takes an assignment or an offer; '
+                                    'any action on a task takes expected_version.',
      'inputSchema': {'type': 'object', 'required': ['action'], 'properties': {
-         'action': {'type': 'string', 'enum': ['add', 'take', 'next', 'amend', 'accept', 'done', 'drop', 'note', 'handoff', 'help', 'giveback', 'decide', 'fact']},
+         'action': {'type': 'string', 'enum': ['add', 'take', 'next', 'amend', 'accept', 'done', 'drop', 'note', 'handoff', 'help', 'giveback', 'decide', 'fact', 'assign', 'offer', 'decline']},
          'gaps': {'type': 'string', 'description': 'done: what you did not do'}, 'touched': {'type': 'string', 'description': 'done: interfaces you changed that others use'},
          'id': {'type': 'string'}, 'text': {'type': 'string'}, 'files': {'type': 'array', 'items': {'type': 'string'}},
          'deps': {'type': 'array', 'items': {'type': 'string'}}, 'proof': {'type': 'string'}, 'to': {'type': 'string'},
-         'note': {'type': 'string'}, 'force': {'type': 'boolean'}, 'scope': {'type': 'string'}, 'done_when': {'type': 'string'}}}},
+         'note': {'type': 'string'}, 'force': {'type': 'boolean'}, 'scope': {'type': 'string'}, 'done_when': {'type': 'string'},
+         'expected_version': {'type': 'integer', 'description': 'the v<N> of the task on the board: refused if someone changed it since'}}}},
     {'name': 'research', 'description': 'The research kernel, by role: view (what your role needs), expand (one record), evaluate '
                                         '(desc; kind, idea, of, seed), propose-idea (json), propose-evidence (text, source), curate, '
                                         'direction (json), conclude (id=worker, gate, trigger, text), verdict (phase, outcome, json), '
@@ -1993,6 +2263,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                     room.read(name, args.get('focus', True))
             elif tool == 'chat_post':
                 ns.status, ns.idle, ns.finding, ns.reply = bool(args.get('status')), bool(args.get('idle')), bool(args.get('finding')), args.get('reply')
+                ns.key = args.get('key')
                 text = json.dumps(args['state'], ensure_ascii=False) if args.get('state') else str(args.get('text', ''))
                 if args.get('state'):
                     ns.status = True
@@ -2010,11 +2281,11 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 if args.get('verify') or args.get('merge_into') or args.get('cwd'):
                     return (say('chat.say.mcp_call.error_verify_merge_into')), True
                 ns.pairs = [act] + ([str(args['id'])] if args.get('id') else []) \
-                    + ([args['to']] if act in ('handoff', 'help') and args.get('to') else []) \
+                    + ([args['to']] if act in ('handoff', 'help', 'assign', 'offer') and args.get('to') else []) \
                     + ([str(args['text'])] if args.get('text') else [])
                 ns.files, ns.deps = ','.join(args.get('files') or []) or None, ','.join(args.get('deps') or []) or None
                 ns.proof, ns.force, ns.note = args.get('proof'), bool(args.get('force')), args.get('note')
-                ns.scope, ns.done_when = args.get('scope'), args.get('done_when')
+                ns.scope, ns.done_when, ns.expect_version = args.get('scope'), args.get('done_when'), args.get('expected_version')
                 ns.gaps, ns.touched, ns.verify, ns.cwd, ns.merge_into, ns.mcp = args.get('gaps'), args.get('touched'), None, None, None, True
                 cmd_task(room, ns)
             elif tool == 'research':
@@ -3393,6 +3664,8 @@ def cmd_serve(room, a):
             if path == '/cards.json':                 # the state of the room's cards (cards.py), drawn by cards.js
                 import cards
                 return self.send(200, json.dumps(cards.states(room), ensure_ascii=False), 'application/json; charset=utf-8')
+            if path == '/receipts.json':               # the ticks of the viewer: per message that tags someone, per recipient (receipts)
+                return self.send(200, json.dumps(receipts(room), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/board.json':                 # the task board: facts and tasks (task add/take/done)
                 return self.send(200, json.dumps(Board(room).load(), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/check.json':                 # the CHECKs the room would print now, and each agent's chat calls against its budget (the office shows both)
@@ -3841,7 +4114,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
-                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn'])
+                                        'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -3936,6 +4209,10 @@ def main():
     p.add_argument('--done-when', dest='done_when', help='task help: the proof that closes the lent piece')
     p.add_argument('--finding', action='store_true', help='post: a finding the others should know now (no ping, no percentage); read --focus always shows it')
     p.add_argument('--reply', type=int, help='post: answer message #N; its author is tagged and gets the ping')
+    p.add_argument('--expect-version', dest='expect_version', type=int, help='task ...: the version of the task you read; refused if someone changed it since (the board shows v<N>)')
+    p.add_argument('--compare', help='doctor: the plugin folder to compare with the installed one (default: this one)')
+    p.add_argument('--key', help='post: an idempotency key; a retry with the same key does not post a second copy')
+    p.add_argument('--upto', type=int, help='delivered: the session of --as has taken in the messages up to #N (the monitor and the hooks write it)')
     p.add_argument('--range', help='read: messages A-B in full (your place in the chat does not move)')
     p.add_argument('--map', action='store_true', help='look: also the map of the office (zones, free places, people)')
     p.add_argument('--focus', action='store_true', help='read, wait: in full only what concerns you, the rest as a one-line digest per author')
@@ -3947,6 +4224,9 @@ def main():
         return cmd_rooms(None, a)
     if a.command == 'guide':                             # no room needed: the lead reads it before making one
         return cmd_guide(Room(a.room) if a.room else None, a)
+    if a.command == 'doctor':                            # no room needed: it checks the installation
+        import doctor
+        sys.exit(doctor.main(a.room, source=a.compare))
     if a.command == 'mcp' and not a.room:                # one server for every room: each call names its room
         return cmd_mcp(None, a)
     if not a.room:
@@ -3994,6 +4274,12 @@ def main():
             print(idle_life.look(room, a.name, a.map) if a.command == 'look' else idle_life.go(room, a.name, ' '.join(a.pairs)))
         except ValueError as exc:
             sys.exit(f'error: {exc}')
+        return
+    if a.command == 'delivered':                          # no count: the monitor calls it often, and it is not the agent's own call
+        if a.upto is None:
+            sys.exit(say('chat.err.main.delivered_needs_upto'))
+        room.note_session(a.name)
+        room.mark_delivered(a.name, a.upto)
         return
     room.count(a.name, a.command)
     if a.command == 'post':

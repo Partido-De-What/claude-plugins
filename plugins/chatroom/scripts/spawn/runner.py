@@ -383,6 +383,7 @@ class Runner(threading.Thread):
         notes = self.call(role, short + [{'role': 'user', 'content': HANDOVER}], tools=False, max_tokens=1500)['text'].strip()
         chat.mcp_call(self.room, self.name, 'notebook', {'text': 'handover: ' + ' '.join(notes.split())[:1500]})
         update(self.room, self.name, handover=notes)
+        chat.write_handoff(self.room, self.name, notes)
         self.room.append(self.name, _say(self.room, 'handover', name=self.name), 'board')
         h = [h[0], {'role': 'user', 'content': f'{START}\n\nYour handover from the context before:\n{notes}'}]
         self.save(h)
@@ -619,6 +620,7 @@ def _prova():
             h = json.loads(_history_path(room, 'ARCH').read_text(encoding='utf-8'))
             assert len(h) == 4 and 'task T3 a metà' in h[1]['content'] and seen[-2][3] is None, h   # the handover is asked without tools
             assert 'handover: task T3' in (room.dir / 'notes' / 'ARCH.md').read_text(encoding='utf-8')
+            assert 'task T3 a metà' in (room.dir / 'handoff' / 'ARCH.md').read_text(encoding='utf-8')     # the handover also as a page
             r.fail(roles(room)['ARCH'], errors.ProviderError('payment', 402))                # another host left: it moves there
             assert roles(room)['ARCH']['route']['adapter'] == 'kilo' and roles(room)['ARCH']['state'] == 'switch'
             r.fail(roles(room)['ARCH'], errors.ProviderError('payment', 402))                # none left: it stops and says why

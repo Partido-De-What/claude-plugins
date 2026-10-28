@@ -81,6 +81,10 @@
   .who-line { display: flex; gap: 6px; align-items: baseline; margin-bottom: 2px; }
   .name { font-weight: 600; font-size: 12.8px; }
   .role { color: var(--muted); font-size: 11.5px; }
+  .rcpt { font-size: 11px; color: var(--muted); text-align: right; margin-top: 2px; padding-right: 70px; }
+  .rcpt span { margin-left: 8px; white-space: nowrap; }
+  .rcpt .read { color: #4fc3f7; }
+  .rcpt .replied { color: #66bb6a; }
   .meta { position: absolute; right: 9px; bottom: 3px; font-size: 11px; color: var(--muted); }
   .num { color: var(--muted); font-size: 11px; margin-right: 6px; }
   .flash { animation: flash 1.6s ease; }
@@ -543,6 +547,7 @@ function add(m) {
   const stick = nearBottom();
   $('empty')?.remove();
   feed.appendChild(build(m));
+  paintReceipts(m.n);
   if (stick) feed.scrollTop = feed.scrollHeight;
   else { unseen++; $('newer').textContent = t().newer(unseen); $('newer').style.display = 'block'; }
 }
@@ -573,6 +578,7 @@ function rerender() {
   const mine = scope === 'other' ? [] : all, theirs = scope === 'self' ? [] : scope === 'all' ? nRooms.flatMap(r => r.all) : nAll;
   const items = [...mine.map(m => [stamp(m), m, false]), ...theirs.map(m => [stamp(m), m, false]), ...commonShown.map(c => [c._at, c, true])].sort((a, b) => a[0] - b[0]);
   for (const [, m, common] of items) feed.appendChild(common ? buildCommon(m) : build(m));
+  paintReceipts();
   if (stick) feed.scrollTop = feed.scrollHeight;
 }
 
@@ -765,6 +771,27 @@ async function doPoll() {
     }
   } catch (e) {}
   header();
+}
+
+// the receipts of the messages that tag someone, per recipient: ✓ sent, ✓✓ delivered (the session took it in), ✓✓ blue read, ↩ replied
+const RCPT = {sent: '✓', delivered: '✓✓', read: '✓✓', replied: '↩'};
+let receipts = {};
+function paintReceipts(only) {
+  const L = t();
+  for (const [n, who] of Object.entries(receipts)) {
+    if (only && +n !== only) continue;
+    const bubble = document.querySelector(`#m${n} .bubble`);
+    if (!bubble) continue;
+    let el = bubble.querySelector('.rcpt');
+    if (!el) { el = document.createElement('div'); el.className = 'rcpt'; bubble.insertBefore(el, bubble.querySelector('.meta')); }   // made here, so a message nobody was tagged in draws as before
+    el.innerHTML = Object.entries(who).map(([k, st]) => `<span class="${st}" title="${esc(L['rcpt' + st[0].toUpperCase() + st.slice(1)])}">${esc(k)} ${RCPT[st]}</span>`).join('');
+  }
+}
+async function pollReceipts() {
+  try {
+    const r = await fetch((await FRIEND) + 'receipts.json?t=' + Date.now(), {cache: 'no-store'});
+    if (r.ok) { receipts = await r.json(); paintReceipts(); }
+  } catch (e) {}
 }
 
 /* composer */
@@ -1182,7 +1209,7 @@ window.chatroom = {
   jumpTo, snapshot: () => ({all, config}),
   tag(name) { box.value = (box.value && !/\s$/.test(box.value) ? box.value + ' ' : box.value) + '@' + name + ' '; box.focus(); },
 };
-I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); setInterval(poll, 1500); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); pollRoles(); setInterval(pollRoles, 5000); });
+I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); setInterval(poll, 1500); pollReceipts(); setInterval(pollReceipts, 3000); setInterval(() => loadConfig(false), 5000); setInterval(header, 5000); pollRoles(); setInterval(pollRoles, 5000); });
 </script>
 <script src="spawn-view.js"></script>
 <script type="module" src="office.js"></script>
