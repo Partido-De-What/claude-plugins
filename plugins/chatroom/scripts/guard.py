@@ -45,6 +45,7 @@ def decide(ev):
 
 
 def main():
+    sys.stderr.reconfigure(encoding='utf-8')          # Claude Code reads the reason as UTF-8; Windows' default would garble è
     try:
         why = decide(json.load(sys.stdin))
     except Exception:                                 # a fault here never blocks an agent
