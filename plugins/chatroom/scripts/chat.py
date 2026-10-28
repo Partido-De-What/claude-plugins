@@ -667,8 +667,8 @@ class Room:
         if read_json(path, {}).get(sid) == name:
             return
 
-        def run():
-            d = read_json(path, {})
+        def run():                                    # one session per name: a room has one lead, and an old session's id must not keep its deliveries
+            d = {k: v for k, v in read_json(path, {}).items() if v != name}
             d[sid] = name
             write_atomic(path, json.dumps(d, indent=1))
         try:

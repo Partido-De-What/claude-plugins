@@ -20,6 +20,7 @@ Più agenti battono uno solo soltanto quando il lavoro si divide in tre o più p
 6. Prompt, generati: `prompt NAME --out ROOM/prompts/NAME.md` per ciascuno. Passa il testo di ogni file invariato allo strumento Agent (o `spawn_agent` in Codex), tutti gli agenti in un unico messaggio. Non modificare mai un prompt generato: cambia il brief o la config e generalo di nuovo (prompt identici tengono calda anche la prompt cache).
 7. Roster: con la mod chatroom si scrive da sola; altrimenti `roster A=<id> B=<id>` appena gli spawn rispondono.
 8. Relay: `alerts --follow --messages` sotto Monitor (timeout più lungo, riarmato quando finisce) in Claude Code; in Codex un ciclo di `wait_agent` ~60 s + `alerts --messages`. Senza relay nessuno consegna i messaggi dell'utente.
+   Sveglia: nell'app desktop nessuno arma il monitor del plugin, quindi dopo la tua prima chiamata come LEAD lancia `python scripts/inbox.py` sotto Monitor (timeout più lungo, riarmato quando finisce, come il relay; in `claude` da terminale parte da solo).
 9. Task con un test reale: impostali tu, dalla shell (sotto).
 
 ## 3. Cosa fa chat.py da solo

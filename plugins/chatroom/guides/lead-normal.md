@@ -30,6 +30,9 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
 7. Roster: with the chatroom mod it writes itself; otherwise `roster A=<id> B=<id>` as soon as the spawns return.
 8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
+   Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run
+   `python scripts/inbox.py` under Monitor (longest timeout, re-armed when it ends, as the relay; in `claude` from a
+   terminal it runs by itself).
 9. Tasks with a real test: set them yourself, from the shell (below).
 
 ## 3. What chat.py enforces by itself

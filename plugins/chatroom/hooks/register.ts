@@ -150,11 +150,20 @@ async function whoIs($: any, key: string, e: { agent_id?: string; session_id?: s
   return name
 }
 
+// every room of this agent or session: one session may lead several rooms, each with its own marks
 async function inbox($: any, e: { agent_id?: string; session_id?: string }): Promise<string> {
-  const entry = Object.entries(rooms).find(([, r]) => (e.agent_id ? r.ids.includes(e.agent_id) : !!e.session_id && (r as any).sessions?.includes(e.session_id)))
-  const s = entry && summaries.get(entry[0])
-  if (!entry || !s) return ''
-  const key = entry[0]
+  const keys = Object.entries(rooms).filter(([, r]) => (e.agent_id ? r.ids.includes(e.agent_id) : !!e.session_id && (r as any).sessions?.includes(e.session_id))).map(([k]) => k)
+  const parts: string[] = []
+  for (const key of keys) {
+    const text = await inboxOf($, key, e)
+    if (text) parts.push(keys.length > 1 ? text.replace(/^📨 /gm, `📨 [${summaries.get(key)?.title || key}] `) : text)
+  }
+  return parts.join('\n')
+}
+
+async function inboxOf($: any, key: string, e: { agent_id?: string; session_id?: string }): Promise<string> {
+  const s = summaries.get(key)
+  if (!s) return ''
   const name = await whoIs($, key, e)
   if (!name) return ''
   const mine = [name]

@@ -90,17 +90,23 @@ def live_rooms():
     return {k: v for k, v in rooms.items() if isinstance(v, dict) and time.time() - float(v.get('ts', 0)) < 60}
 
 
-def find_room(rooms, session, cwd):
-    """the room folder of this session: its id in `sessions`, else the folder that holds the working directory"""
-    for key, room in rooms.items():
-        if session and session in room.get('sessions', []):
-            return key
+def find_rooms(rooms, session, cwd):
+    """the room folders of this session: every room that lists its id in `sessions` (one session may lead several
+    rooms), else the folder that holds the working directory"""
+    mine = [key for key, room in rooms.items() if session and session in room.get('sessions', [])]
+    if mine:
+        return mine
     here = os.path.normcase(os.path.abspath(cwd))
     for key in rooms:
         k = os.path.normcase(os.path.abspath(key))
         if here == k or here.startswith(k + os.sep):
-            return key
-    return None
+            return [key]
+    return []
+
+
+def find_room(rooms, session, cwd):
+    """the first of find_rooms, or None"""
+    return next(iter(find_rooms(rooms, session, cwd)), None)
 
 
 def who_am_i(room_dir, session):
@@ -170,21 +176,23 @@ def stamp_of(room_dir, name):
 
 def watch(session, cwd, parent, once=False):
     import chat
-    key = name = None
-    after = 0
+    watched = {}                                      # room folder -> [name, after, seen]; seen: the stamp of the last look (an unchanged chat is not parsed again)
     last_rooms = 0
-    seen = None                                       # the stamp of the last look: an unchanged chat is not parsed again (one parse per 2 s per open session would add up)
     while True:
         if parent and not chat.pid_alive(parent):
             return 0
-        if key is None or time.time() - last_rooms > ROOMS_EVERY:
+        if not watched or time.time() - last_rooms > ROOMS_EVERY:
             last_rooms = time.time()
-            key = find_room(live_rooms(), session, cwd) or key
-            name = who_am_i(key, session) if key else None
-        stamp = stamp_of(key, name) if key and name else None
-        if stamp and (stamp != seen or once):
-            out, after = lines(key, name, after)
-            seen = stamp_of(key, name)                # after the marks this look wrote
+            for key in find_rooms(live_rooms(), session, cwd):
+                name = who_am_i(key, session)
+                if name and (key not in watched or watched[key][0] != name):
+                    watched[key] = [name, 0, None]
+        for key, w in watched.items():
+            stamp = stamp_of(key, w[0])
+            if not stamp or (stamp == w[2] and not once):
+                continue
+            out, w[1] = lines(key, w[0], w[1])
+            w[2] = stamp_of(key, w[0])                # after the marks this look wrote
             try:
                 for line in out:
                     print(line, flush=True)
@@ -218,6 +226,8 @@ def _prova():
     assert find_room(live_rooms(), 'sid-1', '/nowhere') == str(room)             # by session id
     assert find_room(live_rooms(), 'other', str(room / 'sub')) == str(room)      # by folder
     assert find_room(live_rooms(), 'other', '/nowhere') is None
+    two = {**stamp, str(base / 'room2'): {'ts': time.time(), 'sessions': ['sid-1']}}
+    assert find_rooms(two, 'sid-1', '/nowhere') == [str(room), str(base / 'room2')]   # one session leading two rooms: both watched
     assert who_am_i(room, 'sid-1') == 'LEAD' and who_am_i(room, 'x') == 'Adrian'
     out, n = lines(room, 'LEAD')
     assert [x.split(' ')[2] for x in out] == ['#1', '#3', '#4'] and n == 4, out    # user, tag, @all; not #2 (tags nobody), not its own #5
