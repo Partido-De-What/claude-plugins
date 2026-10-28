@@ -3840,6 +3840,9 @@ def cmd_serve(room, a):
                 if not OFFICE_FILE.is_file():
                     return self.send(404, say('chat.say.do_GET.no_personal_office'), 'text/plain')
                 return self.send(200, OFFICE_FILE.read_bytes(), 'application/json; charset=utf-8')
+            if path == '/packs.json':                 # the furniture and character packs the user added (packs.py)
+                import packs
+                return self.send(200, json.dumps(packs.load(), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/commands.json':
                 body = json.dumps(room_commands(room.config()), ensure_ascii=False)
                 return self.send(200, body, 'application/json; charset=utf-8')

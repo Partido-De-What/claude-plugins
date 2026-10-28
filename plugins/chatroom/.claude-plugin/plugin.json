@@ -14,5 +14,8 @@
   ],
   "homepage": "https://github.com/Partido-De-What/claude-plugins/tree/main/plugins/chatroom",
   "repository": "https://github.com/Partido-De-What/claude-plugins",
-  "license": "AGPL-3.0-only"
+  "license": "AGPL-3.0-only",
+  "experimental": {
+    "monitors": "./monitors/monitors.json"
+  }
 }

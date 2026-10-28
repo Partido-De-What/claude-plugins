@@ -656,7 +656,9 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
       el = document.createElement('div'); el.className = 'o-look o-common o-open';
       const sw = (k, list) => list.map(c => `<button data-k="${k}" data-v="${c}" class="o-sw${cur[k] === c ? ' o-on' : ''}" style="background:${c}"></button>`).join('');
       const sel = (k, list) => `<select data-k="${k}">${list.map(v => `<option value="${v}"${cur[k] === v ? ' selected' : ''}>${esc(L.lookNames[v] || v)}</option>`).join('')}</select>`;
+      const presets = Object.entries(opts.presets || {});
       el.innerHTML = `<h3>👤 ${esc(L.look)}</h3>
+        ${presets.length ? `<div class="o-meta">${esc(L.lookPresets)}</div><div class="o-reqrow">${presets.map(([n], k) => `<button data-preset="${k}">${esc(n)}</button>`).join(' ')}</div>` : ''}
         <div class="o-meta">${esc(L.lookSkin)}</div><div class="o-sws">${sw('skin', opts.skins)}</div>
         <div class="o-meta">${esc(L.lookHair)}</div><div class="o-sws">${sw('hair', opts.hairs)}</div>
         <div class="o-reqrow">${sel('style', opts.styles)} ${sel('outfit', opts.outfits)}</div>
@@ -669,6 +671,14 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
       const changed = () => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; if (!done) onChange({...cur}, false); }); };
       el.addEventListener('click', e => {
         const b = e.target.closest('button'); if (!b) return;
+        if (b.dataset.preset !== undefined) {                                // a look from a pack: every control follows it
+          Object.assign(cur, presets[+b.dataset.preset][1]);
+          for (const x of el.querySelectorAll('[data-k]')) {
+            if (x.dataset.v !== undefined) x.classList.toggle('o-on', cur[x.dataset.k] === x.dataset.v);
+            else if (x.type === 'checkbox') x.checked = !!cur[x.dataset.k]; else if (cur[x.dataset.k] !== undefined) x.value = cur[x.dataset.k];
+          }
+          changed(); return;
+        }
         if (b.dataset.act === 'save') { done = true; onChange({...cur}, true); el.remove(); return; }
         if (b.dataset.act === 'close') { done = true; onChange(look, false); el.remove(); return; }
         if (b.dataset.k) { cur[b.dataset.k] = b.dataset.v; el.querySelectorAll(`[data-k="${b.dataset.k}"]`).forEach(x => x.classList.toggle('o-on', x === b)); changed(); }

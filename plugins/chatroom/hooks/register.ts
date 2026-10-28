@@ -5,11 +5,13 @@
 // - writes the roster by itself: an agent spawned with a description that starts with a participant's name
 //   ("FETTE: checks the parser") is that participant;
 // - adds /stanza: a pane with the room (who works, who waits for you, the last messages, a box to write to all),
-//   and toasts when someone tags you, a plan or a closing arrives, or an agent starts waiting for you.
+//   and toasts when someone tags you, a plan or a closing arrives, or an agent starts waiting for you;
+// - hands a room agent (and the lead) the messages that tag it in the middle of its work: after each tool and before it
+//   stops, one short line per message (never the whole chat), marked delivered (ROOM/delivered_NAME.txt).
 // Rooms are found in ~/.claude/chatroom/rooms.json, which `chat.py serve` stamps every few seconds.
 import type { Register } from 'claude-code'
 
-type Room = { url: string; ts: number; ids: string[]; participants: string[]; user: string; title: string; rtk?: string | null }
+type Room = { url: string; ts: number; ids: string[]; sessions?: string[]; participants: string[]; user: string; title: string; rtk?: string | null }
 type Agent = { tool?: string | null; target?: string; since?: number | null; waiting?: number | null }
 type Message = { n: number; from: string; text: string; kind?: string; ts?: number }
 type Summary = {
@@ -20,6 +22,7 @@ type Summary = {
 const PANE = 'stanza'
 const FIELDS = ['file_path', 'notebook_path', 'command', 'pattern', 'url', 'query', 'description', 'to']
 let registry = ''
+let sessionId = ''
 let rooms: Record<string, Room> = {}
 let paneOpen = false
 const summaries = new Map<string, Summary>()
@@ -62,6 +65,17 @@ function send($: any, room: Room, ev: object) {
   }).catch(() => undefined)
 }
 
+// who spawned whom, as the engine knows it now (subagents and teammates, their status, their parent): the viewer draws the team from it
+async function sendTeam($: any) {
+  let agents: any[]
+  try { agents = await $.agent.list() } catch { return }
+  const team = agents.map(a => ({ id: a.id, name: String(a.teammateId || '').split('@')[0], type: a.type, status: a.status, parentId: a.parentId, description: a.description }))
+  const ids = new Set(team.map(a => a.id))
+  for (const room of Object.values(rooms)) {
+    if (room.ids.some(i => ids.has(i)) || (sessionId && room.sessions?.includes(sessionId))) send($, room, { kind: 'team', agents: team })
+  }
+}
+
 async function refresh($: any) {
   try {
     const now = Date.now() / 1000
@@ -82,6 +96,7 @@ async function refresh($: any) {
     }
   }
   for (const key of [...summaries.keys()]) if (!rooms[key]) summaries.delete(key)
+  await sendTeam($)
   if (paneOpen) $.ui.invalidate('ui.render')
 }
 
@@ -108,11 +123,70 @@ function alerts($: any, key: string, s: Summary) {
   }
 }
 
+// Messages for an agent in the middle of its work. Who is who: a room agent by its agent id (the roster maps name to id),
+// the lead's own session by its session id (sessions.json, written by chat.py). A message counts when it tags the agent
+// (the lead also answers to the user's names), tags everyone, or comes from the user, and the agent neither read it
+// (cursor_NAME.txt) nor was handed it (delivered_NAME.txt, which the monitor inbox.py writes too).
+const names = new Map<string, { name: string; at: number }>()
+const handed = new Map<string, number>()
+const readText = async ($: any, path: string) => { try { return String(await $.fs.read(path)) } catch { return '' } }
+const readInt = async ($: any, path: string) => parseInt(await readText($, path), 10) || 0
+const tagsName = (text: string, who: string) => new RegExp('(?<![\\w@])@' + escapeRe(who) + '(?![\\w-])', 'i').test(text)
+
+async function whoIs($: any, key: string, e: { agent_id?: string; session_id?: string }) {
+  const id = e.agent_id || e.session_id || ''
+  const hit = names.get(key + '|' + id)
+  if (hit && (e.agent_id || Date.now() - hit.at < 30000)) return hit.name
+  let name = ''
+  try {
+    if (e.agent_id) {
+      const roster = JSON.parse(await readText($, key + '/roster.json') || '{}') as Record<string, string>
+      name = Object.keys(roster).find(n => roster[n] === e.agent_id) || ''
+    } else if (e.session_id) {
+      name = (JSON.parse(await readText($, key + '/sessions.json') || '{}') as Record<string, string>)[e.session_id] || ''
+    }
+  } catch { /* an unreadable file: nobody */ }
+  if (name) names.set(key + '|' + id, { name, at: Date.now() })
+  return name
+}
+
+async function inbox($: any, e: { agent_id?: string; session_id?: string }): Promise<string> {
+  const entry = Object.entries(rooms).find(([, r]) => (e.agent_id ? r.ids.includes(e.agent_id) : !!e.session_id && (r as any).sessions?.includes(e.session_id)))
+  const s = entry && summaries.get(entry[0])
+  if (!entry || !s) return ''
+  const key = entry[0]
+  const name = await whoIs($, key, e)
+  if (!name) return ''
+  const mine = [name]
+  if (!e.agent_id) {                                   // the lead answers to the user's names too
+    try {
+      const c = JSON.parse(await readText($, key + '/config.json') || '{}')
+      mine.push(c.user_name, ...(c.user_aliases || []), ...(c.self_names || []))
+    } catch { mine.push(s.user) }
+  }
+  const mark = handed.get(key + '|' + name) || 0
+  const maybe = s.last.filter(m => m.n > mark && !m.kind && m.from !== name &&
+    (m.from === s.user || /(?<![\w@])@(all|tutti|everyone)(?![\w-])/i.test(m.text) || mine.some(w => w && tagsName(m.text, w))))
+  if (!maybe.length) return ''
+  const seen = Math.max(mark, await readInt($, `${key}/cursor_${name}.txt`), await readInt($, `${key}/delivered_${name}.txt`))
+  const fresh = maybe.filter(m => m.n > seen)
+  const top = Math.max(...maybe.map(m => m.n))
+  handed.set(key + '|' + name, top)
+  if (!fresh.length) return ''
+  const now = Math.max(top, await readInt($, `${key}/delivered_${name}.txt`))       // monotone, as chat.py delivered
+  await $.fs.write(`${key}/delivered_${name}.txt`, String(now)).catch(() => undefined)
+  const it = s.lang !== 'en'
+  const shown = fresh.slice(-3).map(m => `📨 #${m.n} ${it ? 'da' : 'from'} ${m.from}: ${oneLine(m.text, 160)}`)
+  if (fresh.length > 3) shown.unshift(`📨 (+${fresh.length - 3} ${it ? 'più vecchi: chat_read' : 'older: chat_read'})`)
+  return shown.join('\n')
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const dir = (await $.env.get('CLAUDE_CONFIG_DIR'))
       || `${(await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || ''}/.claude`
     registry = `${dir}/chatroom/rooms.json`
+    sessionId = (await $.env.get('CLAUDE_CODE_SESSION_ID')) || ''
     await $.command.register({
       name: 'stanza', immediate: true,
       description: 'Show the open chatroom: who works, who waits for you, the last messages, a box to write to all',
@@ -163,14 +237,34 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))          // fail open: a fault here never blocks the session
 
+  // a message in the middle of the work: after each tool, and before the agent (or the lead) stops
+  on('classic.PostToolUse', async ($, e, next) => {
+    const out = await next(e)
+    const text = await inbox($, e as any)
+    return text ? { ...out, additionalContext: [...(out.additionalContext || []), text] } : out
+  }).catch(($, e, next) => next(e))          // fail open: a fault here never blocks the session
+  for (const ev of ['classic.Stop', 'classic.SubagentStop'] as const) {
+    on(ev, async ($, e, next) => {
+      const out = await next(e)
+      const text = await inbox($, e as any)
+      return text && !out.block ? { ...out, block: text } : out
+    }).catch(($, e, next) => next(e))        // fail open: a fault here never blocks the session
+  }
+
   // the roster writes itself
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
     if (started.deny === undefined && started.agentId) {
+      // who spawned whom: the parent's id (absent: the lead's own session), a named teammate, the kind of agent
+      const ev = { agentId: started.agentId, description: e.description, parentAgentId: e.parentAgentId, isTeammate: !!e.isTeammate,
+                   name: e.name, subagentType: e.subagentType, toolUseId: e.tool_use_id }
       for (const room of Object.values(rooms)) {
-        if (!room.participants.some(n => startsWithName(e.description, n))) continue
-        room.ids.push(started.agentId)
-        send($, room, { kind: 'spawn', agentId: started.agentId, description: e.description })
+        if (room.participants.some(n => startsWithName(e.description, n))) {
+          room.ids.push(started.agentId)
+          send($, room, { kind: 'spawn', ...ev })
+        } else if (e.parentAgentId && room.ids.includes(e.parentAgentId)) {      // a subagent of a room agent: drawn around its parent
+          send($, room, { kind: 'child', ...ev })
+        }
       }
     }
     return started

@@ -128,6 +128,26 @@ export function createEditor({scene, camera, controls, renderer, root, layout, m
     if (!r.ok) { alertText(await r.text()); return; }
     location.reload();
   }
+  /** the layout as a file: the pieces and the external packs they use (a friend needs the same packs to see all of it) */
+  function exportLayout() {
+    const list = items.filter(Boolean), have = new Map(V.extraPacks().packs.map(p => [p.id, p]));
+    const used = [...new Set(list.map(it => it.pack?.split('/')[0]).filter(id => have.has(id)))].map(id => { const {name, author, license, source} = have.get(id); return {id, name, author, license, source}; });
+    const blob = new Blob([JSON.stringify({format: 'chatroom-office', version: 1, items: list, packs: used}, null, 1)], {type: 'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'office-layout.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  /** a layout file replaces the office: the server checks every piece, as for a save */
+  async function importLayout(file) {
+    let d; try { d = JSON.parse(await file.text()); } catch (e) { d = null; }
+    if (!d || !Array.isArray(d.items) || (d.format && d.format !== 'chatroom-office')) { alertText(I18N.text('edit.importBad', {}, lang())); return; }
+    const known = new Set(V.packNames()), missing = [...new Set(d.items.filter(it => it && it.pack && !known.has(it.pack)).map(it => it.pack.split('/')[0]))];
+    const list = missing.join(', ');
+    if (missing.length) alertText(I18N.text('edit.importMissing', {list}, lang()));
+    if (!confirm(I18N.text('edit.importAsk', {n: d.items.length}, lang()))) return;
+    const r = await fetch('office', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({items: d.items})});
+    if (!r.ok) { alertText(await r.text()); return; }
+    location.reload();
+  }
   function alertText(text) { const el = panel.querySelector('.o-msg'); if (el) el.textContent = text; }
 
   function draw() {
@@ -150,7 +170,10 @@ export function createEditor({scene, camera, controls, renderer, root, layout, m
       <h4>${esc(L.add)}</h4><input type="search" data-k="q" placeholder="${esc(L.search)}" value="${esc(query)}">
       <div class="o-list">${list.map((o, k) => `<div tabindex="0" data-i="${k}">${esc(o.text)} <span class="o-meta">· ${esc(o.tag)}</span></div>`).join('')}</div>
       <div class="o-grid" style="margin-top:10px"><button data-a="save" class="o-primary">${esc(L.save)}</button><button data-a="discard">${esc(L.discard)}</button>
-        <button data-a="reset">${esc(L.reset)}</button></div><div class="o-meta o-msg">${dirty ? esc(L.unsaved) : ''}</div>`;
+        <button data-a="reset">${esc(L.reset)}</button></div>
+      <div class="o-grid"><button data-a="export">${esc(L.export)}</button><button data-a="import">${esc(L.import)}</button>
+        <input type="file" accept="application/json,.json" data-k="file" hidden></div>
+      ${packsLine()}<div class="o-meta o-msg">${dirty ? esc(L.unsaved) : ''}</div>`;
     panel.querySelectorAll('.o-list [data-i]').forEach(el => {
       const o = list[+el.dataset.i], go = () => add(o.type, o.pack || null);
       el.onclick = go; el.onkeydown = e => { if (e.key === 'Enter') go(); };
@@ -173,6 +196,17 @@ export function createEditor({scene, camera, controls, renderer, root, layout, m
     panel.querySelector('[data-a="save"]').onclick = () => save(false);
     panel.querySelector('[data-a="discard"]').onclick = () => location.reload();
     panel.querySelector('[data-a="reset"]').onclick = () => save(true);
+    panel.querySelector('[data-a="export"]').onclick = exportLayout;
+    const file = panel.querySelector('[data-k="file"]');
+    panel.querySelector('[data-a="import"]').onclick = () => file.click();
+    file.onchange = () => { if (file.files[0]) importLayout(file.files[0]); };
+  }
+  /** the packs the user added, with their licence (CC BY needs the credit), and the files that were refused */
+  function packsLine() {
+    const x = V.extraPacks(), lg = lang(), bad = x.errors.join('; ');
+    const list = x.packs.map(p => `${esc(p.name)}${p.author ? ' · ' + esc(p.author) : ''}${p.license ? ' (' + esc(p.license) + ')' : ''}`).join(', ');
+    return (list ? `<div class="o-meta">${esc(I18N.text('edit.packs', {list: ''}, lg))}${list}</div>` : '')
+      + (x.errors.length ? `<div class="o-meta">${esc(I18N.text('edit.packsBad', {list: bad}, lg))}</div>` : '');
   }
 
   return {

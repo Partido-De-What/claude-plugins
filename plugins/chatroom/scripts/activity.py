@@ -20,6 +20,7 @@ import functools
 import json
 import os
 import re
+import tempfile
 import time
 from collections import deque
 from datetime import datetime
@@ -60,6 +61,51 @@ def window_of(model):
     """context window of a model id: Haiku and the 4.x line have 200k, the 5 family 1M"""
     m = (model or '').lower()
     return 200_000 if 'haiku' in m or '-4-' in m or m.startswith('claude-3') else 1_000_000
+
+
+WRITERS = ('Edit', 'Write', 'NotebookEdit', 'MultiEdit')
+_ROOTS = {}                                                        # folder -> its git root (or None): a repo does not move while the viewer runs
+
+
+def git_root(path, skip=None):
+    """the git root a file belongs to (a worktree has a `.git` file, a repo a `.git` folder), None outside any repo and
+    inside the temp folder or ~/.claude (scratch files are not a project)"""
+    skip = [os.path.normcase(str(x)) for x in (skip if skip is not None else (tempfile.gettempdir(), CLAUDE_DIR))]
+    d = os.path.dirname(os.path.abspath(str(path)))                # the case the file system gave; the cache compares in lower case on Windows
+    if any(os.path.normcase(d) == x or os.path.normcase(d).startswith(x + os.sep) for x in skip):
+        return None
+    walked = []
+    for _ in range(14):
+        if os.path.normcase(d) in _ROOTS:
+            root = _ROOTS[os.path.normcase(d)]
+            break
+        walked.append(os.path.normcase(d))
+        if os.path.exists(os.path.join(d, '.git')):
+            root = d
+            break
+        up = os.path.dirname(d)
+        if up == d:
+            root = None
+            break
+        d = up
+    else:
+        root = None
+    for w in walked:
+        _ROOTS[w] = root
+    return root
+
+
+def branch_of(root):
+    """the branch a repo or worktree is on (a short hash when detached), '' when it cannot be read"""
+    try:
+        git = Path(root, '.git')
+        if git.is_file():                                          # a worktree: `gitdir: <path>`
+            target = git.read_text(encoding='utf-8').split(':', 1)[1].strip()
+            git = Path(target) if os.path.isabs(target) else Path(root, target)
+        head = Path(git, 'HEAD').read_text(encoding='utf-8').strip()
+    except (OSError, IndexError):
+        return ''
+    return head[16:] if head.startswith('ref: refs/heads/') else head[:8]
 
 
 def target_of(tool, inp):
@@ -182,6 +228,9 @@ class Agent:
         self.error_at = self.done_at = self.text_at = self.seen = None
         self.ctx = self.model = self.win = None                    # win: a window the transcript states (Codex)
         self.subagents = 0
+        self.kids = {}                                             # Agent call id -> {name, type, teammate}: its subagents that run now (the mod says who they are)
+        self.root = None                                           # the git root of the last file it wrote: its area in the office
+        self.parent, self.teammate = None, False                     # who spawned it: another participant, '' (the lead's own session), or None while nobody has said; a named teammate
         self.procs = {}                                            # background processes: id -> {id, kind, cmd, state, started, last, code, out}
         self.cx_sess = {}                                          # Codex call id -> what it is about: 'start', 'cx:<session>' (a write) or 'cell:<cell>' (a wait)
         self.cx_cells = {}                                         # Codex cell id -> the label of the script that started it
@@ -195,9 +244,11 @@ class Agent:
         if self.ctx and (not self.ctxs or abs(self.ctx - self.ctxs[-1][1]) >= 1000 or ts - self.ctxs[-1][0] >= 30):
             self.ctxs.append((ts, self.ctx))
 
-    def start(self, call_id, tool, target, ts):
+    def start(self, call_id, tool, target, ts, inp=None):
         if call_id in self.calls or call_id in self.ended:
             return                                                 # the same call from both sources, running or already over
+        if tool in WRITERS and isinstance(inp, dict) and (inp.get('file_path') or inp.get('notebook_path')):
+            self.root = git_root(inp.get('file_path') or inp.get('notebook_path')) or self.root
         self.calls[call_id] = (tool, target, ts)
         self.tool, self.target, self.since, self.seen = tool, target, ts, ts
         self.pulse.append(ts)
@@ -216,6 +267,7 @@ class Agent:
         self.history.append((start, int((ts - start) * 1000), lane_of(tool, target), bool(ok)))
         if tool in ('Agent', 'Task'):
             self.subagents = max(0, self.subagents - 1)
+            self.kids.pop(call_id, None)
         if not ok:
             self.error_at = ts
         self.done_at, self.seen = ts, ts
@@ -278,7 +330,8 @@ class Agent:
         return {'id': self.id, 'tool': self.tool, 'target': self.target, 'since': self.since,
                 'waiting': self.waiting, 'error_at': self.error_at, 'done_at': self.done_at, 'text_at': self.text_at,
                 'seen': self.seen, 'ctx': self.ctx, 'window': win if self.ctx else None, 'model': self.model,
-                'subagents': self.subagents, 'procs': self.procs_view(now), 'recent': list(self.recent)[::-1],
+                'subagents': self.subagents, 'kids': list(self.kids.values()), 'parent': self.parent, 'teammate': self.teammate,
+                'root': {'name': Path(self.root).name, 'branch': branch_of(self.root), 'path': self.root} if self.root else None, 'procs': self.procs_view(now), 'recent': list(self.recent)[::-1],
                 'pulse': [round(now - t, 1) for t in self.pulse if now - t <= PULSE_SECONDS]}
 
 
@@ -288,6 +341,7 @@ class Activity:
         self.agents = {}                    # agent id -> Agent
         self.tails = {}                     # agent id -> [path, offset, partial] or [None, next_search_time]
         self.last_poll = 0.0
+        self.team, self.team_at = [], 0.0                        # the session's agent tree the mod sent last: [{id, name, type, status, parent}]
         self.mod_at = None                  # when the mod last sent an event
 
     # ------------------------------------------------------------------ roster
@@ -326,13 +380,35 @@ class Activity:
                 else:
                     roster = self.room.roster(); put(roster)
                     (self.room.dir / 'roster.json').write_text(json.dumps(roster, indent=2), encoding='utf-8')
+            a, up = self.agent(aid), self.agent(str(ev.get('parentAgentId') or ''))
+            if a:
+                a.parent, a.teammate = (up.name if up else ''), bool(ev.get('isTeammate'))
+            return
+        if kind == 'team':                                         # the engine's own list of agents: who spawned whom, teammates by name, who still runs
+            rows = ev.get('agents') if isinstance(ev.get('agents'), list) else []
+            self.team = [{'id': str(r.get('id')), 'name': str(r.get('name') or '')[:30], 'type': str(r.get('type') or '')[:30],
+                          'status': str(r.get('status') or '')[:12], 'parent': str(r.get('parentId') or '')}
+                         for r in rows[:200] if isinstance(r, dict) and AGENT_ID.match(str(r.get('id')))]
+            self.team_at = now
+            by_id = {t['id']: t for t in self.team}
+            for a in self.agents.values():
+                t = by_id.get(a.id)
+                if t:
+                    up = self.agent(t['parent']) if t['parent'] else None
+                    a.parent, a.teammate = (up.name if up else ''), bool(t['name'])
+            return
+        if kind == 'child':                                        # a subagent of a room agent: no desk, drawn around its parent
+            up = self.agent(str(ev.get('parentAgentId') or ''))
+            if up:
+                up.kids[str(ev.get('toolUseId') or aid)] = {'name': str(ev.get('name') or ''), 'type': str(ev.get('subagentType') or ''),
+                                                           'teammate': bool(ev.get('isTeammate')), 'since': now}
             return
         a = self.agent(aid)
         if a is None:
             return
         call = str(ev.get('id') or ev.get('tool') or '')
         if kind == 'tool':
-            a.start(call, str(ev.get('tool') or ''), target_of(ev.get('tool'), ev.get('input')), now)
+            a.start(call, str(ev.get('tool') or ''), target_of(ev.get('tool'), ev.get('input')), now, ev.get('input'))
         elif kind == 'done':
             a.finish(call, bool(ev.get('ok', True)), now)
         elif kind == 'ask':
@@ -407,7 +483,7 @@ class Activity:
                 a.note_ctx(ts)
             for c in content:
                 if c.get('type') == 'tool_use':
-                    a.start(str(c.get('id')), str(c.get('name')), target_of(c.get('name'), c.get('input')), ts)
+                    a.start(str(c.get('id')), str(c.get('name')), target_of(c.get('name'), c.get('input')), ts, c.get('input'))
                     self.record_proc_use(a, c, ts)
                 elif c.get('type') == 'text' and c.get('text'):
                     a.text_at = a.seen = ts
@@ -595,7 +671,17 @@ class Activity:
     def state(self):
         self.poll()
         now = time.time()
-        return {'now': now, 'agents': {a.name: a.view(now) for a in self.agents.values()}, 'mod': self.mod_at}
+        agents = {a.name: a.view(now) for a in self.agents.values()}
+        out = {'now': now, 'agents': agents, 'mod': self.mod_at, 'lead_kids': []}
+        if now - self.team_at < 15:                                # the engine's list wins over the spawn events while it is fresh
+            desks = set(self.ids().values())                        # the roster's agents have desks of their own
+            kid = lambda t: {'name': t['name'], 'type': t['type'], 'teammate': bool(t['name']), 'status': t['status']}
+            live = [t for t in self.team if t['id'] not in desks and t['status'] not in ('completed', 'failed', 'killed')]
+            for a in self.agents.values():
+                agents[a.name]['kids'] = [kid(t) for t in live if t['parent'] == a.id]
+                agents[a.name]['subagents'] = max(agents[a.name]['subagents'], len(agents[a.name]['kids']))
+            out['lead_kids'] = [kid(t) for t in live if not t['parent']]
+        return out
 
 
 @functools.cache                       # shortcut: found once per viewer (a PATH scan is ~40 ms on Windows); RTK installed later needs a restart of serve
@@ -637,7 +723,12 @@ def register_room(room, port, host):
 
     def add(rooms):
         c = room.config()
+        try:                                           # the lead's session ids (written by chat.py): the monitor finds its room by them
+            sessions = list(json.loads((room.dir / 'sessions.json').read_text(encoding='utf-8')))
+        except (OSError, ValueError, TypeError):
+            sessions = []
         rooms[key] = {'url': f'http://{host}:{port}', 'ts': time.time(), 'ids': list(Activity(room).ids().values()), 'rtk': rtk_path(),
+                      'sessions': sessions,
                       'participants': c.get('participants', []), 'user': c.get('user_name', 'USER'),
                       'title': c.get('title') or c.get('topic', ''), 'since': rooms.get(key, {}).get('since', started)}
     edit(add)
@@ -810,6 +901,58 @@ def _prova():
         # a hostile transcript cannot make the viewer read other files
         b.procs['bfoo12345']['out'] = str(Path(tmp, 'secret.txt')); Path(tmp, 'secret.txt').write_text('x')
         assert act.tail('B', 'bfoo12345')['lines'] == []
+        # who spawned whom: a participant spawned by another has its parent; a subagent without a desk is a kid of its parent until its call ends
+        act.hook({'kind': 'spawn', 'agentId': 'a2222222222222222', 'description': 'LUCE: lights', 'parentAgentId': 'a1111111111111111', 'isTeammate': True})
+        assert act.agent('a2222222222222222').parent == 'FETTE' and act.agent('a2222222222222222').teammate
+        act.hook({'kind': 'tool', 'agentId': 'a1111111111111111', 'id': 't9', 'tool': 'Agent', 'input': {'description': 'scan'}})
+        act.hook({'kind': 'child', 'agentId': 'a9999999999999999', 'parentAgentId': 'a1111111111111111', 'toolUseId': 't9', 'subagentType': 'Explore', 'name': ''})
+        v = act.agent('a1111111111111111').view(time.time())
+        assert v['subagents'] == 1 and v['kids'] == [{'name': '', 'type': 'Explore', 'teammate': False, 'since': v['kids'][0]['since']}], v
+        act.hook({'kind': 'done', 'agentId': 'a1111111111111111', 'id': 't9', 'ok': True})
+        assert act.agent('a1111111111111111').view(time.time())['kids'] == []
+        # the engine's agent tree: kids by parent, the lead's own kids, a finished one gone, a participant's parent and teammate flag
+        act.hook({'kind': 'team', 'agents': [
+            {'id': 'a1111111111111111', 'name': '', 'type': 'general-purpose', 'status': 'running'},
+            {'id': 'a2222222222222222', 'name': 'luce', 'type': 'teammate', 'status': 'idle', 'parentId': 'a1111111111111111'},
+            {'id': 'a4444444444444441', 'name': 'scout', 'type': 'teammate', 'status': 'idle'},
+            {'id': 'a4444444444444442', 'name': '', 'type': 'Explore', 'status': 'running', 'parentId': 'a1111111111111111'},
+            {'id': 'a4444444444444443', 'name': '', 'type': 'Explore', 'status': 'completed', 'parentId': 'a1111111111111111'}]})
+        st = act.state()
+        assert st['agents']['FETTE']['kids'] == [{'name': '', 'type': 'Explore', 'teammate': False, 'status': 'running'}], st['agents']['FETTE']['kids']
+        assert st['lead_kids'] == [{'name': 'scout', 'type': 'teammate', 'teammate': True, 'status': 'idle'}], st['lead_kids']
+        assert act.agent('a2222222222222222').parent == 'FETTE' and act.agent('a1111111111111111').parent == ''
+        act.team_at -= 60
+        assert act.state()['lead_kids'] == []                                                # stale: the spawn events decide again
+        # the area of an agent: the git root of the last file it wrote, and the branch of that repo or worktree
+        repo, wt = Path(tmp, 'repo'), Path(tmp, 'wt')
+        (repo / '.git').mkdir(parents=True); (repo / '.git' / 'HEAD').write_text('ref: refs/heads/main\n')
+        (repo / 'src').mkdir(); wt.mkdir(); (repo / '.git' / 'wt-gitdir').mkdir()
+        (repo / '.git' / 'wt-gitdir' / 'HEAD').write_text('ref: refs/heads/feat-x\n')
+        (wt / '.git').write_text('gitdir: ' + str(repo / '.git' / 'wt-gitdir') + '\n')
+        assert git_root(repo / 'src' / 'a.py', skip=()) == str(repo) and git_root(wt / 'b.py', skip=()) == str(wt)
+        assert git_root(repo / 'src' / 'a.py') is None                                # under the temp folder: not a project
+        assert branch_of(repo) == 'main' and branch_of(wt) == 'feat-x' and branch_of(Path(tmp, 'nope')) == ''
+        _ROOTS.clear()
+        real, claude_dir = tempfile.gettempdir, CLAUDE_DIR
+        tempfile.gettempdir, CLAUDE_DIR = (lambda: str(Path(tmp, 'elsewhere'))), Path(tmp, 'elsewhere')
+        try:
+            act.hook({'kind': 'tool', 'agentId': 'a1111111111111111', 'id': 'w1', 'tool': 'Edit', 'input': {'file_path': str(wt / 'b.py')}})
+            r = act.agent('a1111111111111111').view(time.time())['root']
+            assert r['name'] == 'wt' and r['branch'] == 'feat-x', r
+            act.hook({'kind': 'tool', 'agentId': 'a1111111111111111', 'id': 'w2', 'tool': 'Read', 'input': {'file_path': str(repo / 'src' / 'a.py')}})
+            assert act.agent('a1111111111111111').view(time.time())['root']['name'] == 'wt'      # only writes move its area
+        finally:
+            tempfile.gettempdir, CLAUDE_DIR = real, claude_dir
+        # the registry carries the lead's session ids (sessions.json) for the monitor
+        global REGISTRY
+        old_registry, REGISTRY = REGISTRY, Path(tmp, 'rooms.json')
+        try:
+            Path(tmp, 'sessions.json').write_text(json.dumps({'sid-1': 'LEAD'}))
+            stop = register_room(room, 1, '127.0.0.1')
+            assert json.loads(REGISTRY.read_text(encoding='utf-8'))[str(room.dir.resolve())]['sessions'] == ['sid-1']
+            stop()
+        finally:
+            REGISTRY = old_registry
     print('activity.py: prova ok')
 
 

@@ -583,11 +583,15 @@ export function blindWall(length, height, holes = [], color = '#ece8e1', doors =
 
 // ------------------------------------------------------------------ models from the office pack (CC BY 4.0)
 // vendor/office-pack.json: MagicaVoxel models by MariaIsMe (see vendor/office-pack-CREDITS.md), one tile = 16 voxels.
-let PACK = {};
+let PACK = {}, EXTRA = {packs: [], looks: {}, errors: []};
 export async function loadPack(url = 'vendor/office-pack.json') {
   try { const r = await fetch(url); if (r.ok) PACK = await r.json(); } catch (e) {}
+  // the packs the user added (~/.claude/chatroom/packs, packs.py): their models are named <id>/<model>, so none replaces a built-in one
+  try { const r = await fetch('packs.json'); if (r.ok) { const x = await r.json(); Object.assign(PACK, x.models || {}); EXTRA = {packs: x.packs || [], looks: x.looks || {}, errors: x.errors || []}; } } catch (e) {}
   return PACK;
 }
+/** what the added packs bring: {packs: [{id, name, author, license, models, looks}], looks: {name: look}, errors: [text]} */
+export const extraPacks = () => EXTRA;
 const packCache = new Map();
 /** the voxels of a pack model turned to this office's axes: MagicaVoxel's z is up and its models face -y, so x stays,
  *  z becomes the height and -y becomes +z (models face +z here, like ours); bounds in voxels */

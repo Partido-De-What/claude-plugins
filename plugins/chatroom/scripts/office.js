@@ -484,7 +484,8 @@ function buildDesk(d, i) {
   return {g, scr, beacon, beaconLight, chair, owner: null,
           seat: {pos: W(0, 0.78, -0.07), rot: d.rot + Math.PI, pose: 'sit', desk: i},
           stand: {pos: W(-0.55, 1.35), rot: d.rot, pose: 'stand', desk: i},
-          intern: {pos: W(0.62, 1.1), rot: d.rot + Math.PI, pose: 'stand'}};
+          intern: {pos: W(0.62, 1.1), rot: d.rot + Math.PI, pose: 'stand'},
+          ring: [[0.62, 1.1], [-1.1, 0.95], [1.15, 0.45], [-1.1, 0.3]].map(([x, z]) => ({pos: W(x, z), rot: d.rot + Math.PI, pose: 'stand'}))};
 }
 
 // more agents than desks: a block of four at the first free pod slot of the layout, else a single workstation where the
@@ -515,7 +516,10 @@ function deskLayout(names) {
   for (const name of names) {
     if (SPOTS.has(name)) continue;
     // this room's agents take desks from the first, the other session's from the last: both offices agree
-    const pick = D.per[name]?.neighbor ? [...DESKS].reverse().find(k => !k.owner) : DESKS.find(k => !k.owner);
+    let pick = D.per[name]?.neighbor ? [...DESKS].reverse().find(k => !k.owner) : DESKS.find(k => !k.owner);
+    const myRoot = D.per[name]?.a?.root?.path;                   // the git root it writes in: the desk nearest a colleague of the same root
+    const mate = myRoot && [...SPOTS].find(([n]) => n !== name && D.per[n]?.a?.root?.path === myRoot)?.[1];
+    if (mate) for (const k of DESKS) if (!k.owner && (!pick || k.seat.pos.distanceTo(mate.seat.pos) < pick.seat.pos.distanceTo(mate.seat.pos))) pick = k;
     const d = pick || addPod() || addWorkstation();
     if (!d) continue;                                            // ponytail: no free floor left either
     const color = DATA.profile(name).color;
@@ -531,6 +535,7 @@ function releaseDesk(name) {
   const d = SPOTS.get(name);
   if (!d) return;
   SPOTS.delete(name); d.owner = null; d.scrKey = null; d.beacon.visible = false;
+  if (d.area) { d.area.mesh.visible = false; d.areaKey = null; }
   if (d.mug) { d.g.remove(d.mug); d.mug = null; }
   d.g.remove(d.chair); d.chair = chairFor(null); d.chair.position.set(0, 0, 0.8); d.chair.rotation.y = Math.PI; d.g.add(d.chair);
   const {g, canvas: k} = d.scr; g.fillStyle = '#0b0e15'; g.fillRect(0, 0, k.lw, k.lh); g.fillStyle = '#1b2230'; g.fillRect(k.lw / 2 - 6, k.lh / 2 - 6, 12, 12); d.scr.tex.needsUpdate = true;
@@ -832,7 +837,54 @@ let fromBridge = false;                                                    // ba
 try { fromBridge = sessionStorage.getItem('chatroom.fromBridge') === '1'; sessionStorage.removeItem('chatroom.fromBridge'); } catch (e) {}
 const BOSS_SEAT = visit ? (LAYOUT.bridge && STANDS.find(s => s.tag === 'bridgeIn')) || STANDS.find(s => s.tag === 'entrance') || {pos: new THREE.Vector3(0, 0, SIZE_Z / 2 - 1), rot: Math.PI, pose: 'stand'} : (fromBridge && STANDS.find(s => s.tag === 'bridgeIn')) || OWNER_SEAT;
 let hostFigure = null;                                                      // on a visit: the friend in their own chair
-const interns = new Map();
+const interns = new Map();                                                 // agent name -> its interns, one per subagent
+const leadKids = [];                                                       // interns around the lead: its own subagents and the teammates that have no desk
+const internList = () => [...[...interns.values()].flat(), ...leadKids];
+/** the lead's own agents (the mod sends them as lead_kids), standing in a ring around its seat, up to six */
+function syncLeadKids(kids) {
+  const want = Math.min(kids.length, 6), seat = assistant?.spot;
+  if (!seat) return;
+  while (leadKids.length < want) {
+    const k = leadKids.length, a = (k / 6 + 0.08) * Math.PI * 2, spot = {pos: seat.pos.clone().add(new THREE.Vector3(Math.cos(a) * 0.95, 0, Math.sin(a) * 0.95)), rot: (seat.rot || 0) + Math.PI, pose: 'stand'};
+    const it = new Person(D.lead + '·sub', 'intern', spot, true, DATA.profile(D.lead).color); it.act = 'code'; leadKids.push(it);
+  }
+  while (leadKids.length > want) { const it = leadKids.pop(); emit(25, it.head(), {color: ['#ffffff', DATA.profile(D.lead).color]}); it.dispose(); }
+  leadKids.forEach((it, k) => { it.kid = kids[k]; });
+}
+/** who spawned whom, drawn for the selected agent: a thread from each parent to its child (the lead is the parent of those it spawned itself) */
+const links = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({vertexColors: true, transparent: true, opacity: 0.95, depthTest: false}));
+links.renderOrder = 999; links.frustumCulled = false; scene.add(links);
+function drawLinks() {
+  const at = n => (n === D.lead ? assistant?.pos : SPOTS.get(n)?.seat.pos), pos = [], col = [], c = new THREE.Color();
+  for (const n of D.names) {
+    const parent = DATA.state.agents?.[n]?.parent;
+    if (parent === null || parent === undefined) continue;
+    const up = parent || D.lead;
+    if (!selected || (selected !== n && selected !== up)) continue;
+    const a = at(up), b = at(n);
+    if (!a || !b) continue;
+    c.set(DATA.profile(n).color);
+    pos.push(a.x, 1.0, a.z, b.x, 1.0, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+  }
+  links.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  links.geometry.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  links.visible = pos.length > 0;
+}
+const areaColor = path => `hsl(${[...path].reduce((h, c) => (Math.imul(h, 33) + c.charCodeAt(0)) >>> 0, 5381) % 360}, 70%, 62%)`;
+/** the area plate of a desk: the git root and branch an agent writes in, in a colour per root so desks of one root look alike */
+function areaSign(spot, root) {
+  const key = root ? root.path + '|' + root.branch : '';
+  if (spot.areaKey === key) return;
+  spot.areaKey = key;
+  if (!root) { if (spot.area) spot.area.mesh.visible = false; return; }
+  if (!spot.area) { spot.area = board(1.0, 0.2, 320); spot.area.mesh.position.set(0, 1.62, -0.21); spot.g.add(spot.area.mesh); }
+  const {g, canvas: k} = spot.area, text = root.branch ? `${root.name} · ${root.branch}` : root.name;
+  g.fillStyle = '#10131c'; g.fillRect(0, 0, k.lw, k.lh); g.fillStyle = areaColor(root.path); g.fillRect(0, 0, 8, k.lh);
+  g.font = '700 26px "Segoe UI", sans-serif'; g.textAlign = 'left'; g.textBaseline = 'middle';
+  let t = text; while (g.measureText(t).width > k.lw - 30 && t.length > 4) t = t.slice(0, -2);
+  g.fillText(t.length < text.length ? t + '…' : t, 18, k.lh / 2 + 1);
+  spot.area.tex.needsUpdate = true; spot.area.mesh.visible = true;
+}
 
 // ------------------------------------------------------------------ the user's own figure: walk, sit, coffee
 // Only the user's figure takes orders (the agents keep doing what their work says): W/A/S/D and E in first person,
@@ -1147,6 +1199,7 @@ function sync() {
   }
   const mySeat = LEAD_SEATS[NEIGH.rank] || LEAD_SEAT;
   if (!assistant) { assistant = new Person(D.lead, 'lead', mySeat, false); } else assistant.goTo(mySeat);
+  syncLeadKids(DATA.state?.lead_kids || []); drawLinks();
   const live = new Set();
   for (const room of NEIGH.rooms) {                                          // each other room's lead at the table of its turn
     const title = room.title.slice(0, 16), seat = LEAD_SEATS[room.rank] || LEAD3_SEAT;
@@ -1185,16 +1238,21 @@ function sync() {
     racks?.set(name, a?.procs, now);
     p.goTo(want); p.act = act;
     p.faceRot = want === spot.seat && posted ? 0.0 : null;               // turn the chair round to talk
-    // a subagent of this agent: an intern beside the desk
-    const subs = a?.subagents || 0;
-    if (subs > 0 && !interns.has(name)) { const it = new Person(name + '·sub', 'intern', spot.intern, true, DATA.profile(name).color); it.act = 'code'; interns.set(name, it); }
-    if (subs === 0 && interns.has(name)) { const it = interns.get(name); emit(25, it.head(), {color: ['#ffffff', DATA.profile(name).color]}); it.dispose(); interns.delete(name); }
+    // its subagents (the mod says who: kids), unnamed: one small intern each, standing around the desk, up to four
+    const subs = Math.min(a?.kids?.length || a?.subagents || 0, spot.ring.length), ring = interns.get(name) || [];
+    while (ring.length < subs) { const it = new Person(name + '·sub', 'intern', spot.ring[ring.length], true, DATA.profile(name).color); it.act = 'code'; ring.push(it); }
+    while (ring.length > subs) { const it = ring.pop(); emit(25, it.head(), {color: ['#ffffff', DATA.profile(name).color]}); it.dispose(); }
+    if (ring.length) interns.set(name, ring); else interns.delete(name);
+    // its area: a small plate over the desk with the git root and branch of the last file it wrote, the colour of the root
+    ring.forEach((it, k) => { it.kid = a?.kids?.[k]; });
+    areaSign(spot, a?.root);
     spot.beacon.visible = !!a?.waiting;
   }
   const here = new Set(D.names);
   for (const [name, p] of people) if (!here.has(name)) {
     p.dispose(); people.delete(name); racks?.detach(name); research?.detach(name); releaseDesk(name);
-    const it = interns.get(name); if (it) { it.dispose(); interns.delete(name); }     // its subagent goes with it
+    for (const it of interns.get(name) || []) it.dispose();                               // its subagents go with it
+    interns.delete(name);
   }
 }
 
@@ -1497,7 +1555,7 @@ const ui = createUI(root, {
   onMode: m => { mode = m; setPref('mode', m); applyMode(); },
   onPov: () => setPov(!pov),
   onSound: () => mixer.toggle(),
-  onLook: () => ui.lookPanel(myLook, V.LOOK, setMyLook),
+  onLook: () => ui.lookPanel(myLook, {...V.LOOK, presets: V.extraPacks().looks}, setMyLook),
   onRun: () => { running = !running; setPref('run', running); },
   onEdit: () => { if (VISIT) return; if (pov) setPov(false); ui.commonPanel(null); select(null); editor.toggle(); },
   onCommonOpen: () => ui.commonOpen() ? ui.commonPanel(null) : openCommon(),
@@ -1675,6 +1733,7 @@ function applyMode() {
 let tween = null;
 function select(name) {
   selected = name && (people.has(name) || name === D.user || name === D.lead) ? name : null;
+  drawLinks();
   if (!selected) { follow = false; ui.inspect(null); return; }
   const p = people.get(selected) || (selected === D.user ? boss : assistant);
   if (pov || flyHome) { inspect(); return; }                       // in first person the eyes stay where they are
@@ -1688,7 +1747,8 @@ function inspect() {
   if (!d) { ui.inspect({name: selected, you: selected === D.user, emoji: selected === D.user ? '👑' : '👓', role: selected === D.user ? L.you : L.lead, model: pr.model, color: pr.color,
                        msgs: D.all.filter(m => m.from === selected && !m.kind).slice(-3).reverse(), lastN: D.all.filter(m => m.from === selected).pop()?.n}); return; }
   const a = d.a;
-  ui.inspect({name: selected, emoji: pr.emoji, role: pr.role, model: pr.model, color: pr.color, pct: d.pct, state: people.get(selected)?.act,
+  const by = a?.parent === null || a?.parent === undefined ? '' : '↳ ' + I18N.text('office.spawnedBy', {who: a.parent || D.lead}, DATA.config.lang);
+  ui.inspect({name: selected, emoji: pr.emoji, role: [pr.role, by].filter(Boolean).join(' · '), model: pr.model, color: pr.color, pct: d.pct, state: people.get(selected)?.act,
               ctx: a?.ctx, window: a?.window, pulse: a?.pulse, tl: TL?.agents?.[selected], lastN: d.last?.n, msgs: d.msgs,
               recent: (a?.recent || []).map(r => ({...r, emoji: EMOJI[cat(r.tool, r.target)] || '🔧'}))});
 }
@@ -1828,10 +1888,15 @@ function placeTags() {
           waiting: D.waiting.size, working: work, idle, plan: D.closed ? `✅ ${L.done} v${D.closed.v}` : D.plan ? `🗳 ${L.plan(D.plan.v)}: ${L.votes(yes, D.names.length - yes)}` : '',
           src: '📡 ' + src, mode, follow, quality, pov, run: running, edit: editor.active(), sens: sensIdx, mute: mixer.muted()});
   // labels the user gave to pieces of furniture, a little above each
-  ui.itemLabels(ITEM_MESHES.filter(m => m.userData.label).map(m => {
+  ui.itemLabels([...ITEM_MESHES.filter(m => m.userData.label).map(m => {
     _v.copy(m.position); _v.y += 1.25; _v.project(camera);
     return {key: m.uuid, text: m.userData.label, x: (_v.x * 0.5 + 0.5) * w, y: (-_v.y * 0.5 + 0.5) * h, vis: _v.z < 1 && Math.abs(_v.x) < 1.1 && Math.abs(_v.y) < 1.1};
-  }));
+  }),
+  // a teammate without a desk wears its name over its head
+  ...internList().filter(it => it.kid?.name).map(it => {
+    _v.copy(it.head()); _v.y += 0.25; _v.project(camera);
+    return {key: 'kid:' + it.root.uuid, text: (it.kid.teammate ? '👥 ' : '') + it.kid.name, x: (_v.x * 0.5 + 0.5) * w, y: (-_v.y * 0.5 + 0.5) * h, vis: _v.z < 1 && Math.abs(_v.x) < 1.1 && Math.abs(_v.y) < 1.1};
+  })]);
   window.officeOwnsTitle = true;
   badge(DATA.config.title || DATA.config.topic || 'Chat room', D.waiting.size, DATA.config.icon);
 }
@@ -1909,11 +1974,11 @@ function frame(now) {
   if (Math.floor(hour * 4) !== hourDrawn) { hourDrawn = Math.floor(hour * 4); drawSky(hour); }
   if (d.getSeconds() !== secDrawn) { secDrawn = d.getSeconds(); drawClock(); }
   for (const p of people.values()) p.update(dt, t);
-  for (const p of interns.values()) p.update(dt, t);
+  for (const p of internList()) p.update(dt, t);
   for (const p of remote.values()) { p.update(dt, t); p.root.visible = (p.pos.y > 2.5) === (level === 'arena'); }
   if (hostFigure) { hostFigure.update(dt, t); if ((hostFigure.pos.y > 2.5) !== (level === 'arena')) hostFigure.root.visible = false; }
   for (const p of otherLeads.values()) { p.act = 'read'; p.update(dt, t); }
-  if (level === 'arena') { for (const p of people.values()) p.root.visible = false; for (const p of interns.values()) p.root.visible = false; if (assistant) assistant.root.visible = false; for (const p of otherLeads.values()) p.root.visible = false; }     // the people of the office stay down there, tags and all
+  if (level === 'arena') { for (const p of people.values()) p.root.visible = false; for (const p of internList()) p.root.visible = false; if (assistant) assistant.root.visible = false; for (const p of otherLeads.values()) p.root.visible = false; }     // the people of the office stay down there, tags and all
   if (boss) {
     drive(dt);
     if (pov && povLocked && level !== 'arena') { const r = roomAt(boss.pos.x, boss.pos.z); if (r !== povRoom) { povRoom = r; if (r) ui.placeName(roomName(r)); } }
@@ -2307,7 +2372,7 @@ function setLevel(next) {
     level = 'office'; arena.show(false);
     for (const o of hiddenUp) o.visible = true;
     hiddenUp = [];
-    for (const p of [...people.values(), ...interns.values(), assistant, ...otherLeads.values()]) if (p) p.root.visible = true;
+    for (const p of [...people.values(), ...internList(), assistant, ...otherLeads.values()]) if (p) p.root.visible = true;
     const f = cameFrom || {x: ELEVATOR_AT.out.x, z: ELEVATOR_AT.out.z, rot: ELEVATOR_AT.out.rot}; cameFrom = null;
     putBoss(f.x, f.z, f.rot, 0);
   }
