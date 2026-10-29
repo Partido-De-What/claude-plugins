@@ -69,6 +69,18 @@ def shrink(room, text):
     return out
 
 
+def useless(room, tries=4):
+    """the room's texts do not compress (chat prose, not logs): after `tries` texts that saved nothing, a read stops asking
+    the viewer (up to 5 s each) for nothing"""
+    saved = []
+    for f in list(_dir(room).glob('*.json'))[:50]:
+        try:
+            saved.append(json.loads(f.read_text(encoding='utf-8')).get('saved', 0))
+        except (OSError, ValueError):
+            pass
+    return len(saved) >= tries and not any(saved)
+
+
 def viewer_url(room):
     """the address of the room's running viewer, from the registry the viewers stamp every 5 s"""
     from activity import REGISTRY
@@ -81,7 +93,7 @@ def viewer_url(room):
 
 def texts(room, items):
     """client side (chat.py read, wait, board, notebook): the same list, the long ones compressed by the viewer"""
-    if not any(len(t) >= CHARS for t in items) or not room.config().get('compress', 1):
+    if not any(len(t) >= CHARS for t in items) or not room.config().get('compress', 0) or useless(room):
         return items
     url = viewer_url(room)
     if not url:

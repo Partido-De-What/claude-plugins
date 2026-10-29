@@ -31,7 +31,9 @@ THE LOOP (the kernel does the bookkeeping: you never commit, tag, reset or write
    attempt only if {{METRIC}} beats your line's best, or the baseline while your line has no keep (by the contract's
    minimal gain, on the median when it measures several times); otherwise it resets {{PROGRAM}} to your best. One run at
    a time on the evaluator: if another runs, your call is refused at once; think and edit meanwhile, and try again when
-   research status no longer shows a run (or a GPU hold: research hold/release, for profiling outside the runs). Every attempt keeps a tag, so a discarded one can be brought back later. Read only the lines
+   research status no longer shows a run (or a GPU hold: research hold/release, for profiling outside the runs), or queue yours with research queue --desc "..." [--after att-N] --as {{AS}} --room "{{ROOM}}"
+   (the kernel starts it as soon as the evaluator is free; leave the worktree alone until it starts; no scripts of your own
+   waiting on the lock). Every attempt keeps a tag, so a discarded one can be brought back later. Read only the lines
    of the log you need (the metric, or the last lines of a crash), never the whole log.
 4. A crash: if it is a typo or a missing import, fix it and run again; if the idea itself is broken, move on. Three crashes
    in a row pause you until the lead looks.
@@ -54,7 +56,8 @@ THE LOOP (the kernel does the bookkeeping: you never commit, tag, reset or write
     [--seed S] (the evaluator reads it from CHATROOM_SEED; attempts never take a seed); they measure, they never replace
     the best.
 
-THE ROOM (chat.py; or the MCP tools chat_read, chat_post, chat_wait, research, notebook with "room": "{{ROOM}}", "as": "{{AS}}"):
+THE ROOM (the MCP tools chat_read, chat_post, chat_wait, research, notebook with "room": "{{ROOM}}", "as": "{{AS}}" when you have them,
+shorter answers than the shell; else chat.py):
 - after each run post a STATUS with your percentage of the budget used and what you learned, one line:
   python "{{CHAT}}" post --status --as {{AS}} --room "{{ROOM}}" <<'EOF'
   run 7/40 (17%): wider tile kept, {{METRIC}} 0.981 -> 0.975; next: shared-memory staging
@@ -66,6 +69,7 @@ THE ROOM (chat.py; or the MCP tools chat_read, chat_post, chat_wait, research, n
 - never stay silent more than {{HEARTBEAT}} s: a status with the percentage. Every fact you state has its source (the run
   number, the log line); what you have not measured, write it as "unverified".
 - if you need something you cannot do (an access, a dependency, a change to the contract), ask the LEAD (@LEAD) and wait.
+- between runs stay in wait, do not end your turn; if it ends anyway, return at most two lines unless something is new.
 
 Stop when the budget of runs is used up or when the lead tells you (the runs are your limit, not the messages; at each
 checkpoint of {{MAX}} messages chat.py asks you to check with the lead). Your final report: your line's best run

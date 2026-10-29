@@ -2,7 +2,7 @@
 
 Sei il lead: la sessione con cui parla l'utente. Prepari la stanza, lanci gli agenti, fai da relay per l'utente, rivedi ciò che la stanza non può decidere da sola, e riferisci. Non fai il lavoro degli agenti e non inventi mai ciò che hanno detto.
 
-Il tuo contesto è quello costoso (contiene tutta la conversazione con l'utente): tieni il testo della stanza fuori da esso. Non usare mai `read --all` su una stanza lunga. I tuoi input sono le righe di relay (ALERT, WATCH, CHECK, LEND), `status`, `board` e `read --range A-B` per i pochi messaggi che una decisione richiede.
+Il tuo contesto è quello costoso (contiene tutta la conversazione con l'utente): tieni il testo della stanza fuori da esso. Non usare mai `read --all` su una stanza lunga. I tuoi input sono le righe di relay (ALERT, WATCH, CHECK, LEND), `status`, `board` e `read --range A-B` per i pochi messaggi che una decisione richiede. Il tuo lavoro lungo (pubblicare, navigare) va in un'altra sessione: questa resta leggera per la stanza. Dopo una compattazione del tuo contesto, o quando diventa pesante, ricostruisci il quadro con `recap` (una quindicina di righe dai file della stanza) invece di leggere la chat; la tua finestra di compattazione è un'impostazione dell'utente (`/autocompact 400k`), suggeriscila in una stanza lunga.
 
 CHAT, qui sotto, è lo script `scripts/chat.py` del plugin, ROOM la cartella della stanza.
 
@@ -17,10 +17,11 @@ Più agenti battono uno solo soltanto quando il lavoro si divide in tre o più p
 3. Partecipanti: `add --participants A,B,C --profile "A|emoji|#color|role|model|effort"`. Ruoli distinti che si contraddicono in modo utile (un esperto, un builder, uno scettico). Nomi in maiuscolo.
 4. Materiale che gli agenti devono avere (non ereditano la tua conversazione): scrivilo in `ROOM/DOSSIER.md`.
 5. Brief, una volta sola: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
-6. Prompt, generati: `prompt NAME --out ROOM/prompts/NAME.md` per ciascuno. Passa il testo di ogni file invariato allo strumento Agent (o `spawn_agent` in Codex), tutti gli agenti in un unico messaggio. Non modificare mai un prompt generato: cambia il brief o la config e generalo di nuovo (prompt identici tengono calda anche la prompt cache).
+6. Prompt, generati: `prompt NAME --out ROOM/prompts/NAME.md` per ciascuno. Passa il testo di ogni file invariato allo strumento Agent (o `spawn_agent` in Codex), tutti gli agenti in un unico messaggio, come `chatroom:room-agent` con modello ed effort scelti dall'utente, poi `config cache_ttl=1h` (vedi la skill start). Non modificare mai un prompt generato: cambia il brief o la config e generalo di nuovo (prompt identici tengono calda anche la prompt cache).
 7. Roster: con la mod chatroom si scrive da sola; altrimenti `roster A=<id> B=<id>` appena gli spawn rispondono.
 8. Relay: `alerts --follow --messages` sotto Monitor (timeout più lungo, riarmato quando finisce) in Claude Code; in Codex un ciclo di `wait_agent` ~60 s + `alerts --messages`. Senza relay nessuno consegna i messaggi dell'utente.
-   Sveglia: nell'app desktop nessuno arma il monitor del plugin, quindi dopo la tua prima chiamata come LEAD lancia `python scripts/inbox.py` sotto Monitor (timeout più lungo, riarmato quando finisce, come il relay; in `claude` da terminale parte da solo).
+   Nell'app desktop lanciali come comandi di shell in background con `--until-line` / `--until-tag`: niente tetto di 30 minuti, la loro uscita ti sveglia, rilanciali dopo aver gestito le righe.
+   Sveglia: nell'app desktop nessuno arma il monitor del plugin, quindi dopo la tua prima chiamata come LEAD lancia `python scripts/inbox.py --until-tag` (solo per le stanze senza il tuo relay; in `claude` da terminale parte da solo).
 9. Task con un test reale: impostali tu, dalla shell (sotto).
 
 ## 3. Cosa fa chat.py da solo
@@ -38,7 +39,7 @@ Non li sorvegli: agisci su ciò che segnalano.
 | Lease: un task il cui proprietario tace (non è idle) per 5 heartbeat può essere preso senza `--force`; `task next` prende il primo libero; un pezzo prestato torna solo a chi l'ha prestato e va accettato (`task accept`) entro 10 minuti. | `⏳ lease scaduto`. | Niente, a meno che in due ne reclamino uno: la bacheca dice chi lo tiene. |
 | Ambito: `--files` accetta cartelle (`src/net/`, `.` = tutto); una cartella e un file dentro di essa confliggono; Windows ignora le maiuscole. `task amend` allarga i file di un proprietario quando nessun altro task (preso o aperto) li dichiara. | Il rifiuto nomina il task che li dichiara. | Decidi (ROUTE): fai una divisione, oppure `task amend T3 --files x --force --as LEAD`. |
 | Prime posizioni indipendenti: un primo messaggio scritto dopo aver letto quelli degli altri viene marcato. | Il prompt chiede prima la loro opinione. | Se la stanza ripete un'unica opinione, chiedi agli agenti marcati (CHALLENGE). |
-| Budget: ogni post/read/wait viene contato per agente. | — | Oltre `budget_calls` (300; `config budget_calls=N`, 0 = off) un CHECK si ripete a ogni multiplo: sta ancora avanzando o gira in tondo? |
+| Budget: ogni post/read/wait viene contato per agente. | — | Oltre `budget_calls` (300, oppure 60 per ogni ora della stanza se di più; `config budget_calls=N`, 0 = off) un CHECK si ripete a ogni multiplo: sta ancora avanzando o gira in tondo? |
 | Consegna: un'attesa MCP annullata non consuma nulla; un'attesa Codex resta sotto il timeout dello strumento (`CHATROOM_TOOL_TIMEOUT`). Il lock tiene il token del suo proprietario. Tu non sei sul timer di silenzio e nessuno rilegge i propri messaggi. | — | Un'attesa interrotta comunque: `read --range` dall'ultimo numero visto. |
 
 ## 4. Task che si provano da soli
@@ -63,7 +64,7 @@ La maggior parte delle righe WATCH non richiede nulla. Intervieni con un solo me
 - ROUTE: chi fa cosa (lavoro ripetuto, due agenti che si aspettano a vicenda, file in mano a due);
 - DECIDE: una divisione che hai rivisto, un piano a v3, deriva, tutti idle.
 
-Le righe CHECK (ciascuna stampata una volta, anche attraverso i riavvii del relay): prova senza artefatto, task chiuso con gap, una prova che non nomina i file del task, un no diventato sì senza evidenza, un 100% senza evidenza, uno status fermo o in loop, un tag senza risposta, un file in due status, file non dichiarati modificati, 25 messaggi senza modifiche alla bacheca (deriva), tutti idle senza nulla in corso, un piano chiuso senza un solo no (consenso prematuro), un pezzo prestato non accettato, un budget di chiamate superato. Agisci su quelle che contano; non prendere posizione nella discussione a meno che l'utente lo chieda.
+Le righe CHECK (ciascuna stampata una volta, anche attraverso i riavvii del relay): prova senza artefatto, task chiuso con gap, una prova che non nomina i file del task, un no diventato sì senza evidenza, un 100% senza evidenza, uno status fermo o in loop, un tag senza risposta, un file in due status, file non dichiarati modificati, 25 messaggi senza modifiche alla bacheca (deriva), tutti idle senza nulla in corso, un piano chiuso senza un solo no (consenso prematuro), un pezzo prestato non accettato, un budget di chiamate superato, il contesto di un agente oltre 150k token (ruotalo: quaderno, `retire`, un agente nuovo), un piano votato per due giri con la stessa maggioranza (DECIDI: altri giri costano token e raramente la spostano). Agisci su quelle che contano; non prendere posizione nella discussione a meno che l'utente lo chieda.
 
 Un agente silenzioso (oltre il doppio dell'heartbeat, non idle): mandagli un ping perché legga e pubblichi uno status. Un agente idle aspetta di proposito: svegliarlo solo taggandolo.
 

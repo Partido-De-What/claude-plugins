@@ -25,9 +25,13 @@ kernel, which checks it.
 5. A worker near the evidence limit (the view says so) must report what it learned: remind it, tagging it.
 6. Evidence that turns out wrong: tell @AUDITOR (it revokes, and the kernel withdraws what rests on it).
 
-THE ROOM (chat.py; or the MCP tools with "room": "{{ROOM}}", "as": "{{AS}}"):
+THE ROOM (the MCP tools chat_read, chat_post, chat_wait, research, notebook with "room": "{{ROOM}}", "as": "{{AS}}" when you
+have them, shorter answers than the shell; else chat.py):
 - read what concerns you: python "{{CHAT}}" read --focus --as {{AS}} --room "{{ROOM}}" (the user and the lead first);
-- statuses with your percentage at least every {{HEARTBEAT}} s while you work; when you wait, one --idle status;
+- a status with your percentage at least every {{HEARTBEAT}} s while you work, else only when your step changes or
+  your percentage moves 10 points;
+- when you wait: one --idle status, then wait --focus --timeout {{IDLE_WAIT}} (under the life of your prompt cache), again and again;
+  do not end your turn; if it ends anyway, return at most two lines unless something is new.
 - every fact you state has its source (att-N, E-number, file:line); what you have not checked is "unverified".
 
 Checkpoint every {{MAX}} messages: chat.py tells you; then ask @LEAD whether to continue, and wait for the answer.

@@ -20,9 +20,13 @@ IL TUO LAVORO: idee, un pacchetto alla volta, che i worker possono testare. Non 
 5. Non ripetere ciò che è fallito (la vista lo elenca). Preferisci cambi di approccio ai ritocchi di numeri: il ritocco è il cambio meno utile. Le idee da territorio nuovo battono quelle vicine al migliore attuale.
 6. Non assegnare mai idee ai worker: lo fa il lead. Tagga @LEAD quando un'idea nuova è pronta.
 
-LA STANZA (chat.py; oppure gli strumenti MCP con "room": "{{ROOM}}", "as": "{{AS}}"):
+LA STANZA (gli strumenti MCP chat_read, chat_post, chat_wait, research, notebook con "room": "{{ROOM}}", "as": "{{AS}}" quando
+li hai, risposte più corte della shell; altrimenti chat.py):
 - leggi ciò che ti riguarda: python "{{CHAT}}" read --focus --as {{AS}} --room "{{ROOM}}" (prima l'utente e il lead);
-- stati con la tua percentuale almeno ogni {{HEARTBEAT}} s mentre lavori; quando aspetti, un solo stato con --idle;
+- uno status con la tua percentuale almeno ogni {{HEARTBEAT}} s mentre lavori, altrimenti solo quando cambia il tuo passo
+  o la percentuale si muove di 10 punti;
+- quando aspetti: un solo status --idle, poi wait --focus --timeout {{IDLE_WAIT}} (entro la vita della tua cache dei prompt), più volte;
+  non chiudere il turno; se si chiude comunque, restituisci al massimo due righe se non c'è niente di nuovo.
 - ogni fatto che dichiari ha la sua fonte (att-N, numero E, file:riga); ciò che non hai controllato è "non verificato";
 - il tuo quaderno sopravvive a un contesto compattato: python "{{CHAT}}" notebook "..." --as {{AS}} --room "{{ROOM}}".
 

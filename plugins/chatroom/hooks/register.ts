@@ -45,18 +45,32 @@ function pick(e: Record<string, unknown>) {
 // RTK for a room agent's shell command: `rtk rewrite` prints the shorter-output form (exit 0 or 3), or nothing (1: run it
 // as it is), or a refusal (2 with a message). The rewrite calls `rtk` by name, so its folder goes first in PATH.
 async function rtk($: any, exe: string, command: string): Promise<string | { deny: string }> {
+  if (/(^|[^|])\|(?!\|)/.test(command)) return command   // inside a pipe rtk changes the output the next stage counts (grep -c gave 0)
   try {
     const r = await $.process.run([exe, 'rewrite', command], { timeoutMs: 5000 })
     const out = (r.stdout || '').trim()
     if ((r.exitCode === 0 || r.exitCode === 3) && out && out !== command) {
       const dir = exe.replace(/[\\/][^\\/]*$/, '').replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_: string, d: string) => '/' + d.toLowerCase())
-      return `export PATH="${dir}:$PATH"; ${out}`
+      return `export PATH="${dir}:$PATH" RTK_SUPPRESS_HOOK_WARNING=1; ${out}`   // its "run rtk init -g" is not for agents
     }
     if (r.exitCode === 2 && out) return { deny: out }
   } catch {
     // rtk missing or slow: the command runs as it is
   }
   return command
+}
+
+// a picture a room agent is about to read: the viewer hands back a copy at most 1000 px wide (thumbs.py), or the same path
+async function thumb($: any, room: Room, path: string): Promise<string> {
+  try {
+    const r = await $.http.fetch(room.url + '/thumb', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }),
+    })
+    const p = r.ok ? JSON.parse(r.text).path : null
+    return typeof p === 'string' && p ? p : path
+  } catch {
+    return path                                        // no viewer: the agent reads the original
+  }
 }
 
 function send($: any, room: Room, ev: object) {
@@ -221,6 +235,11 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const room = roomOf(e.agentId)
     if (!room) return next(e)
+    const file = (e as any).file_path
+    if (e.tool === 'Read' && typeof file === 'string' && /\.(png|jpe?g|gif|webp)$/i.test(file)) {
+      const small = await thumb($, room, file)           // each picture stays in the context, read again at every turn
+      if (small !== file) e = { ...e, file_path: small } as typeof e
+    }
     if (e.tool === 'Bash' && room.rtk && typeof (e as any).command === 'string') {
       const rewritten = await rtk($, room.rtk, (e as any).command)
       if (typeof rewritten !== 'string') return rewritten

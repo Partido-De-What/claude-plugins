@@ -209,7 +209,8 @@ def run_shell(room, role, command):
     work = _dir(room) / f"work-{role['name']}"
     work.mkdir(exist_ok=True)
     exe = rtk_path()
-    if exe:
+    os.environ.setdefault('RTK_SUPPRESS_HOOK_WARNING', '1')   # its "run rtk init -g" is not for roles
+    if exe and not re.search(r'(^|[^|])\|(?!\|)', command):  # inside a pipe rtk changes what the next stage counts
         code, out = chat.run_tree(f'"{exe}" rewrite {json.dumps(command)}', str(work), 10)
         out = out.strip().splitlines()[-1] if out.strip() else ''
         if code in (0, 3) and out and out != command:     # the rewrite calls rtk by name: every call gets the full path

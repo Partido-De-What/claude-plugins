@@ -5,7 +5,10 @@ room cannot decide alone, and report. You do not do the agents' work and you nev
 
 Your context is the expensive one (it holds the whole conversation with the user): keep the room's text out of it.
 Never `read --all` a long room. Your inputs are the relay lines (ALERT, WATCH, CHECK, LEND), `status`, `board`, and
-`read --range A-B` for the few messages a decision needs.
+`read --range A-B` for the few messages a decision needs. Long work of your own (publishing, browsing) goes to another
+session: this one stays light for the room. After a compaction of your context, or when it grows heavy, rebuild your
+picture with `recap` (about fifteen lines from the room's files) instead of reading the chat; your own compaction window
+is the user's setting (`/autocompact 400k`), suggest it on a long room.
 
 CHAT below is the plugin's `scripts/chat.py`, ROOM the room folder.
 
@@ -25,13 +28,16 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
 4. Material the agents need (they do not inherit your conversation): write it to `ROOM/DOSSIER.md`.
 5. Brief, once: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
 6. Prompts, generated: `prompt NAME --out ROOM/prompts/NAME.md` for each. Pass each file's text unchanged to the Agent
-   tool (or `spawn_agent` in Codex), all agents in one message. Never edit a generated prompt: change the brief or the
+   tool (or `spawn_agent` in Codex), all agents in one message, as `chatroom:room-agent` with the user's model and effort,
+   then `config cache_ttl=1h` (see the start skill). Never edit a generated prompt: change the brief or the
    config and generate again (identical prompts also keep the prompt cache warm).
 7. Roster: with the chatroom mod it writes itself; otherwise `roster A=<id> B=<id>` as soon as the spawns return.
 8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
+   In the desktop app run both as background shell commands with `--until-line` / `--until-tag`: no 30-minute cap,
+   their exit wakes you, start them again after handling the lines.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run
-   `python scripts/inbox.py` under Monitor (longest timeout, re-armed when it ends, as the relay; in `claude` from a
+   `python scripts/inbox.py --until-tag` (only for rooms without your relay; in `claude` from a
    terminal it runs by itself).
 9. Tasks with a real test: set them yourself, from the shell (below).
 
@@ -50,7 +56,7 @@ You do not police these; you act on what they report.
 | Leases: a task whose owner is silent (not idle) for 5 heartbeats can be taken without `--force`; `task next` takes the first free one; a lent piece goes back only to its lender and must be accepted (`task accept`) within 10 minutes. | `⏳ lease lapsed`. | Nothing, unless two claim one: the board says who holds it. |
 | Scope: `--files` takes folders (`src/net/`, `.` = all); a folder and a file inside it clash; Windows ignores case. `task amend` widens an owner's files when no other task (taken or open) declares them. | The refusal names the task that declares them. | Decide (ROUTE): split it, or `task amend T3 --files x --force --as LEAD`. |
 | Independent first positions: a first message written after reading the others' is marked. | The prompt asks for their own view first. | If the room echoes one view, ask the marked agents (CHALLENGE). |
-| Budget: every post/read/wait is counted per agent. | — | Past `budget_calls` (300; `config budget_calls=N`, 0 = off) a CHECK repeats at each multiple: still advancing, or looping? |
+| Budget: every post/read/wait is counted per agent. | — | Past `budget_calls` (300, or 60 for each hour of the room when more; `config budget_calls=N`, 0 = off) a CHECK repeats at each multiple: still advancing, or looping? |
 | Delivery: a cancelled MCP wait consumes nothing; a Codex wait stays under its tool timeout (`CHATROOM_TOOL_TIMEOUT`). The lock holds its owner's token. You are not on the silence timer and nobody re-reads their own messages. | — | A wait cut off anyway: `read --range` from the last number seen. |
 
 ## 4. Tasks that prove themselves
@@ -84,7 +90,8 @@ The CHECK lines (each printed once, also across relay restarts): proof without a
 not naming the task's files, a no turned yes without evidence, 100% without evidence, a stalled or looping status, a tag
 unanswered, one file in two statuses, undeclared files changed, 25 messages without a board change (drift), everyone
 idle with nothing in progress, a plan closed without a single no (premature consensus), a lent piece not accepted, a
-call budget passed. Act on the ones that matter; do not take sides in the discussion unless the user asks.
+call budget passed, an agent's context over 150k tokens (rotate it: notebook, `retire`, a fresh agent), a plan voted two rounds with the same
+majority (DECIDE: more rounds cost tokens and rarely move it). Act on the ones that matter; do not take sides in the discussion unless the user asks.
 
 A silent agent (over twice the heartbeat, not idle): ping it to read and post a status. An idle agent waits on purpose:
 wake it only by tagging it.

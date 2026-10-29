@@ -142,6 +142,8 @@ def checks(room=None, claude=None, source=None):
     env_dir = Path(os.environ.get('UV_PROJECT_ENVIRONMENT') or claude_dir() / 'chatroom' / 'env')
     hr = importlib.util.find_spec('headroom') is not None or any((env_dir / s).exists() for s in ('Lib/site-packages/headroom', 'lib/site-packages/headroom'))
     out.append(('headroom_ok', OK, {}, '') if hr else ('headroom_missing', WARN, {}, f'uv sync --frozen --inexact --project "{HERE.parent}"'))
+    pil = importlib.util.find_spec('PIL') is not None or any((env_dir / s).exists() for s in ('Lib/site-packages/PIL', 'lib/site-packages/PIL'))
+    out.append(('pillow_ok', OK, {}, '') if pil else ('pillow_missing', WARN, {}, f'uv sync --frozen --inexact --project "{HERE.parent}"'))
     rtk = os.environ.get('CHATROOM_RTK') or shutil.which('rtk') or str(claude_dir() / 'chatroom' / 'bin' / ('rtk.exe' if os.name == 'nt' else 'rtk'))
     out.append(('rtk_ok', OK, {'path': rtk}, '') if Path(rtk).is_file() else ('rtk_missing', WARN, {}, 'see the README (RTK): install rtk, then restart the viewer'))
     try:

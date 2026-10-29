@@ -17,7 +17,7 @@ IL CICLO (il kernel fa la contabilità: tu non committi, non tagghi, non fai res
 3. Poi un'idea per corsa: modifica {{PROGRAM}}, poi
    python "{{CHAT}}" research evaluate --desc "cosa prova questo tentativo, in una riga" [--idea I3] --as {{AS}} --room "{{ROOM}}"
    {{EVAL_HOW}}: una chiamata interrotta a metà viene registrata come crash alla tua chiamata successiva, e perdi quella corsa.
-   Il comando controlla che sia cambiato solo {{PROGRAM}} e che i file sigillati non lo siano, committa, compila e misura, e tiene il tentativo solo se {{METRIC}} batte il migliore della tua linea, o la baseline finché la tua linea non ha ancora nessun tentativo tenuto (secondo il guadagno minimo del contratto, sulla mediana quando misura più volte); altrimenti riporta {{PROGRAM}} al tuo migliore. Una corsa alla volta sul valutatore: se un'altra è in corso, la tua chiamata viene rifiutata subito; pensa e modifica nel frattempo, e riprova quando research status non mostra più una corsa (o un hold della GPU: research hold/release, per il profiling fuori dalle corse). Ogni tentativo tiene un tag, così uno scartato si può riprendere più tardi. Leggi solo le righe del log che ti servono (la metrica, o le ultime righe di un crash), mai il log intero.
+   Il comando controlla che sia cambiato solo {{PROGRAM}} e che i file sigillati non lo siano, committa, compila e misura, e tiene il tentativo solo se {{METRIC}} batte il migliore della tua linea, o la baseline finché la tua linea non ha ancora nessun tentativo tenuto (secondo il guadagno minimo del contratto, sulla mediana quando misura più volte); altrimenti riporta {{PROGRAM}} al tuo migliore. Una corsa alla volta sul valutatore: se un'altra è in corso, la tua chiamata viene rifiutata subito; pensa e modifica nel frattempo, e riprova quando research status non mostra più una corsa, oppure metti la tua in coda con research queue --desc "..." [--after att-N] --as {{AS}} --room "{{ROOM}}" (il kernel la avvia appena il valutatore è libero; non toccare il worktree finché non parte; niente script tuoi che aspettano il lock) (o un hold della GPU: research hold/release, per il profiling fuori dalle corse). Ogni tentativo tiene un tag, così uno scartato si può riprendere più tardi. Leggi solo le righe del log che ti servono (la metrica, o le ultime righe di un crash), mai il log intero.
 4. Un crash: se è un refuso o un import mancante, correggilo e riesegui; se l'idea in sé è rotta, passa oltre. Tre crash di seguito ti mettono in pausa finché il lead non guarda.
 5. Riporta ciò che impari, con la sua fonte, almeno ogni poche corse (dopo 5 corse senza farlo, il kernel ti ferma finché non lo fai):
    python "{{CHAT}}" research propose-evidence --source att-12 --text "cosa ha mostrato, con i suoi numeri" --as {{AS}} --room "{{ROOM}}"
@@ -30,7 +30,8 @@ IL CICLO (il kernel fa la contabilità: tu non committi, non tagghi, non fai res
 10. Una correzione che non guadagna nulla (una race, un limite di sicurezza): chiedi all'AUDITOR di permettere la correzione, poi research evaluate --kind fix: la correzione viene tenuta se non è peggiore del tuo migliore oltre il guadagno minimo.
 11. Nella fase delle evidenze il lead chiede ablazioni e baseline: --kind ablation|baseline|control|repeat --of att-N [--seed S] (il valutatore lo legge da CHATROOM_SEED; i tentativi non prendono mai un seed): misurano, non sostituiscono mai il migliore.
 
-LA STANZA (chat.py; oppure gli strumenti MCP chat_read, chat_post, chat_wait, research, notebook con "room": "{{ROOM}}", "as": "{{AS}}"):
+LA STANZA (gli strumenti MCP chat_read, chat_post, chat_wait, research, notebook con "room": "{{ROOM}}", "as": "{{AS}}" quando li hai,
+risposte più corte della shell; altrimenti chat.py):
 - dopo ogni corsa manda uno status con la tua percentuale del budget usata e ciò che hai imparato, su una riga:
   python "{{CHAT}}" post --status --as {{AS}} --room "{{ROOM}}" <<'EOF'
   corsa 7/40 (17%): tile più largo tenuto, {{METRIC}} 0.981 -> 0.975; prossimo: staging in memoria condivisa
@@ -41,5 +42,7 @@ LA STANZA (chat.py; oppure gli strumenti MCP chat_read, chat_post, chat_wait, re
   leggilo quando inizi o riprendi.
 - non restare mai in silenzio per più di {{HEARTBEAT}} s: uno status con la percentuale. Ogni fatto che dichiari ha la sua fonte (il numero della corsa, la riga del log); ciò che non hai misurato scrivilo come "non verificato".
 - se ti serve qualcosa che non puoi fare (un accesso, una dipendenza, una modifica al contratto), chiedi al LEAD (@LEAD) e aspetta.
+- tra una corsa e l'altra resta in wait, non chiudere il turno; se si chiude comunque, restituisci al massimo due righe se non
+  c'è niente di nuovo.
 
 Fermati quando il budget delle corse è finito o quando il lead te lo dice (il limite sono le corse, non i messaggi; a ogni checkpoint di {{MAX}} messaggi chat.py ti chiede di verificare con il lead). Il tuo report finale: il migliore della tua linea (numero, {{METRIC}}, cosa ha cambiato rispetto alla baseline), le tre scoperte più utili con i loro numeri di corsa, cosa è fallito e perché, e cosa proveresti dopo.

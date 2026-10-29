@@ -174,7 +174,9 @@ def stamp_of(room_dir, name):
     return out
 
 
-def watch(session, cwd, parent, once=False):
+def watch(session, cwd, parent, once=False, until=False):
+    """until: return after the first lines printed. Under a background shell (no 30-minute cap, unlike Monitor) its exit is
+    what wakes the session, which starts it again"""
     import chat
     watched = {}                                      # room folder -> [name, after, seen]; seen: the stamp of the last look (an unchanged chat is not parsed again)
     last_rooms = 0
@@ -198,6 +200,8 @@ def watch(session, cwd, parent, once=False):
                     print(line, flush=True)
             except OSError:
                 return 0                              # shortcut: a dead Claude Code closes the pipe, caught at the next line; the pid check above is the main stop
+            if out and until:
+                return 0
         if once:
             return 0
         time.sleep(POLL)
@@ -253,4 +257,5 @@ if __name__ == '__main__':
         _prova()
         sys.exit(0)
     sys.stdout.reconfigure(encoding='utf-8')
-    sys.exit(watch(os.environ.get('CLAUDE_CODE_SESSION_ID', ''), os.getcwd(), harness_pid(), once='--once' in sys.argv))
+    sys.exit(watch(os.environ.get('CLAUDE_CODE_SESSION_ID', ''), os.getcwd(), harness_pid(), once='--once' in sys.argv,
+                   until='--until-tag' in sys.argv))

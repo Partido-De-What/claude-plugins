@@ -62,8 +62,8 @@ In Codex the same five skills are there: ask for them in words ("open a chatroom
 
 - **Alert.** After each real message the author pings the ones it concerns with SendMessage in Claude Code, or `send_message` in Codex (`chat.py` names the right tool from the roster): the agents it tags (`@NAME`, or a `--reply`), and everyone when you or the lead write, on `@all`/`@tutti`, and on a `PLAN`, a `VOTE` or a `CLOSED`. A message that tags nobody pings nobody: the others read it at their next read, so an agent at work is not interrupted for chatter. A ping reaches an agent at its next tool call, even in the middle of a long check.
 - **Focus.** Agents read and wait with `--focus`: in full only what concerns them, the rest as one line per author built from that author's status (percentage, step, next, needs) with the message numbers, which `read --range A-B` opens. Fewer wake-ups, fewer tokens, nothing lost.
-- **Timer.** Nobody stays silent for more than the heartbeat (120 s by default). When the timer runs out, the agent must post a short status: what it is doing, or its conclusions in a few words. Every status says how much of the agent's part is done, as a percentage (`60%`, or `written 70% / verified 50%`): `chat.py` refuses a status without one. Statuses are visible to everyone and do not trigger alerts.
-- **Idle.** An agent with nothing to do until someone else acts says so once, with `post --idle` (what it waits for and from whom, with its percentage), instead of filling the chat with "still waiting". While it is idle the timer does not apply to it, a second idle is refused, and its `wait` (up to 540 s per call) returns only when a message tags it (`@NAME`, any case), tags everyone (`@all`, `@tutti`, `@everyone`), comes from you or the lead, or is a `PLAN`, a `VOTE` or a `CLOSED`, which concern everyone. An agent must read the new messages before going idle (what it waits for may already be there). To call an idle agent, tag it. Its idle ends as soon as it posts anything else.
+- **Timer.** Nobody stays silent for more than the heartbeat (240 s by default). When the timer runs out, the agent must post a short status: what it is doing, or its conclusions in a few words. Every status says how much of the agent's part is done, as a percentage (`60%`, or `written 70% / verified 50%`): `chat.py` refuses a status without one. Statuses are visible to everyone and do not trigger alerts.
+- **Idle.** An agent with nothing to do until someone else acts says so once, with `post --idle` (what it waits for and from whom, with its percentage), instead of filling the chat with "still waiting". While it is idle the timer does not apply to it, a second idle is refused, and its `wait` (up to 270 s per call) returns only when a message tags it (`@NAME`, any case), tags everyone (`@all`, `@tutti`, `@everyone`), comes from you or the lead, or is a `PLAN`, a `VOTE` or a `CLOSED`, which concern everyone. An agent must read the new messages before going idle (what it waits for may already be there). To call an idle agent, tag it. Its idle ends as soon as it posts anything else.
 - **Your messages come first.** Messages signed with your user name are flagged to the agents as coming from the user, and they answer them before anything else. They also wake every idle agent.
 - **Pictures.** Agents attach pictures with `post --image PATH` (png, jpg, webp or gif, up to 20 MB each). The others see the file path in the chat and look at the picture before commenting; you see it in the viewer.
 - **Closing with evidence.** Anyone can post a `PLAN vN` (read at the start of a line, also in a reply or in bold; `CLOSED` and `CHIUSO` in capitals, so "Closed the first point" is just a sentence); the others amend it or vote on it, and a vote names what it rests on (`VOTE v2: yes, checked parser.py:88` or `VOTE v2: no, because the test at #41 fails`). `chat.py` refuses a participant's `CLOSED vN` until every active participant has voted yes with what they checked. A no is a split that the lead reviews and decides; after `PLAN v3` only the lead (or you) posts a new version, so a plan does not drift through endless rounds. You and the lead can always close; a room with another closing rule turns the gate off with `chat.py config closing_gate=0`. Agents are told to change their mind only on new evidence, never because more people agree, and to write their first position before reading the others'.
@@ -97,10 +97,12 @@ your Windows user (DPAPI) outside the room and never appear in the chat, the log
   context fills up the role writes a handover; when a host runs out of quota the role moves to another host of the same
   model, picked by the quota each provider reports; when no host is left its name blinks (light only, no sound) and you
   pick the replacement from the same benchmark cards.
-- **Lighter context for everyone.** [Headroom](https://github.com/headroomlabs-ai/headroom) compresses the long things
-  agents read (logs, JSON, boards; your own messages are never touched, and `chat_expand` gives back the original), and
-  [RTK](https://github.com/rtk-ai/rtk) filters shell output for the room's agents only. Both work in normal and research
-  rooms too.
+- **Lighter context for everyone.** What costs is every turn reading an agent's whole context again, so the room keeps
+  contexts small: its agents (`chatroom:room-agent`) compact at 200k tokens and keep a one-hour prompt cache; a shell
+  output over ~8k tokens comes back as its head, its error lines and its tail, the whole of it in a file; a picture is
+  read at 1000 px at most (Pillow). [Headroom](https://github.com/headroomlabs-ai/headroom) can compress long room texts
+  (`config compress=1`; off by default: on chat prose it saved nothing) and [RTK](https://github.com/rtk-ai/rtk) filters
+  shell output for the room's agents, never inside a pipe.
 - **The Hangar.** A spawn room has its own office: a night hangar with one gate per provider, a departures board with
   every role, quota tanks, and a few easter eggs.
 
@@ -124,8 +126,8 @@ Enforced by `chat.py`, identical for every agent, Claude Code and Codex.
 | Alerts | `post` returns whom to ping: `@NAME`, `--reply`, user to all, lead, `@all`, PLAN/VOTE/CLOSED. Untagged pings nobody. |
 | Focused reading | `read/wait --focus`: full text only when relevant, else one digest line per author from its JSON status; flushed at 20 msgs or 3 heartbeats. |
 | Ranges | `read --range A-B`, cursor untouched. |
-| Silence timer | Heartbeat 120 s; a status needs `pct`; lead and user exempt. |
-| Idle | One `--idle`, then waits up to 540 s, broken only by tag, user, lead, PLAN, VOTE, CLOSED; double idle or idle with unread refused. |
+| Silence timer | Heartbeat 240 s; a status needs `pct`; lead and user exempt. |
+| Idle | One `--idle`, then waits up to 270 s, broken only by tag, user, lead, PLAN, VOTE, CLOSED; double idle or idle with unread refused. |
 | Structured status | JSON `task step pct files next needs done evidence risks free_min`: cards, digest, checks. |
 | Plan / vote / close | Line-start headings (bold, emoji, reply ok); vote = first line; quoted lines ignored; malformed heading warned. |
 | Closing gate | `CLOSED vN` refused until every active non-author votes yes with evidence; a no is a split the lead decides; after `PLAN v3` lead/user only; `closing_gate=0` off. |

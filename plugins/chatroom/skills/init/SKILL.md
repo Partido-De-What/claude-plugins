@@ -57,10 +57,13 @@ on, evidence, final, report). In short:
 
 1. Phase 0: write `ROOM/research/task.md` with the user until they approve it (the guide has the template: program,
    build, evaluator, final evaluator, metric and its source, noise handling with repeats and a minimal gain, protocol
-   line, sealed files, kept data folders, time per run, runs in all).
+   line, sealed files, kept data folders, time per run, runs in all, and a precheck for what the machine needs before
+   each run, such as idle VRAM).
 2. `research init` with that contract (`--draft` when the evaluator is still to be written: phase 1, smoke runs, the
-   AUDITOR's pass, `research seal`). Set the topic with `config --topic`.
-3. The team: 2 WORKERS, a PROPOSER, an AUDITOR, a REGISTRAR, optional SEARCHERS. `research roles ...`, the brief (with a
+   AUDITOR's pass, `research seal`, or `research seal --stay` when the user wants to stop before phase 2). Set the topic
+   with `config --topic`.
+3. The team: 2 WORKERS, a PROPOSER, an AUDITOR, a REGISTRAR, optional SEARCHERS (xhigh only for workers and the auditor;
+   the guide's table has the efforts). `research roles ...`, the brief (with a
    high `max`: it is a checkpoint with you, not a stop), then each prompt generated from its template
    (`research_worker.md`, `research_proposer.md`, `research_auditor.md`, `research_registrar.md`,
    `research_searcher.md`) and passed unchanged. Start the relay.
