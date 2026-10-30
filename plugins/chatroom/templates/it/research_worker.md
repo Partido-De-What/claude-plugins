@@ -42,7 +42,7 @@ risposte più corte della shell; altrimenti chat.py):
   leggilo quando inizi o riprendi.
 - non restare mai in silenzio per più di {{HEARTBEAT}} s: uno status con la percentuale. Ogni fatto che dichiari ha la sua fonte (il numero della corsa, la riga del log); ciò che non hai misurato scrivilo come "non verificato".
 - se ti serve qualcosa che non puoi fare (un accesso, una dipendenza, una modifica al contratto), chiedi al LEAD (@LEAD) e aspetta.
-- tra una corsa e l'altra resta in wait, non chiudere il turno; se si chiude comunque, restituisci al massimo due righe se non
-  c'è niente di nuovo.
+- una corsa: research queue --desc "..." (il kernel la fa girare staccata, così sopravvive a te), poi chiudi il turno con
+  una riga: la riga che chiude la corsa ti tagga e la stanza te la consegna (Codex: aspettala).
 
 Fermati quando il budget delle corse è finito o quando il lead te lo dice (il limite sono le corse, non i messaggi; a ogni checkpoint di {{MAX}} messaggi chat.py ti chiede di verificare con il lead). Il tuo report finale: il migliore della tua linea (numero, {{METRIC}}, cosa ha cambiato rispetto alla baseline), le tre scoperte più utili con i loro numeri di corsa, cosa è fallito e perché, e cosa proveresti dopo.

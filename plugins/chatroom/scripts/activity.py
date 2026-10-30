@@ -380,6 +380,14 @@ class Activity:
                 else:
                     roster = self.room.roster(); put(roster)
                     (self.room.dir / 'roster.json').write_text(json.dumps(roster, indent=2), encoding='utf-8')
+            if name and ev.get('subagentType'):               # its cache life and compaction come with the type (chatroom:room-agent*)
+                path = self.room.dir / 'agent_types.json'
+                try:
+                    types = json.loads(path.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    types = {}
+                types[name] = str(ev['subagentType'])[:60]
+                path.write_text(json.dumps(types), encoding='utf-8')
             a, up = self.agent(aid), self.agent(str(ev.get('parentAgentId') or ''))
             if a:
                 a.parent, a.teammate = (up.name if up else ''), bool(ev.get('isTeammate'))
@@ -696,7 +704,7 @@ def rtk_path():
     return None
 
 
-def register_room(room, port, host):
+def register_room(room, port, host, mod_at=None):
     """note the served room in ~/.claude/chatroom/rooms.json, so the mod knows where to send events; call it again
     every few seconds: the stamp is the heartbeat (a room not stamped for 60 s is dropped, no pid checks: on Windows
     os.kill(pid, 0) would terminate the process). Returns a function that removes the room."""
@@ -730,7 +738,8 @@ def register_room(room, port, host):
         rooms[key] = {'url': f'http://{host}:{port}', 'ts': time.time(), 'ids': list(Activity(room).ids().values()), 'rtk': rtk_path(),
                       'sessions': sessions,
                       'participants': c.get('participants', []), 'user': c.get('user_name', 'USER'),
-                      'title': c.get('title') or c.get('topic', ''), 'since': rooms.get(key, {}).get('since', started)}
+                      'title': c.get('title') or c.get('topic', ''), 'since': rooms.get(key, {}).get('since', started),
+                      'mod_at': mod_at}
     edit(add)
     return lambda: edit(lambda rooms: rooms.pop(key, None))
 

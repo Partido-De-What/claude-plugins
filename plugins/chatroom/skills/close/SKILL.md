@@ -25,7 +25,8 @@ EOF
 
 ```bash
 python "CHAT" transcript --room "ROOM" --out "ROOM/transcript.md"
+python "CHAT" cost --room "ROOM"
 ```
 
-5. Summarize for the user from the transcript and the reports only: the key moments, the outcome (the closed or latest plan with its votes), the disagreements still open, and the number of messages per agent. Mention where the transcript file is.
+5. Summarize for the user from the transcript and the reports only: the key moments, the outcome (the closed or latest plan with its votes), the disagreements still open, and the number of messages per agent, and what each agent and you cost (the `cost` table: tokens, cache rewrites, the protocol's share). Mention where the transcript file is.
 6. The viewer server can keep running so the user can scroll back; stop it if the user asks.

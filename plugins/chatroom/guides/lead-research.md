@@ -8,7 +8,8 @@ cycles, decide the splits, and report. You never edit the program and never merg
 Your context is the expensive one: follow the room through the relay, `research status` and `research view`, not by
 reading logs or the whole chat. Open a message (`read --range n-n`) only when it tags you or changes a decision; leave
 long work in the same session (publishing, browsing) to another session. After a compaction, `recap` rebuilds the room
-in about fifteen lines.
+in about fifteen lines. The relay with `--until-line --batch 60` wakes you only for what needs you (a new global best or a
+crash among the kernel's lines); big logs and diffs go to a subagent that returns ten lines.
 
 CHAT below is the plugin's `scripts/chat.py`, ROOM the room folder (an absolute path).
 
@@ -25,7 +26,7 @@ The team (the paper-backed default):
 | WORKER | strong (Opus or Sonnet, high or xhigh) | 2 (a third only with the user's ok) | edits the program in its own worktree, runs, reports evidence |
 | PROPOSER | Sonnet high | 1, spawned when you need ideas, retired after | ideas in turn (gap, analogy), read-only |
 | AUDITOR | Sonnet xhigh | 1 | verdicts at the gates, checks every keep, revokes |
-| REGISTRAR | Sonnet medium or Haiku (raise it if the direction stalls) | 1 | curates evidence, the direction map, conclusions |
+| REGISTRAR | Haiku, spawned at the end of a cycle for the direction and the conclusions; without one the kernel commits the evidence that rests on its own runs | 0 or 1 | curates evidence, the direction map, conclusions |
 | SEARCHER | Haiku or Sonnet low/medium | 0 to 5 | prior work and literature, as evidence with links |
 
 Effort costs output tokens at every turn: xhigh only for workers and the auditor; the registrar of one night spent more
@@ -87,7 +88,7 @@ committed with LF line endings stays LF, which `cmd` parses badly).
 ```bash
 python CHAT research init --room ROOM --as LEAD --repo <repository> --program <file> --metric <NAME> --direction <min|max> \
   --evaluate "<command>" [--build "<command>" --build-min <m>] [--final "<command>"] --budget-min <m> --max-evals <runs> \
-  --sealed <files> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] --tag <name>
+  --sealed <files> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] [--ccache] --tag <name>
 ```
 
 `--precheck` runs before every run and must exit 0 (idle VRAM under a limit, no stray server): a failed check refuses
@@ -97,7 +98,8 @@ A contract for GPU kernels (or any timing): time in a process of its own, not in
 iteration (a harness that reused its inputs reported 1000x speedups); no side streams or work left running after the
 timer stops; correctness checked apart from the timing; a sanity cap on the speedup the evaluator believes. Noise to
 expect on a shared GPU, measured over 20k real runs: +0.30% at p95 for kernels over 10 ms, 1.58% over 1 ms, 3.90% over
-0.1 ms: set `--min-gain` above it.
+0.1 ms: set `--min-gain` above it. A C/C++/CUDA build: `--ccache` gives every worktree one compiler cache (the second
+worker's first build reuses the first's objects instead of rebuilding for 20 minutes); ccache must be installed.
 
 A canary before trusting the room: a short task with a planted shortcut (a test that passes when the program returns the
 expected value from a table, a data subset that makes the metric easy). Over half of the runs of coding agents took such
@@ -131,7 +133,7 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 `max` in the brief is the checkpoint: every N messages an agent asks you whether to continue (set it high for a long
 research; answer every checkpoint). Generate a worker's prompt after its `assign`, so it names its own worktree.
 Spawn the workers as `chatroom:room-agent-long` and the other roles as `chatroom:room-agent` (1-hour cache, compacting at
-300k / 200k tokens), each with its model and effort, then `config cache_ttl=1h`.
+300k / 200k tokens), each with its model and effort.
 
 Replacing an agent (an explorer is a fresh agent): `python CHAT retire W1 --room ROOM --as LEAD`, then generate W1's
 prompt again (it now acts as `W1~1`) and spawn the new agent, in this order (retire first, then spawn and `roster`).

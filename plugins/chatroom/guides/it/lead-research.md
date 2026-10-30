@@ -9,7 +9,8 @@ unisci mai il risultato: lo fa l'utente.
 Il tuo contesto è quello costoso: segui la stanza tramite il relay, `research status` e `research view`, non leggendo
 i log né tutta la chat. Apri un messaggio (`read --range n-n`) solo quando ti tagga o cambia una decisione; il lavoro lungo
 nella stessa sessione (pubblicare, navigare) lascialo a un'altra sessione. Dopo una compattazione, `recap` ricostruisce la
-stanza in una quindicina di righe.
+stanza in una quindicina di righe. Il relay con `--until-line --batch 60` ti sveglia solo per ciò che chiede te (tra le
+righe del kernel un nuovo migliore globale o un crash); log e diff grandi li legge un subagente che restituisce dieci righe.
 
 CHAT, qui sotto, è lo script `scripts/chat.py` del plugin, ROOM è la cartella della stanza (percorso assoluto).
 
@@ -26,7 +27,7 @@ La squadra (il default sostenuto dal paper):
 | WORKER | forte (Opus o Sonnet, high o xhigh) | 2 (un terzo solo con l'ok dell'utente) | modifica il programma nel proprio worktree, esegue, riporta evidenze |
 | PROPOSER | Sonnet high | 1, lanciato quando ti servono idee, ritirato dopo | idee a turno (gap, analogia), sola lettura |
 | AUDITOR | Sonnet xhigh | 1 | verdetti ai controlli di fase, controlla ogni tentativo tenuto, revoca |
-| REGISTRAR | Sonnet medium o Haiku (alzalo se la direzione si blocca) | 1 | cura le evidenze, la mappa della direzione, le conclusioni |
+| REGISTRAR | Haiku, lanciato a fine ciclo per direzione e conclusioni; senza, il kernel registra da solo le evidenze che poggiano sulle sue corse | 0 o 1 | cura le evidenze, la mappa della direzione, le conclusioni |
 | SEARCHER | Haiku o Sonnet low/medium | da 0 a 5 | lavoro precedente e letteratura, come evidenze con link |
 
 Lo sforzo costa token di uscita a ogni turno: xhigh solo per i worker e l'auditor; in una notte il registrar a xhigh ha
@@ -90,7 +91,7 @@ un `.bat` committato con fine riga LF resta LF, e `cmd` lo interpreta male.
 ```bash
 python CHAT research init --room ROOM --as LEAD --repo <percorso> --program <file> --metric <NOME> --direction <min|max> \
   --evaluate "<comando>" [--build "<comando>" --build-min <m>] [--final "<comando>"] --budget-min <m> --max-evals <corse> \
-  --sealed <file> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] --tag <nome>
+  --sealed <file> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] [--ccache] --tag <nome>
 ```
 
 `--precheck` gira prima di ogni corsa e deve uscire con 0 (VRAM a riposo sotto un limite, nessun server rimasto vivo): un
@@ -101,7 +102,9 @@ Un contratto per kernel GPU (o qualsiasi misura di tempi): il tempo in un proces
 input freschi a ogni iterazione (un harness che riusava gli input ha riportato speedup di 1000x); niente stream laterali
 né lavoro lasciato acceso dopo che il cronometro si ferma; la correttezza controllata a parte dal tempo; un tetto di
 plausibilità sullo speedup che il valutatore accetta. Rumore da aspettarsi su una GPU condivisa, misurato su 20k corse
-vere: +0,30% al p95 per kernel sopra i 10 ms, 1,58% sopra 1 ms, 3,90% sopra 0,1 ms: metti `--min-gain` sopra quello.
+vere: +0,30% al p95 per kernel sopra i 10 ms, 1,58% sopra 1 ms, 3,90% sopra 0,1 ms: metti `--min-gain` sopra quello. Una build C/C++/CUDA: `--ccache` dà a tutti i worktree una sola cache del
+compilatore (la prima build del secondo worker riusa gli oggetti del primo invece di ricompilare per 20 minuti); serve
+ccache installato.
 
 Un canary prima di fidarti della stanza: un compito breve con una scorciatoia piantata (un test che passa se il programma
 restituisce il valore atteso da una tabella, un sottoinsieme dei dati che rende facile la metrica). Più della metà delle
@@ -137,7 +140,7 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 `max` nel brief è il checkpoint: ogni N messaggi un agente ti chiede se continuare (impostalo alto per una ricerca
 lunga; rispondi a ogni checkpoint). Genera il prompt di un worker dopo il suo `assign`, così nomina il proprio worktree.
 Lancia i worker come `chatroom:room-agent-long` e gli altri ruoli come `chatroom:room-agent` (cache di 1 ora, compattano a
-300k / 200k token), ciascuno con il suo modello ed effort, poi `config cache_ttl=1h`.
+300k / 200k token), ciascuno con il suo modello ed effort.
 
 Per sostituire un agente (un explorer è un agente nuovo): `python CHAT retire W1 --room ROOM --as LEAD`, poi genera di
 nuovo il prompt di W1 (ora agisce come `W1~1`) e lancia il nuovo agente, in quest'ordine: prima `retire`, poi il lancio

@@ -30,6 +30,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import statistics
 import subprocess
 import sys
@@ -212,6 +213,18 @@ def max_run_seconds(c):
     return build + 2 * c['budget_s'] * max(1, int(c.get('repeats') or 1)) + 120
 
 
+def _cache_env(room, c):
+    """one compiler cache for every worktree of the research (contract --ccache): paths relative to the research folder,
+    so worker B's first build reuses worker A's objects instead of 22 minutes from scratch; CMake takes the launchers
+    from these variables at its first configure"""
+    if not c.get('ccache'):
+        return {}
+    d = _dir(room) / 'ccache'
+    d.mkdir(exist_ok=True)
+    return {'CCACHE_DIR': str(d), 'CCACHE_BASEDIR': str(_dir(room)), 'CCACHE_NOHASHDIR': 'true',
+            **{f'CMAKE_{lang}_COMPILER_LAUNCHER': 'ccache' for lang in ('C', 'CXX', 'CUDA')}}
+
+
 def _env(**extra):
     """the environment a build or an evaluator gets: the user's, without the keys of model providers and code hosts"""
     from chat import user_env                             # the kernel runs in the plugin's uv env: `python` in a build must be the user's
@@ -289,7 +302,7 @@ def _better(c, value, than):
 # ---------------------------------------------------------------------------------------------------------- contract
 def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, max_evals=100, repo='.', sealed=(), tag=None,
          result_file=False, keep=(), draft=False, final=None, build=None, build_min=None, repeats=1, min_gain=None, guards=None,
-         provenance=False, precheck=None):
+         provenance=False, precheck=None, ccache=False):
     """the lead or the user writes the contract: which file changes, how it is built and evaluated, what is sealed, the
     budget, how noise is handled. --draft starts at phase 1 (the evaluator is still being written, sealed later)"""
     if by not in room.user_names():
@@ -365,7 +378,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
                 'metric_source': 'file' if result_file else 'output', 'keep': keep, 'final': final or '',
                 'build': build or '', 'build_s': max(1, int(float(build_min) * 60)) if build_min else 0,
                 'repeats': int(repeats or 1), 'min_gain': str(min_gain) if min_gain is not None else '', 'roles': {}, 'guards': guards, 'provenance': bool(provenance),
-                'precheck': precheck or '', 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S')}
+                'precheck': precheck or '', 'ccache': bool(ccache), 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S')}
     _save(room, 'contract.json', contract)
     st = _migrate(contract, {'evals': 0, 'best': None, 'head': base, 'pending': None, 'phase': 1 if draft else 2})
     _save(room, 'state.json', st)
@@ -385,7 +398,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
 
 
 def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=None, build=None, build_min=None,
-          repeats=None, min_gain=None, final=None, guards=None, reason=None, provenance=None, precheck=None):
+          repeats=None, min_gain=None, final=None, guards=None, reason=None, provenance=None, precheck=None, ccache=None):
     """the lead changes the contract: budgets at any time; what is measured and how only before a baseline is kept (a
     crashed baseline is fixed this way, not by starting over)"""
     if by not in room.user_names():
@@ -444,6 +457,9 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
     if precheck is not None:                              # a machine check before each run: never judges a run, so at any time
         c['precheck'] = precheck.strip()
         said.append(say('kernel.precheck.set', cmd=c['precheck'] or '-'))
+    if ccache is not None:                                # how the build is cached never judges a run: at any time
+        c['ccache'] = bool(ccache)
+        said.append(say('kernel.ccache.set', state='on' if ccache else 'off') + (say('kernel.ccache.missing') if ccache and not shutil.which('ccache') else ''))
     if not said:
         raise ValueError(say('kernel.amend.research_amend_evaluate_build'))
     _save(room, 'contract.json', c)
@@ -667,6 +683,10 @@ def _run(cmd, cwd, log, limit, env, mode='wb', on_start=None):
             on_start(p.pid)
         try:
             code = p.wait(timeout=limit)
+            left = _descendants(p.pid)                    # still alive after the evaluator ended: a server it started
+            if left:
+                Path(log).with_name(f'pids-{Path(log).stem}.txt').write_text(
+                    ''.join(f'{k} {v}\n' for k, v in left.items()), encoding='utf-8')
         except subprocess.TimeoutExpired:
             _kill_tree(p.pid)
             p.wait()
@@ -702,7 +722,20 @@ def _built_mark(d, work):
     return Path(d) / 'runs' / f'built-{Path(work).name}.sha'
 
 
+def stop_early(values, repeats, loses):
+    """True when more than half of all the repeats already lost one by one: then the median loses whatever comes next.
+    Not the median of the first two, which is their mean (att-5, 0.986 and 1.042 against 1.03, was a keep at 1.042)"""
+    return sum(1 for v in values if loses(v)) >= repeats // 2 + 1
+
+
 def _measure(c, work, d, n, env, log, on_start=None, enough=None):
+    """_measure_free under the machine's lock: another room's build or test must not run beside a measure"""
+    from machine import machine_lock
+    with machine_lock(f'research run {n} in {work}'):
+        return _measure_free(c, work, d, n, env, log, on_start, enough)
+
+
+def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
     """build once (its own limit), then evaluate --repeats times; the median counts. Returns (value, why, secs, spread,
     protocol lines, all output)"""
     secs, text = 0.0, ''
@@ -772,8 +805,8 @@ def _measure(c, work, d, n, env, log, on_start=None, enough=None):
             if len(got) != 1:
                 return None, say('kernel._measure.guard_lines_exactly_one', g=g, len_got=len(got)), secs, '', protocol, text
             gvals[g].append(float(got[0]))
-        if enough and 2 <= len(values) < c.get('repeats', 1) and enough(statistics.median(values)):
-            break                                         # two measures already lose: the last repeats only confirm a keep
+        if enough and len(values) < c.get('repeats', 1) and stop_early(values, c.get('repeats', 1), enough):
+            break                                         # the median can no longer win: the last repeats would only confirm a loss
     value = statistics.median(values)
     spread = f'{min(values):.6g}..{max(values):.6g}' if len(values) > 1 else ''
     c['_guards'] = {g: statistics.median(v) for g, v in gvals.items()}   # read by the caller right after
@@ -793,7 +826,7 @@ def _diff_kinds(work, parent, head, program):
     return added, removed, tuning
 
 
-def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None):
+def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, extra_env=None):
     """one run: seal and scope checks, commit, build, measure, keep or reset; the result goes to results.tsv and to the
     chat. kind=attempt (phase 2) competes for the best; ablation, baseline, control, repeat (phase 3) only measure;
     smoke (phase 1) checks the evaluator runs"""
@@ -806,7 +839,7 @@ def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None):
     held = _gpu_hold(room)
     if held and held['by'] != name:
         raise ValueError(say('kernel.evaluate.the_gpu_is_held', by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
-    return _locked(room, c, name, lambda: _evaluate(room, name, desc, idea, kind, of, seed))
+    return _locked(room, c, name, lambda: _evaluate(room, name, desc, idea, kind, of, seed, extra_env))
 
 
 def _locked(room, c, name, fn):
@@ -941,7 +974,7 @@ def _reconcile(room, c, st):
     return line
 
 
-def _evaluate(room, name, desc, idea, kind, of, seed):
+def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     d = _dir(room)
     c, st = _state(room)
     fix = kind == 'fix'                                   # an attempt kept at equal metric: a correction, not a gain
@@ -1043,9 +1076,9 @@ def _evaluate(room, name, desc, idea, kind, of, seed):
     _edit(room, lambda c2, s2: s2.update(pending=dict(pending)))
     held = _clean(work, c)
     log = d / 'runs' / f'{n}.log'
-    env = _env(CHATROOM_RUN=n, CHATROOM_KIND=kind, CHATROOM_PROGRAM_SHA=_sha(work / c['program']),
+    env = _env(**_cache_env(room, c), CHATROOM_RUN=n, CHATROOM_KIND=kind, CHATROOM_PROGRAM_SHA=_sha(work / c['program']),
                **({'CHATROOM_SEED': seed} if seed is not None else {}),
-               **({'CHATROOM_BASELINE': 1} if first else {}))
+               **({'CHATROOM_BASELINE': 1} if first else {}), **(extra_env or {}))   # extra_env: a planned ablation's switches
 
     def started(pid):                                     # recorded: a caller killed now leaves a process the kernel can stop
         pending['child'], pending['child_ts'] = pid, time.time()
@@ -1307,10 +1340,18 @@ def propose_evidence(room, by, text, source):
         elif not re.fullmatch(r'https?://\S{4,}', s):
             raise ValueError(say('kernel.propose_evidence.source_att_n_e', s=s))
 
+    measured = all(re.fullmatch(r'att-\d+', s) and next(x for x in st['attempts'] if f"att-{x['n']}" == s)['status'] != 'crash'
+                   for s in srcs)
+    # no REGISTRAR in the room: the kernel commits what rests only on runs it measured itself (the bookkeeping that made the
+    # registrar the costliest role of a night); links and other evidence wait for the lead or a registrar spawned for it
+    auto = measured and not (c.get('roles') or {}).get('REGISTRAR')
+
     def apply(c2, s2):
         s2['seq']['E'] += 1
         eid = f"E{s2['seq']['E']}"
-        s2['evidence'].append({'id': eid, 'text': text[:600], 'source': srcs, 'by': by, 'state': 'tentative', 'ts': time.time()})
+        live = sum(1 for e in s2['evidence'] if e['state'] == 'committed')
+        s2['evidence'].append({'id': eid, 'text': text[:600], 'source': srcs, 'by': by, 'ts': time.time(),
+                               'state': 'committed' if auto and live < CURATED_MAX else 'tentative'})
         if by in s2['workers']:
             s2['workers'][by]['since_evidence'] = 0
         elif list(s2['workers']) == ['_main'] and _role_of(c2, by) in (None, 'WORKER'):
@@ -1318,6 +1359,8 @@ def propose_evidence(room, by, text, source):
         return eid
     eid = _edit(room, apply)
     _log(room, by, 'evidence', {'id': eid, 'source': srcs})
+    if auto:
+        return say('kernel.propose_evidence.committed_by_kernel', eid=eid, srcs=", ".join(srcs), text=text[:160])
     return say('kernel.propose_evidence.evidence_tentative_from', eid=eid, srcs=", ".join(srcs), text=text[:160])
 
 
@@ -1559,7 +1602,9 @@ def hold(room, by, minutes, reason, for_room=None):
         raise ValueError(say('kernel.hold.a_run_is_in'))
     if for_room:                                          # a window for another room on the same GPU: this room's runs wait
         reason = say('kernel.hold.window_for', room=for_room) + reason
-    h = {'by': by, 'reason': reason, 'until': time.time() + minutes * 60, 'pid': None, 'for': for_room}
+    from inbox import processes
+    h = {'by': by, 'reason': reason, 'until': time.time() + minutes * 60, 'pid': None, 'for': for_room,
+         'before': sorted(processes())}               # what ran before it: at release, what it left behind is told apart
     from chat import write_atomic
     write_atomic(_dir(room) / 'gpu.hold', json.dumps(h))
     _log(room, by, 'hold', h)
@@ -1575,7 +1620,7 @@ def release(room, by):
         raise ValueError(say('kernel.release.the_gpu_is_held', by=h['by']))
     (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
     _log(room, by, 'release', {'held_by': h['by']})
-    left = strays(room)
+    left = strays(room) + _orphans_since(h.get('before'))
     return say('kernel.release.gpu_released_by_held', by=by, by_=h['by'], reason=h['reason'][:120]) + (
         say('kernel.word.strays', items=', '.join(left[:6])) if left else '')
 
@@ -1599,9 +1644,22 @@ def _queue(room):
         return []
 
 
-def queue(room, by, desc, idea=None, kind='attempt', after=None):
-    """a worker queues its next run: the kernel starts it when the evaluator is free (and after att-N, when given),
-    instead of a script of its own polling the lock. The run measures the worktree as it is when it starts"""
+def _queue_edit(room, fn):
+    """read, change and write the queue under the room's lock: two workers queueing at once both stay in it"""
+    from chat import write_atomic
+
+    def run():
+        q = _queue(room)
+        out = fn(q)
+        write_atomic(_dir(room) / 'queue.json', json.dumps(q, ensure_ascii=False))
+        return out
+    return room.locked(run)
+
+
+def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=None, env=None):
+    """a worker queues its next run: the kernel starts it, detached, when the evaluator is free (and after att-N, when
+    given), so the run outlives the agent that asked for it, and a line tagging the worker tells it the outcome. The run
+    measures the worktree as it is when it starts"""
     c, st = _state(room)
     _need(room, c, by, 'WORKER')
     _worker(st, by)
@@ -1609,48 +1667,106 @@ def queue(room, by, desc, idea=None, kind='attempt', after=None):
         raise ValueError(say('kernel.queue.desc'))
     if after and not re.fullmatch(r'att-\d+', after):
         raise ValueError(say('kernel.queue.after'))
-    from chat import write_atomic
-    q = [x for x in _queue(room) if x['by'] != by] + [{'by': by, 'desc': desc, 'idea': idea, 'kind': kind or 'attempt',
-                                                       'after': after, 'ts': time.time()}]   # one queued run per worker: the newest
-    write_atomic(_dir(room) / 'queue.json', json.dumps(q, ensure_ascii=False))
-    _log(room, by, 'queue', q[-1])
+    entry = {'by': by, 'desc': desc, 'idea': idea, 'kind': kind or 'attempt', 'after': after, 'of': of, 'seed': seed,
+             'env': env or {}, 'ts': time.time()}
+    mine = (kind or 'attempt') in ('attempt', 'fix')    # a worker's own next attempt replaces its older one; planned runs pile up
+
+    def add(q):
+        q[:] = [x for x in q if not (mine and x['by'] == by and x.get('kind', 'attempt') in ('attempt', 'fix'))] + [entry]
+        return len(q)
+    pos = _queue_edit(room, add)
+    _log(room, by, 'queue', entry)
     _queue_runner(room)
-    return say('kernel.queue.queued', by=by, pos=len(q), after=f' after {after}' if after else '')
+    return say('kernel.queue.queued', by=by, pos=pos, after=f' after {after}' if after else '')
+
+
+def plan(room, by, of, env, desc, worker=None, kind='ablation'):
+    """the lead plans a phase-3 run that only switches environment variables on an attempt already made (att-N with
+    K=V,...): the kernel queues it on the worktree that holds att-N and runs it in turn, no agent has to"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.plan.only_the_lead'))
+    c, st = _state(room)
+    a = next((x for x in st['attempts'] if f"att-{x['n']}" == of), None)
+    if not a:
+        raise ValueError(say('kernel.plan.no_such_run', of=of))
+    pairs = dict(p.split('=', 1) for p in (env or '').split(',') if '=' in p)
+    if not pairs:
+        raise ValueError(say('kernel.plan.usage'))
+    w = worker or a.get('worker') or '_main'
+    key, wk = _worker(st, w)
+    if (wk.get('best') or {}).get('n') != a['n']:
+        raise ValueError(say('kernel.plan.not_at', of=of, worker=key))
+    return queue(room, key if key != '_main' else w, desc or f"{kind} of {of}: {', '.join(f'{k}={v}' for k, v in pairs.items())}",
+                 kind=kind, of=of, env=pairs)
 
 
 def _queue_runner(room):
-    """one runner per room, detached, alive while the queue has runs"""
+    """one runner per room, detached: the lock file is created exclusively and holds the runner's pid; a dead runner's
+    lock is taken over"""
     from chat import pid_alive
-    pid_file = _dir(room) / 'queue.pid'
-    try:
-        if pid_alive(int(pid_file.read_text().split()[0])):
-            return
-    except (OSError, ValueError, IndexError):
-        pass
-    proc = _detach([sys.executable, str(Path(__file__).with_name('chat.py')), 'research', 'run-queue', '--room', str(room.dir)],
-                   cwd=str(room.dir), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    pid_file.write_text(str(proc.pid))
+    lock = _dir(room) / 'queue.lock'
+    for _ in range(2):
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                if pid_alive(int(lock.read_text().split()[0])):
+                    return
+            except (OSError, ValueError, IndexError):
+                pass
+            lock.unlink(missing_ok=True)                  # its runner is dead: take over
+            continue
+        proc = _detach([sys.executable, str(Path(__file__).with_name('chat.py')), 'research', 'run-queue', '--room', str(room.dir)],
+                       cwd=str(room.dir), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        os.write(fd, str(proc.pid).encode())
+        os.close(fd)
+        return
 
 
 def run_queue(room, poll=15):
-    """the runner: the first queued run whose turn has come, when no run is alive and the GPU is not held by another"""
-    from chat import write_atomic
-    while True:
-        q = _queue(room)
-        if not q:
-            return
-        c, st = _state(room)
-        done = {f"att-{a['n']}" for a in st['attempts']}
-        ready = next((x for x in q if not x.get('after') or x['after'] in done), None)
-        held = _gpu_hold(room)
-        if not ready or _run_alive(room) or st.get('pending') or (held and held['by'] != ready['by']):
-            time.sleep(poll)
-            continue
-        write_atomic(_dir(room) / 'queue.json', json.dumps([x for x in q if x is not ready], ensure_ascii=False))
+    """the runner: the first queued run whose turn has come, when no run is alive and the GPU is not held by another.
+    A run that can never come (after a number past the budget, or out of its phase) is dropped with a line; any fault
+    of one run is told on the board and the runner goes on"""
+    lead = (room.config().get('self_names') or ['LEAD'])[0]
+    try:
+        while True:
+            c, st = _state(room)
+            done = {f"att-{a['n']}" for a in st['attempts']}
+
+            def take(q):
+                for x in list(q):
+                    late = x.get('after') and int(x['after'][4:]) > c['max_evals'] and x['after'] not in done
+                    wrong = (x.get('kind', 'attempt') in ('attempt', 'fix') and st['phase'] != 2) or \
+                            (x.get('kind') in AUX_KINDS and st['phase'] != 3)
+                    if late or wrong:
+                        q.remove(x)
+                        room.append(lead, say('kernel.queue.dropped', by=x['by'], desc=x['desc'][:80]), 'board')
+                if not q:
+                    return 'empty'
+                ready = next((x for x in q if not x.get('after') or x['after'] in done), None)
+                held = _gpu_hold(room)
+                if not ready or _run_alive(room) or st.get('pending') or (held and held['by'] != ready['by']):
+                    return None
+                q.remove(ready)
+                return ready
+            ready = _queue_edit(room, take)
+            if ready == 'empty':
+                return
+            if not ready:
+                time.sleep(poll)
+                continue
+            try:
+                line = evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt',
+                                ready.get('of'), ready.get('seed'), ready.get('env') or None)
+                room.append(lead, f"@{ready['by']} " + say('kernel.queue.done', line=line.splitlines()[0][:300]), 'board')
+            except Exception as exc:                      # one bad run never stops the queue
+                room.append(lead, f"@{ready['by']} " + say('kernel.queue.refused', desc=ready['desc'][:80], exc=str(exc)[:300]), 'board')
+    finally:
         try:
-            evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt')
-        except ValueError as exc:
-            room.append(ready['by'], say('kernel.queue.refused', desc=ready['desc'][:80], exc=str(exc)[:300]), 'board')
+            if (_dir(room) / 'queue.lock').read_text().split()[0] == str(os.getpid()):
+                (_dir(room) / 'queue.lock').unlink()
+        except (OSError, IndexError):
+            pass
 
 
 def _exe_paths():
@@ -1679,6 +1795,32 @@ def _exe_paths():
     return out
 
 
+def _descendants(pid):
+    """the processes still alive that pid started, at any depth (Windows keeps a dead parent's id in its children)"""
+    from inbox import processes
+    procs, out, todo = processes(), [], [pid]
+    while todo:
+        p = todo.pop()
+        kids = [k for k, (_, pp) in procs.items() if pp == p and k not in out]
+        out += kids
+        todo += kids
+    return {k: procs[k][0] for k in out}
+
+
+def _orphans_since(before):
+    """processes born after `before` (a pid list) whose parent is gone, outside the system's folders: a server a profile
+    started from a shell that has ended"""
+    if not before:
+        return []
+    from inbox import processes
+    from chat import pid_alive
+    seen, paths = set(before), _exe_paths()
+    sysdir = os.path.normcase(os.environ.get('SystemRoot', r'C:\Windows'))
+    return sorted(f'{name} {pid}' for pid, (name, pp) in processes().items()
+                  if pid not in seen and pid != os.getpid() and not pid_alive(pp)
+                  and not os.path.normcase(paths.get(pid, sysdir)).startswith(sysdir))
+
+
 def strays(room):
     """processes still alive whose program lives in a worktree of this research (a server left by a profile or a killed
     run): listed for the lead, never killed"""
@@ -1686,8 +1828,15 @@ def strays(room):
         c, st = _state(room)
         dirs = {os.path.normcase(str(Path(w).resolve())) for w in [c['work'], *(x['work'] for x in st['workers'].values())]}
         long = lambda p: os.path.normcase(str(Path(p).resolve()) if '~' in p else p)   # Windows keeps a short name (ADMINI~1) in the image path
-        return sorted(f'{Path(p).name} {pid}' for pid, p in _exe_paths().items()
-                      if pid != os.getpid() and any(long(p).startswith(d + os.sep) for d in dirs))
+        found = {f'{Path(p).name} {pid}' for pid, p in _exe_paths().items()
+                 if pid != os.getpid() and any(long(p).startswith(d + os.sep) for d in dirs)}
+        from chat import pid_alive                        # and what a run's evaluator left behind (runs/pids-N.txt)
+        for f in (_dir(room) / 'runs').glob('pids-*.txt'):
+            for line in f.read_text(encoding='utf-8').splitlines():
+                pid, _, name = line.partition(' ')
+                if pid.isdigit() and pid_alive(int(pid)):
+                    found.add(f'{name} {pid}')
+        return sorted(found)
     except (OSError, ValueError, KeyError, AttributeError):
         return []
 
@@ -1742,10 +1891,13 @@ def prebuild(room, by, worker):
             'with open(sys.argv[2], "wb") as out:\n'
             '    out.write(("# python: %s\\n# PATH: %s\\n# PYTHONNOUSERSITE: %s\\n" % (shutil.which("python"), os.environ.get("PATH", ""), os.environ.get("PYTHONNOUSERSITE", ""))).encode())\n'
             '    out.flush()\n'
-            '    code = subprocess.call(sys.argv[1], shell=True, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT)\n'
+            '    sys.path.insert(0, sys.argv[4])\n'
+            '    from machine import machine_lock\n'
+            '    with machine_lock("prebuild " + sys.argv[1][:80]):\n'
+            '        code = subprocess.call(sys.argv[1], shell=True, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT)\n'
             'open(sys.argv[3], "w").write(str(code))\n')
-    argv = [sys.executable, '-c', wrap, c['build'], str(log), str(done)]
-    kw = dict(cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_env(CHATROOM_KIND='prebuild',
+    argv = [sys.executable, '-c', wrap, c['build'], str(log), str(done), str(Path(__file__).resolve().parent)]
+    kw = dict(cwd=work, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_env(**_cache_env(room, c), CHATROOM_KIND='prebuild',
                 CHATROOM_PROGRAM_SHA=_sha(work / c['program']) if (work / c['program']).is_file() else ''))
     proc = _detach(argv, **kw)
     limit = (c.get('build_s') or 2 * c['budget_s']) * 3 + 600   # a reused pid cannot hold the GPU past this
@@ -2190,6 +2342,7 @@ def status(room):
         head += say('kernel.status.neighbours', items='; '.join(near))
     q = _queue(room)
     if q:
+        _queue_runner(room)                               # a runner that died with runs left: started again
         head += say('kernel.status.queue', items='; '.join(f"{x['by']}: {x['desc'][:40]}" + (f" (after {x['after']})" if x.get('after') else '') for x in q))
     for f in sorted((_dir(room) / 'runs').glob('prebuild-*.exit')):
         code = f.read_text(errors='replace').strip()
@@ -2366,12 +2519,13 @@ def _cmd(room, a):
                          a.repo or '.', split(a.sealed), a.tag, bool(a.result_file), split(getattr(a, 'keep', None)),
                          bool(getattr(a, 'draft', False)), getattr(a, 'final', None), getattr(a, 'build', None),
                          getattr(a, 'build_min', None), getattr(a, 'repeats', None) or 1, getattr(a, 'min_gain', None),
-                         getattr(a, 'guard', None), getattr(a, 'provenance', None), getattr(a, 'precheck', None)))
+                         getattr(a, 'guard', None), getattr(a, 'provenance', None), getattr(a, 'precheck', None),
+                         getattr(a, 'ccache', None)))
     if act == 'amend':
         return post(amend(room, a.name, a.evaluate, a.budget_min, a.max_evals, a.result_file, getattr(a, 'build', None),
                           getattr(a, 'build_min', None), getattr(a, 'repeats', None), getattr(a, 'min_gain', None),
                           getattr(a, 'final', None), getattr(a, 'guard', None), getattr(a, 'reason', None),
-                          getattr(a, 'provenance', None), getattr(a, 'precheck', None)))
+                          getattr(a, 'provenance', None), getattr(a, 'precheck', None), getattr(a, 'ccache', None)))
     if act == 'roles':
         return post(roles(room, a.name, rest))
     if act == 'allow-fix' and rest:
@@ -2386,7 +2540,13 @@ def _cmd(room, a):
         return post(assign(room, a.name, rest[0], getattr(a, 'idea', None), getattr(a, 'parent', None) or 'best',
                            getattr(a, 'type', None) or 'explorer', a.force))
     if act == 'queue':
-        return post(queue(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None), getattr(a, 'after', None)))
+        return post(queue(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None), getattr(a, 'after', None),
+                          getattr(a, 'of', None), getattr(a, 'seed', None)))
+    if act == 'plan' and rest[:1] == ['add']:
+        return post(plan(room, a.name, getattr(a, 'of', None), getattr(a, 'env', None), a.desc, getattr(a, 'worker', None),
+                         getattr(a, 'kind', None) or 'ablation'))
+    if act == 'plan':
+        return print('\n'.join(f"{x['by']}: {x['desc'][:100]}" for x in _queue(room)) or say('kernel.plan.empty'))
     if act == 'run-queue':
         return run_queue(room)
     if act == 'evaluate':

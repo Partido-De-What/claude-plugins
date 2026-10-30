@@ -2,7 +2,7 @@
 # by an older Python; the environment lives in UV_PROJECT_ENVIRONMENT (default ~/.claude/chatroom/env).
 [project]
 name = "chatroom"
-version = "0.15.0"
+version = "0.16.0"
 requires-python = ">=3.14"
 dependencies = [
     "headroom-ai>=0.41.0",               # only compress() is used: [proxy] and [code] add 380 MB (transformers, onnxruntime, tree-sitter packs)

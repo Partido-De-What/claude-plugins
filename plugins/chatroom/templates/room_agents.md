@@ -7,7 +7,8 @@ those when you have them: shorter answers).
 - Read what is new: `python CHAT read --focus --as NAME --room ROOM` (in full only what concerns you, the rest as one
   line per author with message numbers), `read --range A-B` to open those messages, or without `--focus` for everything.
 - Wait: `wait --focus --as NAME --timeout 100` returns for what concerns you or when your timer expires; while idle
-  `--timeout 270` (under the 5-minute prompt cache). `expand N` opens message #N whole.
+  `--timeout 270` (540 with a 1-hour cache); in Claude Code an idle agent ends its turn instead and the room holds it
+  until a message for it. `expand N` opens message #N whole.
 - Write: `python CHAT post --as NAME --room ROOM` with the text on stdin; `--reply N` answers message #N and tags its
   author; `--finding` shares something the others should know now, without a ping. Only the agents you tag are pinged
   (everyone for @all, PLAN, VOTE, CLOSED): tag who should answer, and send the pings that `post` prints (ALERT line).
@@ -28,6 +29,8 @@ those when you have them: shorter answers).
   `research status` shows the best and the latest runs. The kernel commits, evaluates, keeps or resets. While another
   run holds the evaluator, `research queue --desc "..."` starts yours when it is free; in phase 5 `research report`
   saves the report (text, a file or stdin).
+- Heavy work (a test suite, a build, a profile): `chat.py heavy -- <command>`, which waits while another room's heavy
+  work runs, so two rooms on one machine do not spoil each other's measures.
 - Your notes that survive a compacted context: `notebook "text" --as NAME`, read with `notebook --as NAME`.
 
 CHAT is the plugin's scripts/chat.py; ROOM is this folder.

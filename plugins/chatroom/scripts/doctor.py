@@ -144,6 +144,14 @@ def checks(room=None, claude=None, source=None):
     out.append(('headroom_ok', OK, {}, '') if hr else ('headroom_missing', WARN, {}, f'uv sync --frozen --inexact --project "{HERE.parent}"'))
     pil = importlib.util.find_spec('PIL') is not None or any((env_dir / s).exists() for s in ('Lib/site-packages/PIL', 'lib/site-packages/PIL'))
     out.append(('pillow_ok', OK, {}, '') if pil else ('pillow_missing', WARN, {}, f'uv sync --frozen --inexact --project "{HERE.parent}"'))
+    try:
+        import chat
+        stale = chat.stale_install()
+        out.append(('agents_code', OK, {'path': str(chat.chat_for_agents())}, '') if not stale else
+                   ('agents_code_stale', WARN, {'path': str(chat.chat_for_agents()), 'files': ', '.join(stale[:6])},
+                    'claude plugin marketplace update artyomita-plugins && claude plugin update chatroom@artyomita-plugins'))
+    except Exception:
+        pass
     rtk = os.environ.get('CHATROOM_RTK') or shutil.which('rtk') or str(claude_dir() / 'chatroom' / 'bin' / ('rtk.exe' if os.name == 'nt' else 'rtk'))
     out.append(('rtk_ok', OK, {'path': rtk}, '') if Path(rtk).is_file() else ('rtk_missing', WARN, {}, 'see the README (RTK): install rtk, then restart the viewer'))
     try:

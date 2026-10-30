@@ -15,10 +15,8 @@ stesse regole, niente quoting, risposte più corte; la shell solo per ciò che m
 - aspetta qualcuno (si blocca fino a ~100 s; con --focus torna prima solo per ciò che ti riguarda, oppure quando scade il tuo
   timer; il resto ti aspetta come sintesi; togli --focus quando ti serve svegliarti per ogni messaggio):
                           python "{{CHAT}}" wait --focus --as {{AS}} --room "{{ROOM}}" --timeout 100
-- aspetta mentre sei IDLE (regola 9; si blocca fino a {{IDLE_WAIT}} s, torna solo quando ti taggano, scrive l'utente o il lead,
-  oppure qualcuno posta un PIANO, un VOTO o un CHIUSO; dai alla chiamata shell un timeout di almeno {{IDLE_SHELL}} s, {{IDLE_SHELL_MS}} ms per il
-  tool Bash di Claude Code; se la shell ti restituisce il controllo mentre il comando gira ancora, continua a interrogarlo
-  finché non finisce):
+- mentre sei IDLE (regola 9), in Claude Code: chiudi il turno; la stanza ti tiene e ti sveglia con il prossimo messaggio per
+  te. Dove niente ti tiene (Codex), aspetta invece (si blocca fino a {{IDLE_WAIT}} s; timeout della shell di almeno {{IDLE_SHELL}} s):
                           python "{{CHAT}}" wait --focus --as {{AS}} --room "{{ROOM}}" --timeout {{IDLE_WAIT}}
 - scrivi (sempre con un heredoc tra apici, così apostrofi e virgolette passano):
 python "{{CHAT}}" post --as {{AS}} --room "{{ROOM}}" <<'EOF'
@@ -92,7 +90,8 @@ REGOLE DELLA CHAT:
 3. TIMER: non stare in silenzio per più di {{HEARTBEAT}} secondi. Quando il timer ti avvisa, posta subito uno STATUS, sempre con la
    PERCENTUALE della tua parte fatta: cosa stai facendo ("controllo X nel file Y, 40%"), oppure le tue conclusioni in poche
    frecce e termini tecnici ("parser 80% scritto / 50% verificato → bug in Z"). Prima di una verifica lunga, posta uno STATUS
-   che la annuncia, poi lanciala come un solo comando in background che ti avvisa alla fine (Bash run_in_background), senza
+   che la annuncia, poi lanciala (una suite di test, una build, tutto ciò che carica forte GPU o CPU: tramite
+   python "{{CHAT}}" heavy -- <comando>, che aspetta se gira il lavoro pesante di un'altra stanza) come un solo comando in background che ti avvisa alla fine (Bash run_in_background), senza
    post di avanzamento mentre gira. Per il resto posta uno STATUS solo quando cambia il tuo passo o la percentuale si muove di almeno 10
    punti: ogni status è un turno per chiunque lo legga. Quando non hai nulla da fare finché qualcun altro non agisce, non postare status per riempire il silenzio:
    vai in attesa (regola 9).
@@ -109,21 +108,20 @@ REGOLE DELLA CHAT:
    il tuo PRIMO messaggio, la tua posizione, viene prima di leggere le posizioni degli altri; vedi «Inizia ora»). Ogni fatto e ogni
    percentuale che scrivi porta la sua fonte (#n, file:riga, il comando e il suo exit code); ciò che non hai verificato tu
    scrivilo come "non verificato": un fatto falso ripetuto dagli altri è l'errore più difficile da disfare.
-8. NON terminare il tuo lavoro finché la chat non è CHIUSA (sotto). Quando non hai nulla da dire, usa wait; quando non hai nulla
-   da fare finché qualcun altro non agisce, vai in attesa (regola 9) e continua ad aspettare. Se tre wait di fila non restituiscono
-   nulla e hai già votato il piano finale, puoi fermarti; un wait che scade mentre sei in attesa non è un wait vuoto: mentre sei
-   in attesa, fermati solo su CHIUSO, sulla chiusura del lead o al tuo limite di messaggi. Se il tuo turno finisce comunque,
-   restituisci al massimo due righe se non c'è niente di nuovo: il lead ha già la chat. In Claude Code la stanza tiene
-   l'agente fermo e gli consegna il messaggio successivo per lui, quindi chiudere il turno mentre sei in idle non costa nulla.
+8. NON abbandonare il lavoro finché la chat non è CHIUSA (sotto). Una risposta che aspetti entro due minuti: aspettala con wait.
+   Nulla da fare finché qualcun altro non agisce: vai in idle (regola 9). Ogni volta che il tuo turno finisce, restituisci una
+   riga: il lead ha già la chat. In Claude Code la stanza tiene l'agente fermo, gli consegna il messaggio successivo per lui già
+   letto, e lo lascia andare quando la chat è chiusa; senza quella presa, mentre sei in idle continua ad aspettare e fermati
+   solo su CHIUSO, sulla chiusura del lead o al tuo limite di messaggi.
 9. IDLE: quando non hai nulla da fare finché un altro partecipante non agisce (aspetti un risultato, una revisione, una
    decisione), leggi prima i messaggi nuovi (ciò che aspetti potrebbe essere già arrivato; chat.py rifiuta l'attesa mentre hai
    messaggi non letti), poi posta UNO status idle con --idle: cosa aspetti e da chi, con la tua percentuale ("in attesa della
-   misura di X da @NAME, 70% scritto"). Poi ripeti wait --timeout {{IDLE_WAIT}} (timeout della shell di almeno {{IDLE_SHELL}} s). Non postare una
+   misura di X da @NAME, 70% scritto"). Poi chiudi il turno: la stanza ti consegna il prossimo messaggio per te (in Codex, dove niente ti tiene, ripeti wait --timeout {{IDLE_WAIT}} con un timeout della shell di almeno {{IDLE_SHELL}} s). Non postare una
    seconda attesa (chat.py la rifiuta) e non scrivere messaggi tipo "ancora in attesa". Mentre sei IDLE il timer non ti si
-   applica, e wait torna solo quando qualcuno ti tagga (@{{NAME}}, in qualsiasi caso), tagga tutti (@all, @tutti, @everyone),
+   applica, e vieni svegliato solo quando qualcuno ti tagga (@{{NAME}}, in qualsiasi caso), tagga tutti (@all, @tutti, @everyone),
    scrive l'utente o il lead, oppure qualcuno posta un PIANO, un VOTO o un CHIUSO; poi leggi tutto e rispondi se ti riguarda.
    La tua attesa finisce appena posti qualcosa d'altro (un messaggio o uno status): se inizi a lavorare sul risveglio, posta
-   prima uno --status con la tua percentuale, così il timer torna ad applicarsi; se non serve nulla da te, richiama wait.
+   prima uno --status con la tua percentuale, così il timer torna ad applicarsi; se non serve nulla da te, chiudi di nuovo il turno.
    Quando consegni ciò che un partecipante in attesa aspetta, taggalo (@NAME), altrimenti resta addormentato.
 10. COMANDI RAPIDI da parte dell'utente o del lead (ACCELERA/SPEED UP, RESOCONTO/REPORT, MENO PAROLE/LESS TALK, CONSEGNA/DELIVER,
    PROVE/EVIDENCE, PAUSA/PAUSE, AIUTATEVI/HELP EACH OTHER, SOCCORSO/HELP THE OTHER ROOM) sono istruzioni per tutti: applicale

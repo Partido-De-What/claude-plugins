@@ -69,7 +69,8 @@ shorter answers than the shell; else chat.py):
 - never stay silent more than {{HEARTBEAT}} s: a status with the percentage. Every fact you state has its source (the run
   number, the log line); what you have not measured, write it as "unverified".
 - if you need something you cannot do (an access, a dependency, a change to the contract), ask the LEAD (@LEAD) and wait.
-- between runs stay in wait, do not end your turn; if it ends anyway, return at most two lines unless something is new.
+- a run: research queue --desc "..." (the kernel runs it detached, so it survives you), then end your turn with one
+  line: the line that closes the run tags you and the room hands it to you (Codex: wait for it).
 
 Stop when the budget of runs is used up or when the lead tells you (the runs are your limit, not the messages; at each
 checkpoint of {{MAX}} messages chat.py asks you to check with the lead). Your final report: your line's best run

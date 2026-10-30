@@ -17,10 +17,14 @@ Più agenti battono uno solo soltanto quando il lavoro si divide in tre o più p
 3. Partecipanti: `add --participants A,B,C --profile "A|emoji|#color|role|model|effort"`. Ruoli distinti che si contraddicono in modo utile (un esperto, un builder, uno scettico). Nomi in maiuscolo.
 4. Materiale che gli agenti devono avere (non ereditano la tua conversazione): scrivilo in `ROOM/DOSSIER.md`.
 5. Brief, una volta sola: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
-6. Prompt, generati: `prompt NAME --out ROOM/prompts/NAME.md` per ciascuno. Passa il testo di ogni file invariato allo strumento Agent (o `spawn_agent` in Codex), tutti gli agenti in un unico messaggio, come `chatroom:room-agent` con modello ed effort scelti dall'utente, poi `config cache_ttl=1h` (vedi la skill start). Non modificare mai un prompt generato: cambia il brief o la config e generalo di nuovo (prompt identici tengono calda anche la prompt cache).
+6. Prompt, generati: `prompt NAME --out ROOM/prompts/NAME.md` per ciascuno. Passa il testo di ogni file invariato allo strumento Agent (o `spawn_agent` in Codex), tutti gli agenti in un unico messaggio, come `chatroom:room-agent` con modello ed effort scelti dall'utente (la stanza legge il tipo di ogni agente dal suo spawn: nessuna impostazione). Le immagini arrivano agli agenti a 1000 px con una riga che lo dice; per una stanza dove contano i pixel (grounding, giochi, pixel art, testo piccolo) `config thumbs=0`. Per una stanza che controlla molti fotogrammi, `config vision=1` permette agli agenti di chiedere a un modello gratuito con la vista (`chat.py vision FILE --ask "..."`) un verdetto di poche righe invece di leggere i pixel; il file esce dalla macchina, quindi solo per ciò che non è riservato. Non modificare mai un prompt generato: cambia il brief o la config e generalo di nuovo (prompt identici tengono calda anche la prompt cache).
 7. Roster: con la mod chatroom si scrive da sola; altrimenti `roster A=<id> B=<id>` appena gli spawn rispondono.
+   Da lì in poi parla agli agenti nella stanza (`@NOME`), non con SendMessage: un agente fermo è tenuto dall'hook della
+   stanza, e un SendMessage gli arriva solo quando la presa finisce (fino a 9 minuti). I passi tuoi che devono arrivare a
+   ogni agente (uno stile, una regola) vanno nel brief, o subito dopo lo spawn, prima che vadano in idle.
 8. Relay: `alerts --follow --messages` sotto Monitor (timeout più lungo, riarmato quando finisce) in Claude Code; in Codex un ciclo di `wait_agent` ~60 s + `alerts --messages`. Senza relay nessuno consegna i messaggi dell'utente.
-   Nell'app desktop lanciali come comandi di shell in background con `--until-line` / `--until-tag`: niente tetto di 30 minuti, la loro uscita ti sveglia, rilanciali dopo aver gestito le righe.
+   Le letture lunghe tue (un diff grande, il log di una corsa, una trascrizione lunga) falle fare a un subagente che restituisce una decina di righe: ciò che leggi resta nel tuo contesto, riletto a ogni tuo turno.
+   Nell'app desktop lanciali come comandi di shell in background con `--until-line --batch 60` (esce solo per ciò che chiede te, raccoglie 60 s di eventi in un solo risveglio, il resto come riassunto) / `--until-tag`: niente tetto di 30 minuti, la loro uscita ti sveglia, rilanciali dopo aver gestito le righe.
    Sveglia: nell'app desktop nessuno arma il monitor del plugin, quindi dopo la tua prima chiamata come LEAD lancia `python scripts/inbox.py --until-tag` (solo per le stanze senza il tuo relay; in `claude` da terminale parte da solo).
 9. Task con un test reale: impostali tu, dalla shell (sotto).
 
@@ -54,6 +58,8 @@ python CHAT task add "il parser gestisce l'input vuoto" --files src/parser.py --
 
 Quando gli agenti cambiano codice, dai a ciascuno il proprio worktree git.
 
+Il lavoro costoso (un render, una corsa lunga, una pubblicazione, un refactor lungo) aspetta un'anteprima: `task add "il render" --costly --preview T4 --as LEAD`, dove T4 è lo storyboard, il fotogramma, la bozza o il diff; nessuno lo prende finché tu o l'utente non date `task approve T5` dopo che T4 è fatto. Prima che qualcosa diventi pubblico, `claims FILE` elenca numeri, percentuali e citazioni che nessun fatto della bacheca sostiene (`task fact "... con il suo link o file:riga"`): sistemali prima.
+
 ## 5. Controllare con misura
 
 La maggior parte delle righe WATCH non richiede nulla. Intervieni con un solo messaggio breve `--as LEAD`, taggato a chi riguarda, aperto con il suo tipo, e solo quando:
@@ -64,7 +70,7 @@ La maggior parte delle righe WATCH non richiede nulla. Intervieni con un solo me
 - ROUTE: chi fa cosa (lavoro ripetuto, due agenti che si aspettano a vicenda, file in mano a due);
 - DECIDE: una divisione che hai rivisto, un piano a v3, deriva, tutti idle.
 
-Le righe CHECK (ciascuna stampata una volta, anche attraverso i riavvii del relay): prova senza artefatto, task chiuso con gap, una prova che non nomina i file del task, un no diventato sì senza evidenza, un 100% senza evidenza, uno status fermo o in loop, un tag senza risposta, un file in due status, file non dichiarati modificati, 25 messaggi senza modifiche alla bacheca (deriva), tutti idle senza nulla in corso, un piano chiuso senza un solo no (consenso prematuro), un pezzo prestato non accettato, un budget di chiamate superato, il contesto di un agente oltre 150k token (ruotalo: quaderno, `retire`, un agente nuovo), un piano votato per due giri con la stessa maggioranza (DECIDI: altri giri costano token e raramente la spostano). Agisci su quelle che contano; non prendere posizione nella discussione a meno che l'utente lo chieda.
+Le righe CHECK (ciascuna stampata una volta, anche attraverso i riavvii del relay): prova senza artefatto, task chiuso con gap, una prova che non nomina i file del task, un no diventato sì senza evidenza, un 100% senza evidenza, uno status fermo o in loop, un tag senza risposta, un file in due status, file non dichiarati modificati, 25 messaggi senza modifiche alla bacheca (deriva), tutti idle senza nulla in corso, un piano chiuso senza un solo no (consenso prematuro), un pezzo prestato non accettato, un budget di chiamate superato, il contesto di un agente oltre 150k token (`rotate NOME`, poi `rotate NOME --now`: un agente nuovo con le sue regole, il quaderno e i task), un agente compattato due volte (lo stesso), un piano votato per due giri con la stessa maggioranza (DECIDI: altri giri costano token e raramente la spostano). Agisci su quelle che contano; non prendere posizione nella discussione a meno che l'utente lo chieda.
 
 Un agente silenzioso (oltre il doppio dell'heartbeat, non idle): mandagli un ping perché legga e pubblichi uno status. Un agente idle aspetta di proposito: svegliarlo solo taggandolo.
 
@@ -74,6 +80,6 @@ I suoi messaggi hanno la precedenza per tutti. Se scrive a te invece che al view
 
 ## 7. La fine
 
-Quando tutti gli agenti si sono fermati o l'utente chiude: `transcript --out ROOM/transcript.md`, poi riferisci all'utente partendo solo dalla trascrizione e dai report: i momenti chiave, l'esito (il piano chiuso, oppure l'ultima versione e i suoi voti), i disaccordi aperti, i messaggi per agente.
+Quando tutti gli agenti si sono fermati o l'utente chiude: `transcript --out ROOM/transcript.md`, poi riferisci all'utente partendo solo dalla trascrizione e dai report: i momenti chiave, l'esito (il piano chiuso, oppure l'ultima versione e i suoi voti), i disaccordi aperti, i messaggi per agente, e `cost` (quanto è costato ogni agente e tu; mentre la stanza lavora alimenta anche due CHECK: riscritture della cache, e il protocollo oltre metà dei token di un agente).
 
 Sostituire un agente: `python CHAT retire NAME --room ROOM --as LEAD`, poi genera di nuovo il suo prompt (agisce come `NAME~1`), lancia il nuovo agente e registralo con `roster`. Le chiamate dell'agente ritirato sono rifiutate, quindi un agente fermo risvegliato da un messaggio non può più pubblicare; il suo conteggio di chiamate riparte da zero.

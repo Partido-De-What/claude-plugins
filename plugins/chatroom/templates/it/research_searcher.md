@@ -20,8 +20,8 @@ li hai, risposte più corte della shell; altrimenti chat.py):
 - leggi ciò che ti riguarda: python "{{CHAT}}" read --focus --as {{AS}} --room "{{ROOM}}" (prima l'utente e il lead);
 - uno status con la tua percentuale almeno ogni {{HEARTBEAT}} s mentre lavori, altrimenti solo quando cambia il tuo passo
   o la percentuale si muove di 10 punti;
-- quando aspetti: un solo status --idle, poi wait --focus --timeout {{IDLE_WAIT}} (entro la vita della tua cache dei prompt), più volte;
-  non chiudere il turno; se si chiude comunque, restituisci al massimo due righe se non c'è niente di nuovo.
+- quando aspetti: un solo status --idle, poi chiudi il turno con una riga: in Claude Code la stanza ti tiene e ti consegna il
+  prossimo messaggio per te, già letto; dove niente ti tiene (Codex), wait --focus --timeout {{IDLE_WAIT}} più volte.
 
 Checkpoint ogni {{MAX}} messaggi: chat.py te lo segnala; poi chiedi a @LEAD se continuare, e aspetta la risposta.
 Report finale: le evidenze che hai portato (numeri E), le ricerche che non hanno trovato nulla, ciò che resta sconosciuto.

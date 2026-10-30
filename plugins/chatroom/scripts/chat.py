@@ -91,6 +91,39 @@ def chat_for_agents():
     return next((c.resolve() for c in sorted(cache.glob(f'*/chatroom/{ver}/scripts/chat.py'))), me)
 
 
+def stale_install():
+    """the scripts that differ between this source checkout and the installed copy the agents are told to use (same
+    version, not reinstalled): [] when they match or when this is not a source checkout"""
+    agents = chat_for_agents().parent
+    if agents == HERE:
+        return []
+    import hashlib
+    digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else ''
+    return [p.name for p in sorted(HERE.glob('*.py')) if digest(p) != digest(agents / p.name)]
+
+
+def known_room(d, ids=()):
+    """the room folders that had a roster lately, with their agents' ids (~/.claude/chatroom/known_rooms.json, the newest
+    50): the SubagentStop hold finds an agent's room there even when the viewer is down, and its shell wrapper skips
+    Python for any agent whose id is not in the file"""
+    path = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'known_rooms.json'
+    try:
+        rooms = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        rooms = {}
+    key, ids = str(Path(d).resolve()), sorted(ids)
+    old = rooms.get(key) if isinstance(rooms.get(key), dict) else {}
+    if old.get('ids') == ids and time.time() - old.get('ts', 0) < 600:
+        return
+    rooms[key] = {'ts': time.time(), 'ids': ids}
+    rooms = {k: v for k, v in rooms.items() if isinstance(v, dict)}
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(path, json.dumps(dict(sorted(rooms.items(), key=lambda kv: kv[1]['ts'])[-50:])))
+    except OSError:
+        pass
+
+
 sys.path.insert(0, str(HERE))
 from i18n import LANGS, lang_of, say, tr, use  # noqa: E402
 import idle_life  # noqa: E402
@@ -105,7 +138,7 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
              'heartbeat': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
-             'cache_ttl': str}
+             'cache_ttl': str, 'thumbs': int, 'vision': int}
 CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
 IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -186,8 +219,7 @@ def broadcast(text):
     return plan_version(text) is not None or closing(text)[0] or bool(votes_in(text))
 PLAN_MAX = 3              # after PLAN v3 only the lead (or the user) posts a new version: the lead reviews and decides
 EVERYONE = ('all', 'tutti', 'everyone')   # @all, @tutti, @everyone tag every participant
-WAIT_MAX, IDLE_WAIT_MAX = 110, 270   # idle: under the 5-minute prompt cache, so a wake reads it instead of writing it again
-IDLE_WAIT_LONG = 540                 # agents with a 1-hour cache (chatroom:room-agent, config cache_ttl=1h): half the wakes; a shell call caps at 600 s
+from limits import WAIT_MAX, IDLE_WAIT as IDLE_WAIT_MAX, IDLE_WAIT_LONG   # every wait under a limit of the harness (limits.py)
 DIGEST_EVERY = 20         # a focused wait returns anyway when this many messages for nobody in particular wait, or after 3 heartbeats
 
 # Quick commands: the user sends them from the viewer (type / in the box) or the lead with `chat.py command NAME`.
@@ -431,6 +463,18 @@ def waiting_names(room):
         return []
 
 
+def mod_active(room):
+    """the chatroom mod runs in a Claude Code session with this room: its viewer's registry entry is fresh and lists the
+    agents' ids (the mod sends them at each spawn). Then the room delivers every message by itself: an agent in wait sees
+    the chat, an agent at work gets it from the mod, a stopped agent from the SubagentStop hold"""
+    path = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'rooms.json'
+    try:
+        info = json.loads(path.read_text(encoding='utf-8')).get(str(room.dir.resolve())) or {}
+    except (OSError, ValueError, AttributeError):
+        return False
+    return bool(info.get('ids')) and time.time() - float(info.get('ts', 0)) < 120 and time.time() - float(info.get('mod_at') or 0) < 120
+
+
 def print_alert(room, author, n, text, images=()):
     """the ping the author must send: everyone not idle, plus the idle ones this message wakes"""
     items = room.messages()
@@ -440,6 +484,8 @@ def print_alert(room, author, n, text, images=()):
     if not others:
         print(say('chat.say.print_alert.alert_the_roster_is'))
         return
+    if ping_tool(others) == 'SendMessage' and mod_active(room):
+        return print(say('chat.say.print_alert.room_delivers'))   # the postman: no agent sends SendMessage (228 in one night room)
     lead_tags = author in room.config().get('self_names', []) and re.search(r'(?<![\w.])@\w', text)
     wakes_all = (author in users and not lead_tags) or tags_everyone(text) or broadcast(text)   # the lead tagging: only the tagged
     ping, asleep, untagged = {}, {}, []
@@ -483,6 +529,10 @@ def clean_look(key, value):
         raise ValueError(say('chat.err.clean_look.accent_must_be_rrggbb'))
     if key == 'closing_gate' and value not in (0, 1):
         raise ValueError(say('chat.err.clean_look.closing_gate_is_closed'))
+    if key == 'vision' and value not in (0, 1):
+        raise ValueError('vision is 0 (off, the default) or 1 (chat.py vision sends a file to a free vision model: it leaves this machine)')   # shortcut: English until F8
+    if key == 'thumbs' and value not in (0, 1):
+        raise ValueError('thumbs is 1 (pictures read at 1000 px, the default) or 0 (always whole: grounding, games, pixel work)')   # shortcut: English until F8 moves it to locales
     if key == 'compress' and value not in (0, 1):
         raise ValueError('compress is 0 (everything whole, the default) or 1 (Headroom on what the room hands back: it saved nothing on chat prose)')   # shortcut: English until F8 moves it to locales
     if key == 'budget_calls' and not 0 <= value <= 100000:
@@ -760,15 +810,25 @@ class Room:
             fn(roster)
             write_atomic(self.dir / 'roster.json', json.dumps(roster, indent=2, ensure_ascii=False))
             return roster
-        return self.locked(run)
+        out = self.locked(run)
+        known_room(self.dir, [v for v in out.values() if isinstance(v, str)])
+        return out
 
     def user_names(self):
         c = self.config()
         return {c.get('user_name', 'USER'), *c.get('user_aliases', []), *c.get('self_names', []), *c.get('friends', [])}
 
-    def idle_wait_max(self):
-        """the longest idle wait: under the agents' prompt cache (5 minutes, or 1 hour with cache_ttl=1h)"""
-        return IDLE_WAIT_LONG if self.config().get('cache_ttl') == '1h' else IDLE_WAIT_MAX
+    def long_cache(self, name=None):
+        """name's prompt cache lives an hour: config cache_ttl forces it either way; otherwise the agent's own type, which
+        the mod saw at its spawn (chatroom:room-agent*). A stranger's type, or no name: the 5 minutes of any subagent"""
+        forced = self.config().get('cache_ttl')
+        if forced in ('1h', '5m'):
+            return forced == '1h'
+        return bool(name) and str(read_json(self.dir / 'agent_types.json', {}).get(name, '')).startswith('chatroom:room-agent')
+
+    def idle_wait_max(self, name=None):
+        """the longest idle wait: under name's prompt cache (5 minutes, or 1 hour)"""
+        return IDLE_WAIT_LONG if self.long_cache(name) else IDLE_WAIT_MAX
 
     def heartbeat(self):
         return int(self.config().get('heartbeat', 240))
@@ -1041,7 +1101,7 @@ class Room:
         """wait, marked as waiting meanwhile: a message for an agent in wait needs no ping (it sees the chat file)"""
         mark = self.dir / f'waiting_{name}.txt'
         try:
-            mark.write_text(f'{time.time() + min(timeout, self.idle_wait_max()) + 5:.0f}')
+            mark.write_text(f'{time.time() + min(timeout, self.idle_wait_max(name)) + 5:.0f} {os.getpid()}')
         except OSError:
             pass
         try:
@@ -1053,8 +1113,11 @@ class Room:
                 pass
 
     def in_wait(self, name):
+        """name blocks in a wait or in the SubagentStop hold: until the time in its mark, while the pid there lives (a
+        killed process leaves its mark behind)"""
         try:
-            return float((self.dir / f'waiting_{name}.txt').read_text()) > time.time()
+            until, *pid = (self.dir / f'waiting_{name}.txt').read_text().split()
+            return float(until) > time.time() and (not pid or pid_alive(int(pid[0])))
         except (OSError, ValueError):
             return False
 
@@ -1063,7 +1126,7 @@ class Room:
         MCP server sets when the client gives up on the call, so the messages are not consumed by an answer nobody reads"""
         items = self.messages()
         idle = self.idle_entry(name, items)
-        timeout = max(1, min(timeout, self.idle_wait_max() if idle else WAIT_MAX))
+        timeout = max(1, min(timeout, self.idle_wait_max(name) if idle else WAIT_MAX))
         start, limit, users = time.time(), self.heartbeat(), self.user_names()
         while True:
             if cancel is not None and cancel.is_set():
@@ -1095,7 +1158,7 @@ class Room:
             unread = len([m for m in items if m['n'] > self.cursor(name) and m['from'] != name])
             print(say('chat.say.wait.you_are_idle_since', n=idle["n"], timeout=timeout)
                   + (say('chat.say.wait.new_message_s_not', unread=unread) if unread else '')
-                  + say('chat.say.wait.this_is_not_an', IDLE_WAIT_MAX=self.idle_wait_max()))
+                  + say('chat.say.wait.this_is_not_an', IDLE_WAIT_MAX=self.idle_wait_max(name)))
         else:
             unread = len([m for m in items if m['n'] > self.cursor(name) and m['from'] != name])
             print(say('chat.say.wait.nothing_for_you_in', timeout=timeout) + (say('chat.say.wait.message_s_for_nobody', unread=unread) if unread else '')
@@ -1251,7 +1314,7 @@ def cmd_post(room, a, text=None):
         sys.exit(say('chat.err.cmd_post.error_must_say_the', label=label))
     was_idle = room.idle_entry(a.name)
     if kind == IDLE and was_idle:
-        sys.exit(say('chat.err.cmd_post.error_you_already_said', n=was_idle["n"], name=a.name, IDLE_WAIT_MAX=room.idle_wait_max()))
+        sys.exit(say('chat.err.cmd_post.error_you_already_said', n=was_idle["n"], name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
     if kind == IDLE:
         users = room.user_names()
         unread = [m['n'] for m in room.messages() if m['n'] > room.cursor(a.name) and m['from'] != a.name and not m.get('kind')
@@ -1293,7 +1356,7 @@ def cmd_post(room, a, text=None):
                 room.image_path(rel).unlink()
             except OSError:
                 pass
-        sys.exit(say('chat.err.cmd_post.error_you_already_said2', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max()))
+        sys.exit(say('chat.err.cmd_post.error_you_already_said2', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
     print(say('chat.say.posted', n=n) + (say('chat.say.posted_images', images=len(images)) if images else ''))
     if missed:
         print(say('chat.say.unread_for_you', ns=', '.join(f'#{x}' for x in missed[:8])))
@@ -1301,7 +1364,7 @@ def cmd_post(room, a, text=None):
             body = ' '.join(m.get('text', '').split())
             print(f"  #{m['n']} {m['from']}: {body[:400]}" + (' [...]' if len(body) > 400 else ''))
     if kind == IDLE:
-        print(say('chat.say.cmd_post.you_are_now_idle', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max()))
+        print(say('chat.say.cmd_post.you_are_now_idle', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
         if idle_life.is_on(room, settings()):         # life in idle: say once how to see the office and choose a place
             print(say('idle.hint', name=a.name))
         return
@@ -1486,8 +1549,10 @@ def run_verify(cmd, cwd, limit=None):
     limit = limit or VERIFY_TIMEOUT
     if cwd and not Path(cwd).is_dir():
         raise ValueError(say('chat.err.run_verify.the_folder_of_the', cwd=cwd))
+    from machine import machine_lock
     try:
-        code, out = run_tree(cmd, cwd, limit)
+        with machine_lock(f'verify: {cmd}'):          # one heavy job at a time on the machine, across rooms
+            code, out = run_tree(cmd, cwd, limit)
     except OSError as exc:
         raise ValueError(say('chat.err.run_verify.the_verify_command_could', cmd=cmd, exc=exc))
     tail = '\n'.join(out.strip().splitlines()[-15:])
@@ -1585,7 +1650,8 @@ class Board:
             raise ValueError(say('chat.err.find.no_task_on_the', tid=tid))
         return t
 
-    def add(self, name, title, deps=(), files=(), verify=None, cwd=None, merge_into=None, verify_timeout=None):
+    def add(self, name, title, deps=(), files=(), verify=None, cwd=None, merge_into=None, verify_timeout=None, costly=False,
+            preview=None):
         """verify: a command that must exit 0 before the task can be done; merge_into: the branch the work must merge
         into without conflicts. Both are set by the lead or the user only (cmd_task checks it): never from chat text"""
         def fn(b):
@@ -1602,6 +1668,11 @@ class Board:
                     t['verify_timeout'] = int(verify_timeout)
             if merge_into:
                 t['merge_into'] = merge_into
+            if costly:                          # gated: the lead or the user approves its preview first (task approve)
+                t['costly'], t['approved'] = True, False
+                if preview:
+                    self.find(b, preview)
+                    t['preview'] = preview
             b['tasks'].append(t)
             return (say('chat.say.fn.proposed_by', tid=tid, name=name, title=title[:120]) + (say('chat.word.after_paren', deps=", ".join(deps)) if deps else '')
                     + (say('chat.say.fn.done_only_when_exits', verify=verify[:80]) if verify else '')
@@ -1640,6 +1711,8 @@ class Board:
         todo = [d for d in t['deps'] if self.find(b, d)['state'] != 'done']
         if todo:
             return [say('chat.say.blockers.waits_for_take_it', id=t['id'], todo=', '.join(todo))]
+        if t.get('costly') and not t.get('approved'):  # a render, a long run, a publication: only after its preview is approved
+            return [say('chat.say.blockers.costly', id=t['id'], preview=t.get('preview') or '-')]
         clash = [(o['id'], o['owner'], f) for o in b['tasks'] if o is not t and o['state'] == 'taken' and o['owner'] != name
                  and not self.lapsed(o, items) for f in t['files'] if any(files_overlap(f, g) for g in o['files'])]
         if clash:
@@ -1964,7 +2037,20 @@ def cmd_task(room, a):
         if (getattr(a, 'verify', None) or getattr(a, 'merge_into', None)) and a.name not in room.user_names():
             sys.exit(say('chat.err.cmd_task.error_only_the_lead'))
         line = b.add(a.name, ' '.join(rest), split(a.deps), split(a.files), getattr(a, 'verify', None),
-                     getattr(a, 'cwd', None), getattr(a, 'merge_into', None), getattr(a, 'verify_timeout', None))
+                     getattr(a, 'cwd', None), getattr(a, 'merge_into', None), getattr(a, 'verify_timeout', None),
+                     bool(getattr(a, 'costly', False)), getattr(a, 'preview', None))
+    elif act == 'approve' and rest:
+        if a.name not in room.user_names():
+            sys.exit(say('chat.err.cmd_task.approve_lead_only'))
+
+        def ok_it(bd):
+            t = Board.find(bd, rest[0])
+            pv = t.get('preview') and Board.find(bd, t['preview'])
+            if pv and pv['state'] != 'done':
+                raise ValueError(say('chat.err.cmd_task.preview_not_done', id=t['id'], preview=pv['id']))
+            t['approved'] = True
+            return say('chat.say.fn.approved', id=t['id'], name=a.name, title=t['title'][:120])
+        line = b.change(ok_it)
     elif act == 'take' and rest:
         line = b.take(a.name, rest[0], a.force)
     elif act == 'next':
@@ -2229,10 +2315,15 @@ def failures(room, now=None):
             mine = sum(1 for m in items if m['from'] == k and not m.get('kind'))
             if mine >= every:
                 out.append((f"checkpoint:{k}:{mine // every}", say('chat.check.reached_messages_it_asks', k=k, v2=mine // every * every)))
-    rotate = 350_000 if config.get('cache_ttl') == '1h' else CTX_ROTATE   # room agents compact by themselves at 200k/300k
+    try:
+        import cost                                   # what each agent costs, from its transcript (read incrementally)
+        for key, name, kind, value in cost.checks(cost.room_costs(room)):
+            out.append((f'cost:{key}', say(f'chat.check.cost_{kind}', k=name, v=value)))
+    except Exception:
+        pass
     for k, aid in room.roster().items():
         ctx = agent_context(aid)
-        if ctx and ctx >= rotate:
+        if ctx and ctx >= (350_000 if room.long_cache(k) else CTX_ROTATE):   # room agents compact by themselves at 200k/300k
             out.append((f"ctx:{k}:{ctx // 100_000}", say('chat.check.context_high', k=k, ctx=ctx // 1000)))
     budget = call_budget(room, config)
     for k, v in room.counters().items():
@@ -3075,6 +3166,9 @@ def cmd_prompt(room, a):
     if len(a.pairs) != 1:
         sys.exit(say('chat.err.cmd_prompt.prompt_give_one_participant'))
     text = fill_prompt(room, a.pairs[0], a.template or 'agent_prompt.md')
+    stale = stale_install()
+    if stale:                                         # the agents get the installed copy: say when the source is ahead of it
+        print(say('chat.say.cmd_prompt.stale_install', path=chat_for_agents(), files=', '.join(stale[:6])), file=sys.stderr)
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(text, encoding='utf-8')
@@ -3160,11 +3254,25 @@ def cmd_alerts(room, a):
     (--as) keeps its own place; the first time, what is older than ten minutes is not replayed"""
     name, checked, last = '_alerts' + (f'_{a.name}' if a.name else ''), 0, None
     quiet, said = {}, time.time()                     # the statuses since the last WATCH line, by author
-    spoke = []
+    spoke, info = [], []                              # spoke: when lines that need the lead came; info: the others, held back
+    until, batch = getattr(a, 'until_line', False), int(getattr(a, 'batch', 0) or 0)
+    leads = room.config().get('self_names', [])
 
-    def out(*x, **k):
+    def out(*x, act=True, **k):
+        """--until-line wakes the lead only for what needs it (the user, a tag to it, a plan, a vote, a closing, a
+        CHECK); the rest comes with it as a short digest, never as a wake of its own"""
+        if until and not act:
+            info.append(' '.join(map(str, x)))
+            return
         print(*x, **k)
-        spoke.append(1)
+        if act:
+            spoke.append(time.time())
+
+    def needs_lead(m, line):
+        kind = line.split(' ', 3)[2] if line.startswith('WATCH #') else ''
+        if m.get('kind') == 'board':                  # the kernel: a new global best or a crash, not every run
+            return bool(re.search(r'NEW GLOBAL BEST|NUOVO MIGLIORE GLOBALE|CRASH', m.get('text', '')))
+        return kind != 'MSG' or any(tags(m.get('text', ''), n) for n in leads)
     seen_path = room.dir / f'checks_seen{name}.json'   # the relay restarts every 30 min: what it said stays said
     try:
         seen_checks = set(json.loads(seen_path.read_text(encoding='utf-8')))
@@ -3189,6 +3297,10 @@ def cmd_alerts(room, a):
         # kept a CPU core 20% busy for each room watched
         sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl', room.dir / 'spawn' / 'study.jsonl'))
         if sig == last and a.follow and (not a.messages or time.time() - checked <= 60):   # the checks still run each 60 s
+            if until and spoke and time.time() - spoke[0] >= batch:   # a batch waiting on a quiet chat: due now
+                if info:
+                    print(say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:140] for l in info[-6:])), flush=True)
+                return
             time.sleep(1)
             continue
         last = sig
@@ -3204,13 +3316,14 @@ def cmd_alerts(room, a):
                     if m.get('from') in room.config().get('self_names', []):
                         continue
                     if not m.get('kind') or (research_room and m['kind'] == 'board'):   # the kernel's runs are board lines
-                        out(watch_line(m, users), flush=True)
+                        line = watch_line(m, users)
+                        out(line, act=needs_lead(m, line), flush=True)
                         said = time.time()
                     elif m['kind'] in ('status', 'idle'):
                         quiet[m['from']] = (m['kind'], m.get('text', '').split(':', 1)[0][:12])
                 if quiet and time.time() - said > 900:    # statuses only for 15 min: one line, so the relay is never mute
                     out(say('chat.say.cmd_alerts.quiet_digest', since=time.strftime('%H:%M', time.localtime(said)),
-                              who='; '.join(f"{k} {p}{' idle' if kind == 'idle' else ''}" for k, (kind, p) in quiet.items())), flush=True)
+                              who='; '.join(f"{k} {p}{' idle' if kind == 'idle' else ''}" for k, (kind, p) in quiet.items())), act=False, flush=True)
                     quiet.clear()
                     said = time.time()
                 from inbox import mark_delivered     # the lead has them from its relay: the alarm clock and the mod stay quiet
@@ -3237,7 +3350,10 @@ def cmd_alerts(room, a):
                     except OSError:
                         pass
                     out(f'CHECK {text}', flush=True)
-        if not a.follow or (getattr(a, 'until_line', False) and spoke):   # --until-line: its exit wakes the lead (a background shell, no 30-minute cap)
+        # --until-line: its exit wakes the lead (a background shell, no 30-minute cap); --batch N: what comes within N s joins it
+        if not a.follow or (until and spoke and time.time() - spoke[0] >= batch):
+            if until and info:
+                print(say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:140] for l in info[-6:])), flush=True)
             return
         time.sleep(1)
 
@@ -3341,6 +3457,85 @@ def cmd_recap(room, a):
         import research
         out.append('research: ' + research.status(room).splitlines()[0][:300])
     print('\n'.join(out))
+
+
+CLAIM = re.compile(r'\d+(?:[.,]\d+)*\s?%|\d+(?:[.,]\d+)*\s?(?:x|k|M|GB|MB|ms|s|min|tok(?:ens)?)\b|"[^"\n]{4,80}"|“[^”\n]{4,80}”|\b\d[\d.,/]{2,}\b')
+
+
+def claims_of(text):
+    """the checkable claims of a text to publish: numbers with their units or percentages, ratios, quoted phrases"""
+    return list(dict.fromkeys(m.group(0).strip() for m in CLAIM.finditer(text)))
+
+
+def cmd_claims(room, a):
+    """chat.py claims FILE: the numbers, percentages and quotations of a text to publish that no fact on the board backs
+    (a fact carries its source: a link, file:line, #n). A night room redid three renders for claims nobody had sourced"""
+    if len(a.pairs) != 1 or not Path(a.pairs[0]).is_file():
+        sys.exit('chat.py claims FILE: the text to publish')   # shortcut: English until F8
+    facts = ' '.join(f['text'] for f in Board(room).load()['facts']).replace(' ', '')
+    bare = [c for c in claims_of(Path(a.pairs[0]).read_text(encoding='utf-8', errors='replace')) if c.replace(' ', '') not in facts]
+    for c in bare:
+        print(say('chat.say.claims.unsourced', claim=c))
+    print(say('chat.say.claims.summary', n=len(bare)))
+    sys.exit(1 if bare else 0)
+
+
+def cmd_vision(room, a):
+    """chat.py vision FILE --ask "...": a free vision model reads the picture or the long log and answers in a few lines
+    (look.py; config vision=1 turns it on for the room)"""
+    import look
+    if len(a.pairs) != 1 or not getattr(a, 'ask', None):
+        sys.exit('chat.py vision FILE --ask "what you need to know" (config vision=1 first)')   # shortcut: English until F8
+    try:
+        print(look.look(room, a.pairs[0], a.ask))
+    except ValueError as exc:
+        sys.exit(str(exc))
+
+
+def cmd_rotate(room, a):
+    """chat.py rotate NAME --as LEAD: an agent whose context grew heavy goes on as a fresh one. Without --now it is asked in
+    the room to write its notebook (state, next steps, #n and file:line); with --now it is retired and a new prompt is
+    written: the template, then its --rule lines word for word, its notebook and its open tasks. A fresh agent starts
+    near 30k tokens instead of 200k, and keeps every rule a compaction would halve"""
+    if a.name not in room.user_names() or len(a.pairs) != 1:
+        sys.exit(say('chat.err.cmd_rotate.usage'))
+    name = a.pairs[0]
+    if not getattr(a, 'now', False):
+        n = room.append(a.name, say('chat.say.rotate.ask', name=name))
+        return print(say('chat.say.rotate.asked', name=name, n=n))
+    notes = room.dir / 'notes'
+    rules = (notes / f'{name}.rules.md').read_text(encoding='utf-8') if (notes / f'{name}.rules.md').exists() else ''
+    book = (notes / f'{name}.md').read_text(encoding='utf-8') if (notes / f'{name}.md').exists() else ''
+    tasks = [f"{t['id']} {t['title']} ({', '.join(t.get('files', []))})" for t in Board(room).load()['tasks']
+             if t.get('owner') == name and t['state'] == 'taken']
+    cmd_retire(room, a)
+    text = fill_prompt(room, name, a.template or 'agent_prompt.md') + '\n\n' + say(
+        'chat.say.rotate.resume', name=name, rules=rules.strip() or '-', notebook=book.strip()[-6000:] or '-',
+        tasks='; '.join(tasks) or '-')
+    out = Path(a.out or room.dir / 'prompts' / f'{name}-rotated.md')
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding='utf-8')
+    print(say('chat.say.rotate.ready', name=name, out=out, chars=len(text)))
+
+
+def cmd_heavy(room, a):
+    """chat.py heavy -- <command>: run a command that loads the GPU or the CPU hard (a test suite, a build, a profile) when
+    no other room's heavy work runs; it waits its turn on the machine's lock"""
+    import subprocess
+    from machine import machine_lock
+    cmd = ' '.join(a.pairs).strip()
+    if not cmd:
+        sys.exit(say('chat.err.cmd_heavy.usage'))
+    with machine_lock(f'{a.name or "?"}: {cmd}', tell=lambda h: print(say('chat.say.cmd_heavy.waiting', label=h['label'],
+                                                                           minutes=int((time.time() - h['since']) // 60)), flush=True)):
+        sys.exit(subprocess.run(cmd, shell=True, env=user_env()).returncode)
+
+
+def cmd_cost(room, a):
+    """chat.py cost: what each agent and the lead have cost so far, from their transcripts (requests, input-equivalent
+    tokens, output, cache rewrites, the protocol's share, the context now)"""
+    import cost
+    print('\n'.join(cost.table(cost.room_costs(room))))
 
 
 def help_size(minutes):
@@ -3893,8 +4088,13 @@ def cmd_serve(room, a):
                 return self.send(200, json.dumps(Board(room).load(), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/check.json':                 # the CHECKs the room would print now, and each agent's chat calls against its budget (the office shows both)
                 budget = call_budget(room)
+                import cost
+                spent = cost.room_costs(room)
                 body = {'checks': [{'key': k, 'text': t} for k, t in failures(room)],
-                        'calls': {n: {'used': sum(v.values()), 'budget': budget} for n, v in room.counters().items()}}
+                        'calls': {n: {'used': sum(v.values()), 'budget': budget} for n, v in room.counters().items()},
+                        'cost': {n: t and {'eq': round(t['eq']), 'rewrites': t['rewrites'], 'context': t['context'],
+                                           'protocol': round(100 * t['protocol_eq'] / t['eq']) if t['eq'] else 0}
+                                 for n, t in spent.items()}}
                 return self.send(200, json.dumps(body, ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/idle.json':                  # life in idle: where each idle agent is (the office walks the figures there)
                 on = idle_life.is_on(room, settings())
@@ -3942,6 +4142,7 @@ def cmd_serve(room, a):
                     d['st'] = status_points(items, n, tl['now'], span)
                 return self.send(200, json.dumps(tl, ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/summary.json':               # what the /stanza pane of the mod shows
+                activity.mod_at = time.time()         # the mod asks every few seconds: its heartbeat
                 with lock:
                     state = activity.state()
                 items, c = room.messages(), room.config()
@@ -4325,7 +4526,7 @@ def cmd_serve(room, a):
         while True:
             time.sleep(5)
             try:
-                register_room(room, a.port, a.host)
+                register_room(room, a.port, a.host, activity.mod_at)   # mod_at: the mod lives, the room delivers by itself
             except OSError:
                 pass
     threading.Thread(target=heartbeat, daemon=True).start()
@@ -4347,7 +4548,7 @@ def main():
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
                                         'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor',
-                                        'recap'])
+                                        'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -4407,6 +4608,8 @@ def main():
     p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, ablation, baseline, control or repeat')
     p.add_argument('--of', help='research evaluate: what an ablation or baseline is measured against (att-N)')
     p.add_argument('--seed', help='research evaluate: a seed handed to the evaluator as CHATROOM_SEED')
+    p.add_argument('--env', help='research plan add: K=V,K2=V2, the environment a planned ablation switches')
+    p.add_argument('--worker', help='research plan add: the worktree to run it in (default: the one that made --of)')
     p.add_argument('--text', help='research propose-evidence/conclude: the text')
     p.add_argument('--source', help='research propose-evidence: att-N, E-number or a link, comma separated')
     p.add_argument('--accept', help='research curate: evidence to accept')
@@ -4414,9 +4617,16 @@ def main():
     p.add_argument('--drop', help='research curate: committed evidence to drop')
     p.add_argument('--gate', help='research conclude: updated, kept or skipped')
     p.add_argument('--trigger', help='research conclude: a, b, c, d or none')
+    p.add_argument('--costly', action='store_true', help='task add: a costly task (render, long run, publication): taken only after task approve')
+    p.add_argument('--preview', help='task add --costly: the task whose result (storyboard, frame, draft, diff) is approved first')
+    p.add_argument('--ask', help='vision: what the vision model should tell about the file')
+    p.add_argument('--now', action='store_true', help='rotate: retire the agent now and write its fresh prompt (after it wrote its notebook)')
+    p.add_argument('--batch', type=int, help='alerts --until-line: after the first line that needs the lead, gather N s more into the same wake')
     p.add_argument('--until-line', action='store_true', help='alerts --follow: return after the first lines (run it as a background shell: its exit wakes the lead)')
     p.add_argument('--after', help='research queue: start the run only after this one (att-N) is recorded')
     p.add_argument('--for', dest='for_room', help='research hold: the GPU window is for this other room (its title or folder)')
+    p.add_argument('--ccache', type=lambda v: v.lower() in ('1', 'on', 'yes', 'true'), nargs='?', const=True,
+                   help='research init/amend: one compiler cache for every worktree (ccache; CMake picks it up), on|off')
     p.add_argument('--precheck', help='research init/amend: a command that must exit 0 before each run (idle VRAM, no stray server)')
     p.add_argument('--rule', action='store_true', help='notebook: a rule of yours, kept word for word and shown first')
     p.add_argument('--stay', action='store_true', help='research seal: seal but open phase 2 only at the next phase next')
@@ -4482,7 +4692,7 @@ def main():
             sys.exit(say('chat.err.main.room_does_not_exist', dir=room.dir))
         commands = {'config': cmd_config, 'roster': cmd_roster, 'status': cmd_status, 'transcript': cmd_transcript,
                     'serve': cmd_serve, 'command': cmd_command, 'alerts': cmd_alerts, 'add': cmd_add, 'remove': cmd_remove,
-                    'task': cmd_task, 'board': cmd_board, 'check': cmd_check, 'notebook': cmd_notebook, 'mcp': cmd_mcp, 'recap': cmd_recap,
+                    'task': cmd_task, 'board': cmd_board, 'check': cmd_check, 'notebook': cmd_notebook, 'mcp': cmd_mcp, 'recap': cmd_recap, 'cost': cmd_cost, 'heavy': cmd_heavy, 'rotate': cmd_rotate, 'vision': cmd_vision, 'claims': cmd_claims,
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn}
         if a.command in commands:

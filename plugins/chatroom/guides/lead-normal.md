@@ -29,13 +29,22 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
 5. Brief, once: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
 6. Prompts, generated: `prompt NAME --out ROOM/prompts/NAME.md` for each. Pass each file's text unchanged to the Agent
    tool (or `spawn_agent` in Codex), all agents in one message, as `chatroom:room-agent` with the user's model and effort,
-   then `config cache_ttl=1h` (see the start skill). Never edit a generated prompt: change the brief or the
+   (the room reads each agent's type from its spawn: no setting needed). Pictures reach the agents at 1000 px with a line
+   that says so; for a room where pixels matter (grounding, games, pixel art, small text) `config thumbs=0`. For a room
+   that checks many frames, `config vision=1` lets agents ask a free vision model (`chat.py vision FILE --ask "..."`) for a
+   verdict of a few lines instead of reading the pixels; the file leaves the machine, so only for what is not private. Never edit a generated prompt: change the brief or the
    config and generate again (identical prompts also keep the prompt cache warm).
 7. Roster: with the chatroom mod it writes itself; otherwise `roster A=<id> B=<id>` as soon as the spawns return.
+   From then on talk to the agents in the room (`@NAME`), not with SendMessage: a stopped agent is held by the room's
+   hook, and a SendMessage reaches it only when the hold ends (up to 9 minutes). Steps of your own that must reach every
+   agent (a style, a rule) go in the brief, or right after the spawn, before they first go idle.
 8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
-   In the desktop app run both as background shell commands with `--until-line` / `--until-tag`: no 30-minute cap,
-   their exit wakes you, start them again after handling the lines.
+   In the desktop app run both as background shell commands with `--until-line --batch 60` / `--until-tag`: no 30-minute
+   cap; the relay exits only for what needs you, gathering 60 s of events into one wake, with the rest as a digest; start
+   them again after handling the lines.
+   Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
+   what you read stays in your context, read again at every one of your turns.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run
    `python scripts/inbox.py --until-tag` (only for rooms without your relay; in `claude` from a
    terminal it runs by itself).
@@ -75,6 +84,11 @@ reports changed files the task did not declare. Agents close checked tasks from 
 
 When agents change code, give each its own git worktree.
 
+Costly work (a render, a long run, a publication, a long refactor) waits for a preview: `task add "the render" --costly
+--preview T4 --as LEAD`, where T4 is the storyboard, the frame, the draft or the diff; nobody takes it until you or the
+user run `task approve T5` after T4 is done. Before something goes public, `claims FILE` lists its numbers, percentages
+and quotations that no fact on the board backs (`task fact "... with its link or file:line"`): fix those first.
+
 ## 5. Watching on a budget
 
 Most WATCH lines need nothing. Step in with one short message `--as LEAD`, tagged to who it concerns, opened with its
@@ -90,7 +104,7 @@ The CHECK lines (each printed once, also across relay restarts): proof without a
 not naming the task's files, a no turned yes without evidence, 100% without evidence, a stalled or looping status, a tag
 unanswered, one file in two statuses, undeclared files changed, 25 messages without a board change (drift), everyone
 idle with nothing in progress, a plan closed without a single no (premature consensus), a lent piece not accepted, a
-call budget passed, an agent's context over 150k tokens (rotate it: notebook, `retire`, a fresh agent), a plan voted two rounds with the same
+call budget passed, an agent's context over 150k tokens (`rotate NAME`, then `rotate NAME --now`: a fresh agent with its rules, notebook and tasks), an agent compacted twice (the same), a plan voted two rounds with the same
 majority (DECIDE: more rounds cost tokens and rarely move it). Act on the ones that matter; do not take sides in the discussion unless the user asks.
 
 A silent agent (over twice the heartbeat, not idle): ping it to read and post a status. An idle agent waits on purpose:
@@ -106,6 +120,7 @@ Their messages come first for everyone. If they write to you instead of the view
 
 When all agents stopped or the user closes: `transcript --out ROOM/transcript.md`, then tell the user from the
 transcript and the reports only: the key moments, the outcome (the closed plan, or the last version and its votes), the
-open disagreements, the messages per agent.
+open disagreements, the messages per agent, and `cost` (what each agent and you cost; it also feeds two CHECKs while the
+room works: cache rewrites, and the protocol over half of an agent's tokens).
 
 Replacing an agent: `python CHAT retire NAME --room ROOM --as LEAD`, then generate its prompt again (it acts as `NAME~1`), spawn the new agent and `roster` it. The retired agent's calls are refused, so a stopped agent woken by a message cannot post again; its call count starts over.
