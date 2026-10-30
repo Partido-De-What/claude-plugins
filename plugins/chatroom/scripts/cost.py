@@ -12,6 +12,8 @@ from pathlib import Path
 
 W_IN, W_W5, W_W1, W_READ, W_OUT = 1, 1.25, 2, 0.1, 5
 PROTOCOL = re.compile(r'chat\.py["\']?\s+(?:wait|read|post|board|task|notebook|status|check|expand|recap)\b|mcp__chatroom__|^SendMessage$')
+WAITING = re.compile(r'chat\.py["\']?\s+wait\b|mcp__chatroom__chat_wait')
+PROTOCOL_MIN = 100             # requests: below it the share of a few reads means nothing
 _STATE = {}                    # (path, since) -> [offset, totals, seen message ids, last ts, last tool, last context]: a new since starts over
 
 
@@ -22,7 +24,7 @@ def transcript_of(agent_id=None, session_id=None):
 
 
 def _blank():
-    return {'requests': 0, 'input': 0, 'read': 0, 'write': 0, 'out': 0, 'eq': 0.0, 'rewrites': 0, 'protocol_eq': 0.0, 'context': 0,
+    return {'requests': 0, 'input': 0, 'read': 0, 'write': 0, 'out': 0, 'eq': 0.0, 'rewrites': 0, 'protocol_eq': 0.0, 'wait_eq': 0.0, 'context': 0,
             'compactions': 0}
 
 
@@ -46,7 +48,7 @@ def scan(path, since=0.0):
             continue                                      # before the room's reset (ROOM/cost_since.txt)
         m = d.get('message') or {}
         if d.get('subtype') == 'compact_boundary':
-            tot['compactions'] += 1                       # after a few, a summary keeps a tenth of the rules: rotate instead
+            tot['compactions'] += 1                       # a counter: rules and notes live in the notebook, re-read after each
             continue
         if d.get('type') == 'assistant':
             u, mid = m.get('usage'), m.get('id')
@@ -67,6 +69,8 @@ def scan(path, since=0.0):
                 tot['rewrites'] += 1                     # it woke after its cache died and wrote the whole context again
             if PROTOCOL.search(last_tool.split(' ', 1)[-1]) or PROTOCOL.search(last_tool.split(' ', 1)[0]):
                 tot['protocol_eq'] += eq
+                if WAITING.search(last_tool):
+                    tot['wait_eq'] += eq
             tot['requests'] += 1
             tot['input'] += i
             tot['read'] += r
@@ -108,15 +112,15 @@ def room_costs(room):
     return out
 
 
-def table(costs):
-    """the lines of chat.py cost"""
+def table(costs, leads=()):
+    """the lines of chat.py cost; a lead has its row but stays out of the total: its session runs every room it leads"""
     rows = [f"{'who':12} {'requests':>8} {'eq tokens':>11} {'out':>8} {'rewrites':>8} {'protocol':>8} {'context':>8}"]
     total = 0.0
     for name, t in sorted(costs.items(), key=lambda kv: -(kv[1] or {}).get('eq', 0)):
         if not t:
             rows.append(f'{name:12} n/a')
             continue
-        total += t['eq']
+        total += 0 if name in leads else t['eq']
         rows.append(f"{name:12} {t['requests']:>8} {t['eq'] / 1e6:>10.2f}M {t['out'] / 1e3:>7.0f}k {t['rewrites']:>8} "
                     f"{100 * t['protocol_eq'] / t['eq'] if t['eq'] else 0:>7.0f}% {t['context'] / 1e3:>7.0f}k")
     rows.append(f"{'total':12} {'':>8} {total / 1e6:>10.2f}M")
@@ -132,9 +136,10 @@ def checks(costs):
         if t['rewrites'] >= 3:
             out.append((f'rewrites:{name}:{t["rewrites"] // 3}', name, 'rewrites', t['rewrites']))
         if t.get('compactions', 0) >= 2:
-            out.append((f'compactions:{name}:{t["compactions"]}', name, 'compactions', t['compactions']))
-        share = t['protocol_eq'] / t['eq'] if t['eq'] else 0
-        if share > 0.5:
+            out.append((f'compactions:{name}', name, 'compactions', t['compactions']))     # once: it is the normal pace of a long job
+        spent = t['eq'] - t['wait_eq']                    # a wait is the room's cost of waiting, not chatter to cut
+        share = (t['protocol_eq'] - t['wait_eq']) / spent if spent else 0
+        if share > 0.5 and t['requests'] >= PROTOCOL_MIN:
             out.append((f'protocol:{name}:{int(share * 10)}', name, 'protocol', round(100 * share)))
     return out
 

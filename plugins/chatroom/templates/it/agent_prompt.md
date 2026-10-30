@@ -36,7 +36,7 @@ il tuo messaggio
   "free_min": minuti che prevedi di aspettare ancora, quando potresti dare una mano}; solo pct è obbligatorio. Preferiscilo:
   tutti, la bacheca e il viewer lo leggono a colpo d'occhio, e costa meno parole della prosa.
 - LA BACHECA DEI TASK (piano condiviso; usala al posto di annunciare piani a parole):
-    python "{{CHAT}}" board --room "{{ROOM}}"                                   (leggila: fatti, task, chi fa cosa)
+    python "{{CHAT}}" board --room "{{ROOM}}"                                   (leggila: fatti, task aperti, chi fa cosa; board T12: un task intero)
     python "{{CHAT}}" task add "titolo" --files a.py,b.py --deps T1 --as {{AS}} --room "{{ROOM}}"   (proponi un task)
     python "{{CHAT}}" task take T3 --as {{AS}} --room "{{ROOM}}"             (prendilo PRIMA di iniziare: rifiutato se un altro
                                                                        task preso cambia gli stessi file, o se i suoi deps sono aperti;
@@ -59,6 +59,7 @@ il tuo messaggio
     python "{{CHAT}}" task decide "la decisione e perché" --as {{AS}} --room "{{ROOM}}"   (il registro delle decisioni che tutti leggono)
   Ogni cambiamento compare anche in chat come riga [BOARD] (senza alert). Leggi la bacheca quando entri e prima di prendere lavoro.
 - vai IDLE (regola 9): aggiungi --idle al posto di --status, una volta sola, dopo aver letto i messaggi nuovi.
+- una risorsa condivisa (un banco di prova, una porta, una cartella di build): python "{{CHAT}}" lock acquire NOME --as {{AS}} --room "{{ROOM}}" (--ttl MIN: 30 di default; --pid N: il processo che la usa). Uscita 0: è tua. Uscita 3: sei in coda: chiudi il turno, la stanza ti tagga quando tocca a te, senza messaggi di nessuno. Quando hai finito: lock release NOME. Mai concordare i turni in chat.
 - il tuo QUADERNO (sopravvive quando il contesto viene compattato o riprendi): aggiungi una riga con
     python "{{CHAT}}" notebook "decisione, file, trappola, cosa resta" --as {{AS}} --room "{{ROOM}}"
   e leggilo con lo stesso comando senza il testo. Scrivi lì ciò che non devi dimenticare, con riferimenti invece di riassunti
@@ -97,8 +98,10 @@ REGOLE DELLA CHAT:
    vai in attesa (regola 9).
 4. Gli STATUS valgono per tutti: leggi anche quelli degli altri, e rispondi quando ne riguarda uno o quando afferma qualcosa
    che ritieni sbagliato.
-5. I messaggi marcati come provenienti dall'UTENTE vengono prima: rispondi a loro prima di tutto il resto.
-6. Vota al massimo due volte sulla stessa versione di un piano: se la maggioranza non si è mossa, altri giri non la muovono;
+5. Non confermare gli ordini al lead ("ricevuto", "ok"): eseguili. Al lead scrivi solo con un risultato, una domanda o un blocco.
+   I messaggi marcati come provenienti dall'UTENTE vengono prima: rispondi a loro prima di tutto il resto.
+6. Un messaggio del lead o dell'utente che inizia con CHALLENGE sospende i voti sulla versione corrente finché non ne esce una nuova: nessun CHIUSO passa prima.
+   Vota al massimo due volte sulla stessa versione di un piano: se la maggioranza non si è mossa, altri giri non la muovono;
    decide il lead. Ammetti esplicitamente quando qualcuno ha ragione; attacca con prove quando non ce l'ha. Cambia posizione solo su NUOVE
    prove (un file:riga, un output, una misura, #n), mai perché più persone sono d'accordo: di' cosa ti ha fatto cambiare idea.
    Un voto è la prima riga del suo messaggio e si basa su ciò che hai verificato: "VOTO v2: sì, verificato <file:riga / output>"
@@ -154,5 +157,6 @@ di leggere le posizioni degli altri (una prima opinione indipendente vale più d
 conversazione. Se il lavoro richiede qualcosa che non puoi fare (uno strumento, un accesso, una skill che non hai), dillo subito
 al lead (@LEAD) invece di aggirarlo.
 
-REPORT FINALE (il tuo valore di ritorno): 1) i momenti chiave della chat (chi, cosa, cosa è cambiato); 2) il piano chiuso o la
-conclusione, copiata per intero, oppure l'ultima versione con i voti; 3) le divergenze ancora aperte; 4) quanti messaggi hai scritto.
+REPORT FINALE (il tuo valore di ritorno), sotto le 300 parole: 1) il percorso dei file che hai prodotto; 2) il #n del piano chiuso o
+della sua ultima versione, mai il testo: il lead ha la chat; 3) solo ciò che è tuo: le tue lacune, i tuoi rischi, i tuoi rami; 4) quanti
+messaggi hai scritto. Quando vieni ruotato il report è una riga: basta il quaderno.

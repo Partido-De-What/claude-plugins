@@ -27,8 +27,9 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    usefully (an expert, a builder, a skeptic). Names in capitals.
 4. Material the agents need (they do not inherit your conversation): write it to `ROOM/DOSSIER.md`.
 5. Brief, once: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
-6. Prompts, generated: `prompt NAME --out ROOM/prompts/NAME.md` for each. Pass each file's text unchanged to the Agent
-   tool (or `spawn_agent` in Codex), all agents in one message, as `chatroom:room-agent` with the user's model and effort,
+6. Prompts, generated: `prompt NAME --out ROOM/prompts/NAME.md` for each. Pass the pointer, not the text: "Read
+   <absolute path of ROOM/prompts/NAME.md> and follow it", to the Agent tool (or `spawn_agent` in Codex): 25k characters each
+   stay out of your context. All agents in one message, as `chatroom:room-agent` with the user's model and effort,
    (the room reads each agent's type from its spawn: no setting needed). Pictures reach the agents at 1000 px with a line
    that says so; for a room where pixels matter (grounding, games, pixel art, small text) `config thumbs=0`. For a room
    that checks many frames, `config vision=1` lets agents ask a free vision model (`chat.py vision FILE --ask "..."`) for a
@@ -104,7 +105,7 @@ The CHECK lines (each printed once, also across relay restarts): proof without a
 not naming the task's files, a no turned yes without evidence, 100% without evidence, a stalled or looping status, a tag
 unanswered, one file in two statuses, undeclared files changed, 25 messages without a board change (drift), everyone
 idle with nothing in progress, a plan closed without a single no (premature consensus), a lent piece not accepted, a
-call budget passed, an agent's context over 150k tokens (`rotate NAME`, then `rotate NAME --now`: a fresh agent with its rules, notebook and tasks), an agent compacted twice (the same), a plan voted two rounds with the same
+call budget passed, the context of an agent that does not compact by itself over 150k tokens (`rotate NAME`, then `rotate NAME --now`: a fresh agent with its rules, notebook and tasks), an agent gone with the room open (resume it or hand its work on), a plan voted two rounds with the same
 majority (DECIDE: more rounds cost tokens and rarely move it). Act on the ones that matter; do not take sides in the discussion unless the user asks.
 
 A silent agent (over twice the heartbeat, not idle): ping it to read and post a status. An idle agent waits on purpose:
@@ -123,4 +124,8 @@ transcript and the reports only: the key moments, the outcome (the closed plan, 
 open disagreements, the messages per agent, and `cost` (what each agent and you cost; it also feeds two CHECKs while the
 room works: cache rewrites, and the protocol over half of an agent's tokens).
 
+Shared resources: agents take a test bench or a port with `lock acquire NAME` and leave it with `lock release NAME`: a queue, the next one tagged by itself, an expiry (`--ttl`), `lock status`. You never set the order by hand.
+After a CLOSED: `reopen --as LEAD --reason "..."` opens the room again and voids the votes; a held agent hears it, one that already ended needs a SendMessage, and the next PLAN version is voted as usual. A message of yours that opens with CHALLENGE suspends the votes on the current version until a new one comes.
+The board: `board` is short (open and taken tasks, done ones as ids), `board T12` is one task in full, `board --all` everything. Two rooms with one lead: `alerts --room A --room B --follow --messages --until-line --batch 60` is one relay, each line with its room in front; `cost` keeps you out of the room's total.
+Lines that only inform (a task closed with gaps, a proof that names no file, compactions, the protocol's share, a bare "received") do not wake you: they come in the digest with the next wake, and `recap` lists the gaps.
 Replacing an agent: `python CHAT retire NAME --room ROOM --as LEAD`, then generate its prompt again (it acts as `NAME~1`), spawn the new agent and `roster` it. The retired agent's calls are refused, so a stopped agent woken by a message cannot post again; its call count starts over.

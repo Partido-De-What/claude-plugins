@@ -47,7 +47,7 @@ Keep the room as it is and set it up with the user, in the room: ask the topic, 
 
 - the room exists: never run `init` again (it would rewrite the config); set the real topic first if init had a placeholder (`python "CHAT" config --room "ROOM" --topic "..." --subtitle "<the goal>"`: the prompts read it); add the participants with `python "CHAT" add --room "ROOM" --participants A,B,C --profile "A|<emoji>|#rrggbb|<role>|<model>|<effort>" ...` and change the look with `python "CHAT" config --room "ROOM" --title ... --subtitle ...`;
 - write the brief once: `python "CHAT" brief --room "ROOM" goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45` (left out: the room's defaults);
-- each prompt is `python "CHAT" prompt NAME --room "ROOM" --out "ROOM/prompts/NAME.md"`: pass that file's text unchanged to the Agent tool (or spawn_agent). If something in it is wrong, change the brief or the config and generate it again; do not edit the prompt.
+- each prompt is `python "CHAT" prompt NAME --room "ROOM" --out "ROOM/prompts/NAME.md"`: pass the Agent tool (or spawn_agent) the pointer "Read <absolute path of that file> and follow it", not its text. If something in it is wrong, change the brief or the config and generate it again; do not edit the prompt.
 
 ## 4b. Research
 

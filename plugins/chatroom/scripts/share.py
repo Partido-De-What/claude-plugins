@@ -1003,7 +1003,7 @@ def clean_room_config(c):
 def board_of(items):
     """what the whiteboard shows of a chat: the plan (version, author, closed or not) and each agent's vote on it (the same
     reading as office.js derive())"""
-    from chat import closing, plan_version, votes_in     # one reading of plans and votes, the same as the room's
+    from chat import REOPEN_RE, closing, plan_version, votes_in     # one reading of plans and votes, the same as the room's
     plan = closed = None
     for m in items:
         if m.get('kind'):
@@ -1015,6 +1015,8 @@ def board_of(items):
         is_closed, cv = closing(text)
         if is_closed and plan and (not cv or cv >= plan['v']):
             closed = {'v': cv or plan['v'], 'n': m.get('n', 0)}
+        if REOPEN_RE.match(text):
+            closed = None
     if closed and plan and plan['n'] > closed['n']:
         closed = None
     votes = {}

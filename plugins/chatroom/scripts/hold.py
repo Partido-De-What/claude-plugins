@@ -52,19 +52,22 @@ def find(aid):
 
 
 def closed(room):
-    """a CLOSED was posted (chat.py lets a participant's through only with every vote in)"""
+    """a CLOSED was posted (chat.py lets a participant's through only with every vote in) and the lead did not reopen"""
     import chat
-    return any(chat.closing(m.get('text', ''))[0] for m in room.messages()[-50:] if not m.get('kind'))
+    return chat.is_shut(room, room.messages()[-50:])
 
 
 def waits(room, name):
     """why this agent has to stay: it declared an idle (it waits for someone), holds a task, or has a run queued or going.
-    '' when it has none: its work is finished, it reports and goes, and nothing keeps it"""
+    '' when it has none: its work is finished, it reports and goes, and nothing keeps it. A shared lock it holds or queues
+    for counts too: its turn comes with a tag, and it needs no turn before that"""
     import chat
     if room.idle_entry(name, room.messages()):
         return 'idle'
     if any(t.get('owner') == name and t['state'] == 'taken' for t in chat.Board(room).load()['tasks']):
         return 'task'
+    if chat.Locks(room).involves(name):
+        return 'lock'
     d = room.dir / 'research'
     try:
         if any(x.get('by') == name for x in json.loads((d / 'queue.json').read_text(encoding='utf-8'))):
@@ -89,13 +92,29 @@ def handback(ev):
     import chat
     room = chat.Room(key)
     why = waits(room, name)
-    if not why or closed(room):
+    if closed(room):
+        return None
+    if not why:
+        left(room, name)
         return None
     chat.use(room.config().get('lang'))
     return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                    'permissionDecisionReason': chat.say('chat.say.hold.report_later', why={
                                        'idle': chat.say('chat.say.hold.why_idle'), 'task': chat.say('chat.say.hold.why_task'),
-                                       'run': chat.say('chat.say.hold.why_run')}[why])}}
+                                       'run': chat.say('chat.say.hold.why_run'),
+                                       'lock': chat.say('chat.say.hold.why_lock')}[why])}}
+
+
+def left(room, name):
+    """it goes while the room is open: no idle, no task, no run, so nothing here says what was still to come. Only the lead
+    can tell a finished job from one left half way: the relay tells it (CHECK), unless the agent comes back and writes"""
+    import chat
+    try:
+        got = chat.read_json(room.dir / 'gone.json', {})
+        got[name] = max((m['n'] for m in room.messages() if m['from'] == name), default=0)
+        chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
+    except OSError:
+        pass
 
 
 def news(room, name):
@@ -144,8 +163,10 @@ def _hold(room, aid, key, name, end, wait, poll):
     while True:
         if closed(room) or find(aid) != (key, name):      # closed, gone quiet for hours, or retired meanwhile
             return None
+        chat.Locks(room).tick()
         new = news(room, name)
         if not new and not waits(room, name):             # nothing for it and nothing it waits for: its work is done, it goes
+            left(room, name)
             return None
         if new:
             try:
