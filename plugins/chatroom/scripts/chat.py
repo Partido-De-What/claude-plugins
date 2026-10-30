@@ -91,15 +91,38 @@ def chat_for_agents():
     return next((c.resolve() for c in sorted(cache.glob(f'*/chatroom/{ver}/scripts/chat.py'))), me)
 
 
+def plugin_source():
+    """the plugin's source folder when it was installed from a local directory (known_marketplaces.json), else None"""
+    path = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'plugins' / 'known_marketplaces.json'
+    try:
+        marks = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    for m in marks.values():
+        src = (m.get('source') or {}) if isinstance(m, dict) else {}
+        d = Path(str(src.get('path') or '')) / 'plugins' / 'chatroom' / 'scripts'
+        if src.get('source') == 'directory' and (d / 'chat.py').is_file():
+            return d
+    return None
+
+
+_STALE = [0.0, []]
+
+
 def stale_install():
-    """the scripts that differ between this source checkout and the installed copy the agents are told to use (same
-    version, not reinstalled): [] when they match or when this is not a source checkout"""
+    """the scripts that differ between the plugin's source and the installed copy the agents run (changed, version not
+    raised): from either side, because the lead usually runs the installed copy itself, where a look at its own folder
+    finds nothing (the room of 30/10 never heard). [] when they match or there is no local source. Kept for 5 minutes"""
+    if time.time() - _STALE[0] < 300:
+        return _STALE[1]
     agents = chat_for_agents().parent
-    if agents == HERE:
+    src = HERE if agents != HERE else plugin_source()
+    if src is None or src.resolve() == agents.resolve():
         return []
     import hashlib
     digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else ''
-    return [p.name for p in sorted(HERE.glob('*.py')) if digest(p) != digest(agents / p.name)]
+    _STALE[:] = [time.time(), [p.name for p in sorted(src.glob('*.py')) if digest(p) != digest(agents / p.name)]]
+    return _STALE[1]
 
 
 def known_room(d, ids=()):
@@ -1344,7 +1367,11 @@ def cmd_post(room, a, text=None):
             if any(m['n'] <= cur and m['from'] != a.name and not m.get('kind') and m['from'] not in room.user_names() for m in items):
                 flags = {'after_read': True}  # it read the others' positions first: information for the lead, not a refusal
     users = room.user_names()
-    missed = [m['n'] for m in room.messages() if room.cursor(a.name) < m['n'] and m['from'] != a.name and not m.get('kind')
+    seen = room.cursor(a.name)
+    if a.name in room.config().get('self_names', []):  # a lead follows the room from its relay: what the relay delivered is read
+        from inbox import read_int
+        seen = max(seen, read_int(room.dir / f'delivered_{a.name}.txt'))
+    missed = [m['n'] for m in room.messages() if seen < m['n'] and m['from'] != a.name and not m.get('kind')
               and (tags(m.get('text', ''), a.name) or tags_everyone(m.get('text', ''))
                    or (m['from'] in users and not re.search(r'(?<![\w.])@\w', m.get('text', ''))))]
     if missed:                                        # the numbers it did not read go with the message: the office shows them over its figure
@@ -2321,6 +2348,9 @@ def failures(room, now=None):
             out.append((f'cost:{key}', say(f'chat.check.cost_{kind}', k=name, v=value)))
     except Exception:
         pass
+    stale = stale_install()
+    if stale:                                         # the room's agents run older code than the source: the lead must know
+        out.append((f"stale:{','.join(stale)}", say('chat.say.cmd_prompt.stale_install', path=chat_for_agents(), files=', '.join(stale[:6]))))
     for k, aid in room.roster().items():
         ctx = agent_context(aid)
         if ctx and ctx >= (350_000 if room.long_cache(k) else CTX_ROTATE):   # room agents compact by themselves at 200k/300k
@@ -2416,7 +2446,7 @@ MCP_TOOLS = [
                                         '(desc; kind, idea, of, seed), propose-idea (json), propose-evidence (text, source), curate, '
                                         'direction (json), conclude (id=worker, gate, trigger, text), verdict (phase, outcome, json), '
                                         'revoke (id, reason), hold (minutes, reason: the GPU outside the runs), release, '
-                                        'allow-fix (id=worker, reason), report (text: the whole report.md, phase 5), '
+                                        'allow-fix (id=worker, reason), report (text: the whole report.md, phase 5; draft=true: report-draft.md from phase 2), '
                                         'queue (desc; after=att-N: the kernel starts it when the evaluator is free), status.',
      'inputSchema': {'type': 'object', 'required': ['action'], 'properties': {
          'action': {'type': 'string', 'enum': ['evaluate', 'status', 'view', 'expand', 'propose-idea', 'propose-evidence', 'curate',
@@ -2427,7 +2457,7 @@ MCP_TOOLS = [
          'text': {'type': 'string'}, 'source': {'type': 'string'}, 'accept': {'type': 'string'}, 'reject': {'type': 'string'},
          'drop': {'type': 'string'}, 'gate': {'type': 'string'}, 'trigger': {'type': 'string'}, 'reason': {'type': 'string'},
          'phase': {'type': 'integer'}, 'outcome': {'type': 'string'}, 'next_intent': {'type': 'string'}, 'minutes': {'type': 'number'},
-         'after': {'type': 'string'},
+         'after': {'type': 'string'}, 'draft': {'type': 'boolean'},
          'json': {'description': 'propose-idea, direction, verdict: the object'}}}},
     {'name': 'notebook', 'description': 'Your own notes, which survive a compacted context: with text adds a line (rule=true: a rule kept word for word and shown first), without reads them; read it first after a compaction.',
      'inputSchema': {'type': 'object', 'properties': {'text': {'type': 'string'}, 'rule': {'type': 'boolean'}}}},
@@ -2544,7 +2574,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 if args.get('id'):
                     ns.pairs.append(str(args['id']))
                 for k in ('idea', 'kind', 'of', 'seed', 'text', 'source', 'accept', 'reject', 'drop', 'gate', 'trigger', 'reason',
-                          'outcome', 'next_intent', 'minutes', 'after'):
+                          'outcome', 'next_intent', 'minutes', 'after', 'draft'):
                     setattr(ns, k, args.get(k))
                 ns.phase = args.get('phase')
                 ns.json = json.dumps(args['json']) if isinstance(args.get('json'), (dict, list)) else args.get('json')
@@ -3270,8 +3300,8 @@ def cmd_alerts(room, a):
 
     def needs_lead(m, line):
         kind = line.split(' ', 3)[2] if line.startswith('WATCH #') else ''
-        if m.get('kind') == 'board':                  # the kernel: a new global best or a crash, not every run
-            return bool(re.search(r'NEW GLOBAL BEST|NUOVO MIGLIORE GLOBALE|CRASH', m.get('text', '')))
+        if m.get('kind') == 'board':                  # the kernel: a new global best, a crash or a verdict (the lead moves the phase), not every run
+            return bool(re.search(r'NEW GLOBAL BEST|NUOVO MIGLIORE GLOBALE|CRASH|(?i:verdetto|verdict)', m.get('text', '')))
         return kind != 'MSG' or any(tags(m.get('text', ''), n) for n in leads)
     seen_path = room.dir / f'checks_seen{name}.json'   # the relay restarts every 30 min: what it said stays said
     try:
@@ -3315,9 +3345,10 @@ def cmd_alerts(room, a):
                 for m in new:
                     if m.get('from') in room.config().get('self_names', []):
                         continue
-                    if not m.get('kind') or (research_room and m['kind'] == 'board'):   # the kernel's runs are board lines
+                    tagged = any(tags(m.get('text', ''), n) for n in leads)   # a status or a finding that tags the lead wakes it too
+                    if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
                         line = watch_line(m, users)
-                        out(line, act=needs_lead(m, line), flush=True)
+                        out(line, act=tagged or needs_lead(m, line), flush=True)
                         said = time.time()
                     elif m['kind'] in ('status', 'idle'):
                         quiet[m['from']] = (m['kind'], m.get('text', '').split(':', 1)[0][:12])
@@ -3535,6 +3566,12 @@ def cmd_cost(room, a):
     """chat.py cost: what each agent and the lead have cost so far, from their transcripts (requests, input-equivalent
     tokens, output, cache rewrites, the protocol's share, the context now)"""
     import cost
+    if getattr(a, 'reset', False):                    # the counters start now, and the CHECKs already seen may speak again
+        stamp = time.strftime('%Y-%m-%dT%H:%M:%S', time.gmtime())
+        (room.dir / 'cost_since.txt').write_text(stamp, encoding='utf-8')
+        for f in room.dir.glob('checks_seen*.json'):
+            write_atomic(f, json.dumps([k for k in read_json(f, []) if not str(k).startswith('cost:')]))
+        return print(say('chat.say.cmd_cost.reset', stamp=stamp))
     print('\n'.join(cost.table(cost.room_costs(room))))
 
 
@@ -4620,13 +4657,15 @@ def main():
     p.add_argument('--costly', action='store_true', help='task add: a costly task (render, long run, publication): taken only after task approve')
     p.add_argument('--preview', help='task add --costly: the task whose result (storyboard, frame, draft, diff) is approved first')
     p.add_argument('--ask', help='vision: what the vision model should tell about the file')
+    p.add_argument('--reset', action='store_true', help='cost: the counters start from now')
     p.add_argument('--now', action='store_true', help='rotate: retire the agent now and write its fresh prompt (after it wrote its notebook)')
     p.add_argument('--batch', type=int, help='alerts --until-line: after the first line that needs the lead, gather N s more into the same wake')
     p.add_argument('--until-line', action='store_true', help='alerts --follow: return after the first lines (run it as a background shell: its exit wakes the lead)')
     p.add_argument('--after', help='research queue: start the run only after this one (att-N) is recorded')
     p.add_argument('--for', dest='for_room', help='research hold: the GPU window is for this other room (its title or folder)')
-    p.add_argument('--ccache', type=lambda v: v.lower() in ('1', 'on', 'yes', 'true'), nargs='?', const=True,
-                   help='research init/amend: one compiler cache for every worktree (ccache; CMake picks it up), on|off')
+    p.add_argument('--final-dry', dest='final_dry', help='research init/amend: a dry run of the final evaluator, run at the seal: it loads the held-out data and its references, measures nothing, exits 0')
+    p.add_argument('--build-dir', dest='build_dir', nargs='?', const='shared',
+                   help='research init/amend: one stable build folder for every worktree (a path, or nothing for one beside them; off clears it): the build script finds it in CHATROOM_BUILD_DIR')
     p.add_argument('--precheck', help='research init/amend: a command that must exit 0 before each run (idle VRAM, no stray server)')
     p.add_argument('--rule', action='store_true', help='notebook: a rule of yours, kept word for word and shown first')
     p.add_argument('--stay', action='store_true', help='research seal: seal but open phase 2 only at the next phase next')

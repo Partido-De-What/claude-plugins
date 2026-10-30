@@ -62,6 +62,7 @@ Provenance: the build stamps CHATROOM_PROGRAM_SHA into what it builds and the ev
 Environment (optional): the evaluator prints "env: <gpu clock, temperature, load...>": recorded with each run, never compared
 Sealed (committed, never touched): <evaluator, build script, data loader>
 Held-out data for the final evaluator: <a path OUTSIDE the repository: anything committed is readable from every worktree>
+Baseline on the held-out data: <the final compares against a baseline measured on those same data, not on the search data>
 Data folders kept between runs (not committed, not inside a submodule): <data/, build/> or none
 Time per run: <minutes, a whole run: build + repeats + cooling, measured on a smoke or by hand>; runs in all: <N>
 Precheck before each run (optional): <a command that exits 0 when the machine is ready: idle VRAM, no stray server>
@@ -88,18 +89,21 @@ committed with LF line endings stays LF, which `cmd` parses badly).
 ```bash
 python CHAT research init --room ROOM --as LEAD --repo <repository> --program <file> --metric <NAME> --direction <min|max> \
   --evaluate "<command>" [--build "<command>" --build-min <m>] [--final "<command>"] --budget-min <m> --max-evals <runs> \
-  --sealed <files> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] [--ccache] --tag <name>
+  --sealed <files> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] [--build-dir] [--final-dry "cmd"] --tag <name>
 ```
 
 `--precheck` runs before every run and must exit 0 (idle VRAM under a limit, no stray server): a failed check refuses
-the run and counts nothing. Put a rule the machine needs there from the start, not after a lost run.
+the run and counts nothing. Put a rule the machine needs there from the start, not after a lost run. `--final-dry` is
+a command run at the seal: it loads the held-out data and their references and measures nothing, so a broken final shows
+now and not in phase 4 (one night lost a 16-minute build and an hour of GPU to it); without it the seal only warns.
 
 A contract for GPU kernels (or any timing): time in a process of its own, not in the program's; fresh inputs at every
 iteration (a harness that reused its inputs reported 1000x speedups); no side streams or work left running after the
 timer stops; correctness checked apart from the timing; a sanity cap on the speedup the evaluator believes. Noise to
 expect on a shared GPU, measured over 20k real runs: +0.30% at p95 for kernels over 10 ms, 1.58% over 1 ms, 3.90% over
-0.1 ms: set `--min-gain` above it. A C/C++/CUDA build: `--ccache` gives every worktree one compiler cache (the second
-worker's first build reuses the first's objects instead of rebuilding for 20 minutes); ccache must be installed.
+0.1 ms: set `--min-gain` above it. A compiled program: `--build-dir` gives every worktree one stable folder, in
+`CHATROOM_BUILD_DIR`; the build script keeps there both the sources it patches and the build tree, so each run recompiles
+only what its patch changed. Inside a worktree CMake's absolute paths rebuild everything for each worker and for the final.
 
 A canary before trusting the room: a short task with a planted shortcut (a test that passes when the program returns the
 expected value from a table, a data subset that makes the metric easy). Over half of the runs of coding agents took such

@@ -64,6 +64,7 @@ Provenienza: la build imprime CHATROOM_PROGRAM_SHA in ciò che costruisce e il v
 Ambiente (facoltativo): il valutatore stampa "env: <clock della GPU, temperatura, carico...>": registrato a ogni corsa, mai confrontato
 Sigillato (committato, mai toccato): <valutatore, script di build, caricatore dei dati>
 Dati riservati per il valutatore finale: <un percorso FUORI dal repository: tutto ciò che è committato è leggibile da ogni worktree>
+Baseline sui dati riservati: <il finale si confronta con una baseline misurata su quegli stessi dati, non su quelli della ricerca>
 Cartelle dati mantenute tra le corse (non committate, non dentro un submodule): <data/, build/> oppure none
 Tempo per corsa: <minuti, una corsa intera: build + ripetizioni + raffreddamento, misurata su una prova o a mano>; corse in tutto: <N>
 Controllo prima di ogni corsa (facoltativo): <un comando che esce con 0 quando la macchina è pronta: VRAM a riposo, nessun server rimasto vivo>
@@ -91,20 +92,23 @@ un `.bat` committato con fine riga LF resta LF, e `cmd` lo interpreta male.
 ```bash
 python CHAT research init --room ROOM --as LEAD --repo <percorso> --program <file> --metric <NOME> --direction <min|max> \
   --evaluate "<comando>" [--build "<comando>" --build-min <m>] [--final "<comando>"] --budget-min <m> --max-evals <corse> \
-  --sealed <file> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] [--ccache] --tag <nome>
+  --sealed <file> [--keep data/,build/] [--result-file] [--repeats N] [--min-gain X|X%] [--precheck "cmd"] [--build-dir] [--final-dry "cmd"] --tag <nome>
 ```
 
 `--precheck` gira prima di ogni corsa e deve uscire con 0 (VRAM a riposo sotto un limite, nessun server rimasto vivo): un
 controllo fallito rifiuta la corsa e non conta nulla. Mettici fin dall'inizio le regole che servono alla macchina, non dopo
-una corsa persa.
+una corsa persa. `--final-dry` è un comando lanciato al sigillo: carica i dati tenuti da parte e i loro riferimenti e non
+misura nulla, così un finale rotto si vede subito e non in fase 4 (una notte ha perso così una build da 16 minuti e un'ora
+di GPU); senza, il sigillo avvisa soltanto.
 
 Un contratto per kernel GPU (o qualsiasi misura di tempi): il tempo in un processo a parte, non in quello del programma;
 input freschi a ogni iterazione (un harness che riusava gli input ha riportato speedup di 1000x); niente stream laterali
 né lavoro lasciato acceso dopo che il cronometro si ferma; la correttezza controllata a parte dal tempo; un tetto di
 plausibilità sullo speedup che il valutatore accetta. Rumore da aspettarsi su una GPU condivisa, misurato su 20k corse
-vere: +0,30% al p95 per kernel sopra i 10 ms, 1,58% sopra 1 ms, 3,90% sopra 0,1 ms: metti `--min-gain` sopra quello. Una build C/C++/CUDA: `--ccache` dà a tutti i worktree una sola cache del
-compilatore (la prima build del secondo worker riusa gli oggetti del primo invece di ricompilare per 20 minuti); serve
-ccache installato.
+vere: +0,30% al p95 per kernel sopra i 10 ms, 1,58% sopra 1 ms, 3,90% sopra 0,1 ms: metti `--min-gain` sopra quello. Un programma compilato: `--build-dir` dà a tutti i worktree una sola cartella stabile, in
+`CHATROOM_BUILD_DIR`; lo script di build tiene lì sia i sorgenti che modifica sia l'albero di build, così ogni corsa
+ricompila solo ciò che la sua patch cambia. Dentro un worktree i percorsi assoluti di CMake rifanno tutto per ogni worker e
+per il finale.
 
 Un canary prima di fidarti della stanza: un compito breve con una scorciatoia piantata (un test che passa se il programma
 restituisce il valore atteso da una tabella, un sottoinsieme dei dati che rende facile la metrica). Più della metà delle

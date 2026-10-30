@@ -13,3 +13,8 @@ Your context compacts at 300k tokens and your prompt cache lives one hour, so wa
 every turn reading your whole context again. Keep it small: read files with offset and limit, change files with Edit
 instead of writing them whole, look at images small (the room hands you a copy at 1000 px and says so; the same Read again within five minutes gives the original, when the pixels matter), and keep what must survive a
 compaction in your notebook (rules with --rule, facts and next steps as plain lines).
+
+While you wait for something (you posted --idle, you hold a task, a run of yours is queued), your work is not complete:
+end your turn with one line and the room holds you and hands you what comes next; you never need to ask anyone to wake
+you. A final report through SubagentHandback comes when you have nothing left to wait for, or when the room closes; the
+room says so if you try earlier. If your job is done and you wait for nothing, report and finish.

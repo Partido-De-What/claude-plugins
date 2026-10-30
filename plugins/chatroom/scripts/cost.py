@@ -12,7 +12,7 @@ from pathlib import Path
 
 W_IN, W_W5, W_W1, W_READ, W_OUT = 1, 1.25, 2, 0.1, 5
 PROTOCOL = re.compile(r'chat\.py["\']?\s+(?:wait|read|post|board|task|notebook|status|check|expand|recap)\b|mcp__chatroom__|^SendMessage$')
-_STATE = {}                    # path -> [offset, totals, seen message ids, last ts, last tool, last context]
+_STATE = {}                    # (path, since) -> [offset, totals, seen message ids, last ts, last tool, last context]: a new since starts over
 
 
 def transcript_of(agent_id=None, session_id=None):
@@ -26,10 +26,10 @@ def _blank():
             'compactions': 0}
 
 
-def scan(path):
-    """the totals of one transcript, read from where the last call stopped"""
+def scan(path, since=0.0):
+    """the totals of one transcript, read from where the last call stopped; lines before `since` (epoch) are skipped"""
     path = Path(path)
-    off, tot, seen, last_ts, last_tool, last_ctx = _STATE.get(str(path), [0, _blank(), set(), 0.0, '', 0])
+    off, tot, seen, last_ts, last_tool, last_ctx = _STATE.get((str(path), since), [0, _blank(), set(), 0.0, '', 0])
     try:
         with open(path, 'rb') as f:
             f.seek(off)
@@ -42,6 +42,8 @@ def scan(path):
             d = json.loads(raw)
         except ValueError:
             continue
+        if since and _ts(d.get('timestamp')) < since:
+            continue                                      # before the room's reset (ROOM/cost_since.txt)
         m = d.get('message') or {}
         if d.get('subtype') == 'compact_boundary':
             tot['compactions'] += 1                       # after a few, a summary keeps a tenth of the rules: rotate instead
@@ -74,7 +76,7 @@ def scan(path):
             tot['context'] = ctx
             last_ts = ts or last_ts
             last_tool = calls[-1] if calls else last_tool       # the next request digests this call's result
-    _STATE[str(path)] = [off + end, tot, seen, last_ts, last_tool, last_ctx]
+    _STATE[(str(path), since)] = [off + end, tot, seen, last_ts, last_tool, last_ctx]
     return dict(tot)
 
 
@@ -86,11 +88,15 @@ def _ts(s):
 
 
 def room_costs(room):
-    """{name: totals or None} for the roster's agents and the lead's session"""
+    """{name: totals or None} for the roster's agents and the lead's session, counted from ROOM/cost_since.txt if it exists"""
+    try:                                              # an ISO time in UTC, as the transcripts write it: the counters start there
+        since = _ts((room.dir / 'cost_since.txt').read_text(encoding='utf-8').strip())
+    except OSError:
+        since = 0.0
     out = {}
     for name, aid in room.roster().items():
         p = transcript_of(agent_id=aid) if re.fullmatch(r'[0-9a-z]{8,40}', str(aid)) else None
-        out[name] = scan(p) if p else None
+        out[name] = scan(p, since) if p else None
     try:
         sessions = json.loads((room.dir / 'sessions.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
@@ -98,7 +104,7 @@ def room_costs(room):
     for sid, name in sessions.items():
         if name in room.config().get('self_names', []):
             p = transcript_of(session_id=sid)
-            out[name] = scan(p) if p else None
+            out[name] = scan(p, since) if p else None
     return out
 
 
@@ -154,6 +160,9 @@ def _prova():
     with open(d, 'a', encoding='utf-8') as f:
         f.write(msg('m4', '2026-10-30T10:10:10', 2, 52000, 10, 0, 10) + '\n')
     assert scan(d)['requests'] == 4                                               # incremental
+    _STATE.clear()
+    t = scan(d, _ts('2026-10-30T10:05:00'))                                       # reset at 10:05: only m3 and m4
+    assert t['requests'] == 2 and t['rewrites'] == 0, t
     print('cost prova ok')
 
 

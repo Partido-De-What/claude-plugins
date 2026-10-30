@@ -57,6 +57,47 @@ def closed(room):
     return any(chat.closing(m.get('text', ''))[0] for m in room.messages()[-50:] if not m.get('kind'))
 
 
+def waits(room, name):
+    """why this agent has to stay: it declared an idle (it waits for someone), holds a task, or has a run queued or going.
+    '' when it has none: its work is finished, it reports and goes, and nothing keeps it"""
+    import chat
+    if room.idle_entry(name, room.messages()):
+        return 'idle'
+    if any(t.get('owner') == name and t['state'] == 'taken' for t in chat.Board(room).load()['tasks']):
+        return 'task'
+    d = room.dir / 'research'
+    try:
+        if any(x.get('by') == name for x in json.loads((d / 'queue.json').read_text(encoding='utf-8'))):
+            return 'run'
+    except (OSError, ValueError):
+        pass
+    try:
+        if (json.loads((d / 'state.json').read_text(encoding='utf-8')).get('pending') or {}).get('by') == name:
+            return 'run'
+    except (OSError, ValueError):
+        pass
+    return ''
+
+
+def handback(ev):
+    """PreToolUse of SubagentHandback, the tool that ends an agent's run (auto mode): an agent that still waits in an open
+    room reports later, so that a run in queue or a tag can still reach it; one with nothing left passes. The report is
+    only put off: it still goes through SubagentHandback, and its review, when the agent has finished"""
+    key, name = find(str(ev.get('agent_id') or ''))
+    if not key:
+        return None
+    import chat
+    room = chat.Room(key)
+    why = waits(room, name)
+    if not why or closed(room):
+        return None
+    chat.use(room.config().get('lang'))
+    return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                   'permissionDecisionReason': chat.say('chat.say.hold.report_later', why={
+                                       'idle': chat.say('chat.say.hold.why_idle'), 'task': chat.say('chat.say.hold.why_task'),
+                                       'run': chat.say('chat.say.hold.why_run')}[why])}}
+
+
 def news(room, name):
     """the messages that would wake this agent, not yet read by it"""
     users = room.user_names()
@@ -104,6 +145,8 @@ def _hold(room, aid, key, name, end, wait, poll):
         if closed(room) or find(aid) != (key, name):      # closed, gone quiet for hours, or retired meanwhile
             return None
         new = news(room, name)
+        if not new and not waits(room, name):             # nothing for it and nothing it waits for: its work is done, it goes
+            return None
         if new:
             try:
                 import inbox
@@ -119,7 +162,8 @@ def _hold(room, aid, key, name, end, wait, poll):
 
 def main():
     try:
-        got = decide(json.load(sys.stdin))
+        ev = json.load(sys.stdin)
+        got = handback(ev) if ev.get('tool_name') == 'SubagentHandback' else decide(ev)
     except Exception:                                 # a fault here never keeps an agent
         return 0
     if got:
@@ -143,6 +187,11 @@ def _prova():
     r.append('LEAD', 'start')
     r.set_cursor('A', 1)
     assert decide({'agent_id': 'zzzz'}) is None                                   # not a room agent: it stops
+    assert decide({'agent_id': 'aaaa1111'}, wait=5, poll=0.2) is None             # no reason to stay: its work is done, it goes
+    assert handback({'agent_id': 'aaaa1111'}) is None                             # and its report passes
+    r.append('A', '40%: waiting for @B', 'idle')
+    r.set_cursor('A', 2)
+    assert handback({'agent_id': 'aaaa1111'})['hookSpecificOutput']['permissionDecision'] == 'deny'   # it waits: the report comes later
     threading.Timer(1.0, lambda: r.append('B', '@A your turn')).start()
     t0 = time.time()
     got = decide({'agent_id': 'aaaa1111'}, wait=20, poll=0.2)

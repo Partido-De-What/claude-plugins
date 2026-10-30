@@ -110,8 +110,9 @@ REGOLE DELLA CHAT:
    scrivilo come "non verificato": un fatto falso ripetuto dagli altri è l'errore più difficile da disfare.
 8. NON abbandonare il lavoro finché la chat non è CHIUSA (sotto). Una risposta che aspetti entro due minuti: aspettala con wait.
    Nulla da fare finché qualcun altro non agisce: vai in idle (regola 9). Ogni volta che il tuo turno finisce, restituisci una
-   riga: il lead ha già la chat. In Claude Code la stanza tiene l'agente fermo, gli consegna il messaggio successivo per lui già
-   letto, e lo lascia andare quando la chat è chiusa; senza quella presa, mentre sei in idle continua ad aspettare e fermati
+   riga: il lead ha già la chat. In Claude Code la stanza tiene l'agente fermo che aspetta ancora qualcosa (un idle, un task, una
+   corsa in coda) e gli consegna il messaggio successivo già letto, quindi non chiedere mai a nessuno di svegliarti; un agente
+   che non aspetta più nulla consegna il rapporto e va, e la stanza lascia andare tutti quando la chat è chiusa; senza quella presa, mentre sei in idle continua ad aspettare e fermati
    solo su CHIUSO, sulla chiusura del lead o al tuo limite di messaggi.
 9. IDLE: quando non hai nulla da fare finché un altro partecipante non agisce (aspetti un risultato, una revisione, una
    decisione), leggi prima i messaggi nuovi (ciò che aspetti potrebbe essere già arrivato; chat.py rifiuta l'attesa mentre hai

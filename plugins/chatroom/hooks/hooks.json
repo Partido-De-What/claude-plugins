@@ -35,6 +35,16 @@
             "command": "in=$(cat); [[ $in =~ \\\"agent_id\\\"[[:space:]]*:[[:space:]]*\\\"([A-Za-z0-9]+)\\\" ]] || exit 0; r=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/chatroom\"; grep -qsF \"${BASH_REMATCH[1]}\" \"$r/known_rooms.json\" \"$r/rooms.json\" || exit 0; py=$(command -v python || command -v python3) && printf '%s' \"$in\" | \"$py\" -S -E \"${CLAUDE_PLUGIN_ROOT}/scripts/fit.py\""
           }
         ]
+      },
+      {
+        "matcher": "SubagentHandback",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "in=$(cat); [[ $in =~ \\\"agent_id\\\"[[:space:]]*:[[:space:]]*\\\"([A-Za-z0-9]+)\\\" ]] || exit 0; r=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/chatroom\"; grep -qsF \"${BASH_REMATCH[1]}\" \"$r/known_rooms.json\" \"$r/rooms.json\" || exit 0; py=$(command -v python || command -v python3) && printf '%s' \"$in\" | \"$py\" \"${CLAUDE_PLUGIN_ROOT}/scripts/hold.py\""
+          }
+        ]
       }
     ],
     "SubagentStop": [
