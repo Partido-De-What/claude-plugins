@@ -131,7 +131,7 @@ The first loop of the research kernel, one file and a fixed evaluator with a com
 
 ## Find me
 
-[GitHub](https://github.com/ArtyomITA) · [Hugging Face](https://huggingface.co/adriandj3) · [LinkedIn](https://www.linkedin.com/in/adrian-ciprian-iancu-a2a477391) · [YouTube](https://www.youtube.com/@artyomadriandj3) · [Instagram](https://www.instagram.com/artyomita) · [TikTok](https://www.tiktok.com/@artyomita) · [site](https://artyomita.github.io/)
+[GitHub](https://github.com/ArtyomITA) · [Hugging Face](https://huggingface.co/adriandj3) · [LinkedIn](https://www.linkedin.com/in/adrian-ciprian-iancu-a2a477391) · [Instagram](https://www.instagram.com/artyomita) · [site](https://artyomita.github.io/)
 
 ## License
 
