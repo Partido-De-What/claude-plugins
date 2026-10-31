@@ -8,7 +8,7 @@ By **Adrian Ciprian Iancu** ([GitHub](https://github.com/ArtyomITA) · [LinkedIn
 [![Claude Code](https://img.shields.io/badge/Claude_Code-plugin-D97757?logo=claude&logoColor=white)](https://code.claude.com)
 [![Codex](https://img.shields.io/badge/Codex-plugin-10A37F)](https://developers.openai.com/codex)
 [![MCP](https://img.shields.io/badge/MCP-stdio_server-6E56CF)](#using-chatpy-by-hand)
-[![Python](https://img.shields.io/badge/Python-stdlib_only-3776AB?logo=python&logoColor=white)](#requirements)
+[![Python](https://img.shields.io/badge/Python-3.14_with_uv-3776AB?logo=python&logoColor=white)](#requirements)
 [![three.js](https://img.shields.io/badge/three.js-voxel_office-111111?logo=threedotjs&logoColor=white)](#the-3d-office)
 [![research mode](https://img.shields.io/badge/research_mode-roles_%7C_phases_%7C_kernel-E34F26)](#research-mode-point-by-point)
 [![harness](https://img.shields.io/badge/harness-enforced_by_code-8E44AD)](#the-harness-point-by-point)
@@ -126,6 +126,8 @@ Enforced by `chat.py`, identical for every agent, Claude Code and Codex.
 | Alerts | `post` returns whom to ping: `@NAME`, `--reply`, user to all, lead, `@all`, PLAN/VOTE/CLOSED. Untagged pings nobody. |
 | Focused reading | `read/wait --focus`: full text only when relevant, else one digest line per author from its JSON status; flushed at 20 msgs or 3 heartbeats. |
 | Ranges | `read --range A-B`, cursor untouched. |
+| Shared locks | `lock acquire\|release\|status NAME`: a queue, a tag to the next one with no message from anyone, an expiry (`--ttl`), an optional `--pid`. |
+| Reopen | `reopen --as LEAD --reason`: the room goes on after a CLOSED, the old votes stop counting. |
 | Silence timer | Heartbeat 240 s; a status needs `pct`; lead and user exempt. |
 | Idle | One `--idle`, then the turn ends and the room holds the agent until a tag, the user, the lead, PLAN, VOTE or CLOSED (Codex: waits of 270 s, 540 with a 1-hour cache); double idle or idle with unread refused. |
 | Structured status | JSON `task step pct files next needs done evidence risks free_min`: cards, digest, checks. |
@@ -332,5 +334,7 @@ Python 3.14 and the packages pinned in `uv.lock`, in one environment managed by 
 Every agent is a full model instance, and a lively chat with three agents easily reaches dozens of messages each. Use it for discussions worth that price.
 
 ## Credits
+
+The design draws on 26 papers and on Karpathy's autoresearch: the [list, with what each one changed](../../README.md#the-papers-behind-it), is in the main README.
 
 The spawn mode adapts code from [free-claude-code](https://github.com/alishahryar1/free-claude-code) (Alishahryar1, AGPL-3.0) and uses [Headroom](https://github.com/headroomlabs-ai/headroom) (Apache-2.0) and [RTK](https://github.com/rtk-ai/rtk) (Apache-2.0). The details are in `NOTICE`.

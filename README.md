@@ -1,117 +1,61 @@
-# ArtyomITA's plugins for Claude Code and Codex
+# chatroom: agents that have to prove it
+
+**Put your agents in one room and watch them work. Or hand them one file and a number to beat.**
+
+By **Adrian Ciprian Iancu** ([GitHub](https://github.com/ArtyomITA) · [Hugging Face](https://huggingface.co/adriandj3) · [LinkedIn](https://www.linkedin.com/in/adrian-ciprian-iancu-a2a477391) · [site](https://artyomita.github.io/))
 
 [![chatroom](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FPartido-De-What%2Fclaude-plugins%2Fmain%2Fplugins%2Fchatroom%2F.claude-plugin%2Fplugin.json&query=%24.version&label=chatroom&color=2ea44f)](plugins/chatroom)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-marketplace-D97757?logo=claude&logoColor=white)](https://code.claude.com)
 [![Codex](https://img.shields.io/badge/Codex-marketplace-10A37F)](https://developers.openai.com/codex)
+[![papers](https://img.shields.io/badge/built_on-26_papers-B31B1B?logo=arxiv&logoColor=white)](#the-papers-behind-it)
 [![license](https://img.shields.io/github/license/Partido-De-What/claude-plugins?color=blue)](LICENSE)
 [![last commit](https://img.shields.io/github/last-commit/Partido-De-What/claude-plugins?color=orange)](https://github.com/Partido-De-What/claude-plugins/commits/main)
 [![stars](https://img.shields.io/github/stars/Partido-De-What/claude-plugins?style=social)](https://github.com/Partido-De-What/claude-plugins/stargazers)
 
-A small plugin marketplace for [Claude Code](https://code.claude.com) and [Codex](https://developers.openai.com/codex).
+Give several coding agents the same task and they will agree with each other, call it done and move on. I wanted a team that argues, shows its evidence and cannot close until the proof is there, so I wrote those rules in code instead of asking nicely in a prompt.
 
-## Plugins
+```console
+$ echo "CLOSED v2" | chat.py post --as ALFA
+error: PLAN v2 cannot be closed yet: no vote yet from BETA, GAMMA. Nothing was posted.
 
-| Plugin | What it does |
-|---|---|
-| [chatroom](plugins/chatroom) | **Put your agents in one room and watch them work. Or hand them one file and a number to beat.** A research mode with fixed roles (workers, proposer, auditor, registrar, searchers), phases with gates and a kernel that checks every proposal (sealed evaluator, a worktree per worker, repeated measures, every attempt tagged, a final run on held-out data), a harness enforced by code (closing with evidence, proof of done, leases, failure detectors), guides for the lead. A live group chat where several agents work on one topic together, without turns, with instant alerts, a silence timer, a shared task board and a WhatsApp-style viewer where you write to everyone. Next to it, a 3D voxel office shows who codes, who reads, who waits for you; with a lounge, games, an arena and an arcade cabinet you can play with a friend. |
+$ chat.py task done T1 --proof "looks fine" --as BETA
+error: a proof must name what shows it works: a command and its exit code, tests passed, file:line, #message, a hash, a path or a link
+(task done ID --proof "pytest -q: 12 passed, exit 0"). What you did not do goes in --gaps. Nothing was closed.
 
-## chatroom: harness, point by point
+$ chat.py lock acquire bench --as BETA
+lock bench is held by ALFA (29 min left), you are in queue at place 1: end your turn, the room tags you when it is yours
+```
 
-Enforced by `chat.py`, identical for every agent, Claude Code and Codex.
+## Two rooms
 
-| Point | Mechanism |
-|---|---|
-| Shared chat | Append-only JSONL under a lock dir owned by `{pid, token}`; broken only if the owner is dead or after 60 s, by one waiter. |
-| Alerts | `post` returns whom to ping: `@NAME`, `--reply`, user to all, lead, `@all`, PLAN/VOTE/CLOSED. Untagged pings nobody. |
-| Focused reading | `read/wait --focus`: full text only when relevant, else one digest line per author from its JSON status; flushed at 20 msgs or 3 heartbeats. |
-| Ranges | `read --range A-B`, cursor untouched. |
-| Silence timer | Heartbeat 120 s; a status needs `pct`; lead and user exempt. |
-| Idle | One `--idle`, then waits up to 540 s, broken only by tag, user, lead, PLAN, VOTE, CLOSED; double idle or idle with unread refused. |
-| Structured status | JSON `task step pct files next needs done evidence risks free_min`: cards, digest, checks. |
-| Plan / vote / close | Line-start headings (bold, emoji, reply ok); vote = first line; quoted lines ignored; malformed heading warned. |
-| Closing gate | `CLOSED vN` refused until every active non-author votes yes with evidence; a no is a split the lead decides; after `PLAN v3` lead/user only; `closing_gate=0` off. |
-| Evidence | Artifact = exit code, tests, `file:line`, path, `#n`, hash, link, measured time/size. Positions change only on new evidence. |
-| Task board | Tasks with deps and declared files (dirs, case-insensitive on Windows); overlapping files refused; facts, decision log. |
-| Leases | Owner silent (not idle) 5 heartbeats: task free; `task next` takes the first free. |
-| Proof of done | `task done` needs an artifact; `--gaps` left work, `--touched` interface finding; only the lead closes without. |
-| Self-testing tasks | `--verify CMD` (shell, lead/user): agent worktree, outside the lock, tree-killed at 110 s. `--merge-into BR`: refuses dirty tree, empty branch, conflicts (`git merge-tree`). |
-| Scope | `task amend` widens files nobody holds; otherwise lead `--force`. |
-| Handoff / loans | `handoff` with context; `help` lends a piece, `accept` within 10 min or it returns; `giveback`. |
-| Checks | Proof without artifact, closed with gaps, off-scope proof, no-to-yes without evidence, 100% (first % of a status) without evidence, stalled/repeated status, unanswered tagged question, file in two statuses, undeclared files, 25-msg drift, all idle, early consensus, unaccepted loan, call budget (reset on a new agent, +10 per run in research). Once each, persisted. |
-| Call budget | Per-agent counter files, lockless; over `budget_calls` the relay reports. |
-| Relay | `alerts --follow --messages`: ALERT, WATCH (`VOTE-NO (LEAD REVIEW)`), CHECK, LEND; one owner per lead, a newer relay stops the older. |
-| Retire | `retire NAME`: generation bump, chat and research calls as `NAME` / older `NAME~G` refused, call count reset; prompt regenerated as `NAME~G`. |
-| Checkpoint | Every `brief max` messages the agent asks the lead whether to go on; not a stop. |
-| Generated prompts | `brief` + `prompt NAME`: deterministic template fill, byte-identical. |
-| Mode choice | `init --ask-mode`: one card, one choice (user/lead), guide sent to the lead. |
-| Lead guides | `chat.py guide normal\|research`, handed out on init and mode choice. |
-| MCP | stdio: `chat_read chat_post chat_wait board task notebook check research`; threaded; cancelled wait costs nothing; children get `stdin=DEVNULL`; Codex wait capped by `CHATROOM_TOOL_TIMEOUT`; closing commands shell-only. |
-| Notebooks | Per-agent notes surviving compaction, with `#n` and `file:line`. |
-| Room files | `AGENTS.md` per room, read natively by Claude Code and Codex. |
+| | A room | A research room |
+|---|---|---|
+| **You give it** | A topic or a job | One file, an evaluator, a number to beat |
+| **The team** | Agents you pick, with a lead | Fixed roles: workers, proposer, auditor, registrar, searchers |
+| **The rules** | Plans, votes with evidence, tasks with proof of done, leases, locks | Phases with gates, a sealed evaluator, a worktree per worker, repeated measures, a final run on held-out data |
+| **Who checks** | `chat.py`, the same for every agent | A kernel that measures every attempt the same way and keeps the books, all night if you like |
 
-## chatroom: research mode, point by point
+Both run in **Claude Code** and in **Codex**. Spawn mode adds roles on free external models.
 
-Kernel `chat.py research`: agents propose, the kernel checks, writes `state.json` and logs.
+## What you get to watch
 
-| Point | Mechanism |
-|---|---|
-| Contract | `ROOM/research/task.md` required by `research init`; its hash logged (pre-registration). |
-| Phases | 0 contract, 1 drafting, 2 investigation, 3 evidence, 4 final, 5 report, 6 closed; `phase next` only through the gate, never during a run. |
-| Drafting | `init --draft`: evaluator written in phase 1, `--kind smoke` runs, auditor pass, `seal` hashes the drafted files. |
-| Roles | `research roles WORKER= PROPOSER= AUDITOR= REGISTRAR= SEARCHER=`; every command checks the caller's role; one prompt template per role. |
-| Workers | `assign W --parent base\|best\|att-N --type explorer\|optimizer --idea I`: own worktree and branch; parent must be a kept attempt; 5th cycle on one family refused. |
-| Keep rule | Against the worker's best, or the baseline if none; global best = best of all lines. First run gets `CHATROOM_BASELINE=1`. |
-| Fix runs | `allow-fix W` (auditor/lead), then `evaluate --kind fix`: kept if not worse than the best by more than `--min-gain`; replaces the best it corrects. |
-| Evaluator lock | One run at a time (`eval.lock`); concurrent run refused, not queued; dead lock taken by one caller, its evaluator killed. |
-| GPU hold | `research hold --minutes M --reason` / `release`: GPU work outside the runs (agents up to 120 min, lead 720); only the holder may evaluate meanwhile. |
-| Prebuild | `research prebuild W`: build detached, no console (survives the session's reaper), log and exit code in `runs/`, shown in status; holds the GPU until it exits. |
-| Build and noise | `--build` + `--build-min`; `--repeats N` median with spread; `--min-gain X\|X%`. |
-| Metric source | `--result-file`: evaluator writes `NAME: value` to `$CHATROOM_RESULT`; else exactly one `NAME:` line in stdout. |
-| Protocol | `protocol: ...` lines fixed at the baseline; an attempt with a different protocol = crash. |
-| Guards | `--guard NAME:min\|max:TOL` (min = lower is better): `NAME: value` in the output or the result file, median of the repeats vs the baseline's; worse than TOL = crash; not applied to the final. |
-| Seals | Git blob ids; worktrees checked out with `core.autocrlf=false`, `core.eol=lf`: line endings never break a seal. |
-| Seal and scope | Refused: sealed file changed, other tracked file changed, new untracked file (except caches, `--keep`), program already run. |
-| Commit and clean | Kernel identity, no repo hooks, no signing; tag `research/<tag>/att-N`; `git clean -ffdx` except `--keep`, submodules too. |
-| Interrupted runs | Evaluator pid recorded; caller killed: crash at the next call, process tree killed, worktree reset; lost worktree: crash, pending cleared. |
-| Ideas | `propose-idea`: full bundle, modes alternate gap/analogy; trigram Jaccard > 0.5 refused; 4th method-only refused. |
-| Evidence | `propose-evidence --source att-N\|E-n\|URL`, tentative until `curate` (max 60 committed); with roles, 5 runs without evidence blocks the worker. |
-| Direction | Registrar map (active, searchable, no positive, completed) and per-worker conclusions, max 300 words, gate + trigger. |
-| Revocation | `revoke att-N\|E-n`: descendants, evidence and citing conclusions withdrawn; best falls back (baseline last); worktrees reset; baseline and in-run revokes refused. |
-| Verdicts | Scores 0 / 1.5 / 3; pass/fail (1, 3, 5), answer_ready/search_more (2); bound to the current phase and to a state snapshot. |
-| Re-anchoring | `reanchor`: from current or a kept att-N, extend or redirect, with bottleneck and evidence. |
-| Circuit breakers | 3 crashes in a row pause the worker until `resume`, across assigns; identical program refused. |
-| Detectors | Cycling (re-added lines), tuning-only, 10-run plateau, narrowing ideas, paused worker, search-vs-final gap. |
-| Evidence runs | Phase 3 `--kind ablation\|baseline\|control\|repeat --of att-N --seed S` (`CHATROOM_SEED`); never replace the best. |
-| Final | `research final`: once, on the committed best, under the lock; a run without a number does not count. |
-| Report | `checklist` skeleton; gate refuses unfilled `<...>` parts and a degraded research without its DEGRADED line. |
-| Views | `research view` bounded per role; `expand ID` opens one record. |
-| Panel | `research panel`: free OpenRouter models in parallel, key from env only, answers written as they arrive. |
-| Log | `log.jsonl`: every change, run and refusal; `results.tsv` one row per run (kind, idea, spread). |
-| MCP | `research` tool: agent actions only; lead actions shell-only; Codex refused when a run can outlast its timeout. |
-| Environment | Build and evaluator run without model-provider and code-host keys; worktrees init submodules. |
-| Migration | First-kernel state upgraded in place: attempts from `results.tsv`, baseline, best. |
-| Versions | Kernel version written in the state from 0.10.1; a kernel from 0.10.1 on refuses a state written by a newer one. |
-| Limits | Runs as the user: the seal is a check, not a wall; keep the room out of the repo or never `git clean -x` there. |
+- A live group chat with no turns: agents write when they have something to say, and you write to all of them from the same page.
+- A 3D voxel office next to it, where you see who is coding, who is reading and who is waiting for you. It has a lounge, games, an arena and an arcade cabinet you can play with a friend.
+- A relay that wakes the lead only when something needs it, with the rest in one digest at the next wake.
+- `chat.py cost`: what each agent really spent, read from its transcript.
 
-## Install in Claude Code
+## Install
 
-In a Claude Code session:
+In Claude Code:
 
 ```text
 /plugin marketplace add Partido-De-What/claude-plugins
 /plugin install chatroom@artyomita-plugins
 ```
 
-Or from your shell:
-
-```bash
-claude plugin marketplace add Partido-De-What/claude-plugins
-claude plugin install chatroom@artyomita-plugins
-```
-
 Then start a room with `/chatroom:start <topic>`.
 
-## Install in Codex
+In Codex:
 
 ```bash
 codex plugin marketplace add Partido-De-What/claude-plugins
@@ -120,8 +64,65 @@ codex plugin add chatroom@artyomita-plugins
 
 Then, in a new thread, ask Codex to open a chatroom on your topic.
 
-For the full description, see the [chatroom README](plugins/chatroom/README.md).
+Every mechanism is listed point by point in the **[chatroom README](plugins/chatroom/README.md)**.
+
+## The papers behind it
+
+These papers shaped the plugin, and each row is something they changed in the code. All are arXiv preprints.
+
+### chatroom
+
+| Paper | What it changed |
+|---|---|
+| Destefanis et al., [When Agents Coordinate: Measuring Coordination in Multi-Agent AI Coding](https://arxiv.org/abs/2608.16801) | Work goes through the board and files, with one-line return reports and no round of introductions |
+| Yang et al., [When Parallelism Pays Off: Cohesion-Aware Task Partitioning for Multi-Agent Coding](https://arxiv.org/abs/2606.00953) | Tasks are split along their declared files |
+| Weinberger et al., [Token Reduction Is Not Cost Reduction](https://arxiv.org/abs/2607.12161) | Compression stays off by default and never runs as a proxy; `chat.py cost` measures instead |
+| Wang et al., [Do We Need Complex Topology Control? Distinct-Peer Random Routing Improves Cost-Efficiency in Sparse Multi-Agent Debate](https://arxiv.org/abs/2609.27150) | Two votes at most on a plan, then the lead decides |
+| Zerhoudi et al., [The Compaction Cliff in Long-Running AI Agent Memory](https://arxiv.org/abs/2608.22752) | `notebook --rule`: rules kept word for word through a compaction |
+| Liu, [What Does Context Compression Cost an Agent? Interaction Costs Unrevealed by Task-Completion Metrics](https://arxiv.org/abs/2608.16370) | The notebook keeps rules and diary apart; only the diary may be summarised |
+| Liu et al., [SoL-Pi: Recursively Scaling Auto-Research Loops for Efficient Agent Harness](https://arxiv.org/abs/2609.20519) | Only huge tool outputs get trimmed, keeping the failures and the tail |
+| Mendoza et al., [Persistent LLM Orchestration of Heterogeneous Robot Teams via Partial Delegation to Multi-Agent Protocols](https://arxiv.org/abs/2610.15224) | `recap` rebuilds the lead's picture from the room's files, and the lead wakes on events |
+
+### research
+
+| Paper | What it changed |
+|---|---|
+| Lange et al., [The Agentic Scientist: Orchestrating Coding Agents for Automated Scientific (Co-)Discovery](https://arxiv.org/abs/2610.18933) | Phases with gates, fixed roles, the sealed evaluator |
+| Wang et al., [Harness-Search: Guiding Long-Horizon Search through Multi-Agent Coordination](https://arxiv.org/abs/2610.05382) | The auditor and its verdicts at the gates |
+| Zhang et al., [PatchBoard: Schema-Grounded State Mutation for Reliable and Auditable LLM Multi-Agent Collaboration](https://arxiv.org/abs/2605.29313) | Agents propose; only the kernel and the registrar write the state |
+| Li et al., [MemTX: Transactional Belief Commit for Stateful Agent Memory](https://arxiv.org/abs/2607.23929) | Evidence stays tentative until it is curated, and a revoke withdraws what cited it |
+| Tang et al., [AI Research Agents Narrow Scientific Exploration](https://arxiv.org/abs/2605.27905) | Ideas alternate between gap and analogy, and near-duplicates are refused |
+| Liu et al., [IdeaScientist: Orchestrating Agents for Grounded Scientific Ideation](https://arxiv.org/abs/2610.04074) | Each idea comes as a full bundle, with its prior work |
+| Virk et al., [SwarmResearch: Orchestrating Coding Agents for Open-Ended Discovery](https://arxiv.org/abs/2607.02807) | One branch per idea, explorers and optimizers, the lead as a shepherd |
+| Zhao et al., [ScienceFlow: A long-horizon agent for ML research, scientific discovery and beyond](https://arxiv.org/abs/2608.14354) | A tag for every attempt and `reanchor` to restart from an old state |
+| Pelleriti et al., [What Do Evolutionary Coding Agents Evolve?](https://arxiv.org/abs/2605.20086) | Detectors for cycling and tuning-only runs |
+| Cui et al., [ARAC: Benchmarking Auto-Research's Alignment and Completeness on End-to-End Researchs](https://arxiv.org/abs/2608.12788) | The auditor's rubric, phase by phase |
+| Ding et al., [Autonomous Research Agents: A Survey of AI Scientists and the Verification Gap](https://arxiv.org/abs/2608.05179) | The report's verifiability checklist |
+| Hu et al., [The Winner's Curse in LLM Self-Improvement Loops: Selection Noise, Lock-in, and Acceptance Rules](https://arxiv.org/abs/2610.09239) | The best's margin in sigma and a run on fresh seeds in the report |
+| Huang et al., [RealisticTritonBench: A Benchmark for Triton-Kernel Generation in Real-World AI Frameworks](https://arxiv.org/abs/2608.12004) | The contract template for kernels: fresh inputs at each iteration |
+| Feng et al., [KREX: Concurrent Kernel Benchmarking on Shared GPUs via Region-Granular Exclusivity](https://arxiv.org/abs/2609.30057) | The same template: no side streams, noise thresholds |
+| Prasad et al., [BAITBENCH: Measuring Agent Reward Hacking with Optional Shortcuts Planted in ML Tasks](https://arxiv.org/abs/2608.30724) | A canary task with a planted shortcut, to test the room before trusting it |
+| Yu et al., [Beyond Execution: Auditing Experimental Fidelity in LLM-Driven Scientific Research](https://arxiv.org/abs/2608.26753) | A precheck on the data and the declared steps |
+| Chen, [When Does Combining Language Models Help? A Co-Failure Ceiling on Routing, Voting, and Mixture-of-Agents Across 67 Frontier Models](https://arxiv.org/abs/2606.27288) | `research panel` asks many free models and takes no vote |
+| Fadnavis et al., [Beyond Consensus: Trace-Level Synthesis in Mixture of Agents](https://arxiv.org/abs/2605.29116) | The panel keeps every answer whole, so an agent can read them all |
+
+The first loop of the research kernel, one file and a fixed evaluator with a commit when the number improves, comes from Andrej Karpathy's [autoresearch](https://github.com/karpathy/autoresearch).
+
+## Cite
+
+```bibtex
+@software{iancu_chatroom_2026,
+  author = {Iancu, Adrian Ciprian},
+  title  = {chatroom: a live room and a research kernel for coding agents},
+  year   = {2026},
+  url    = {https://github.com/Partido-De-What/claude-plugins}
+}
+```
+
+## Find me
+
+[GitHub](https://github.com/ArtyomITA) · [Hugging Face](https://huggingface.co/adriandj3) · [LinkedIn](https://www.linkedin.com/in/adrian-ciprian-iancu-a2a477391) · [YouTube](https://www.youtube.com/@artyomadriandj3) · [Instagram](https://www.instagram.com/artyomita) · [TikTok](https://www.tiktok.com/@artyomita) · [site](https://artyomita.github.io/)
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+[AGPL-3.0-only](LICENSE). Versions up to 0.12.1 stay available under MIT; third-party credits are in [NOTICE](plugins/chatroom/NOTICE).
