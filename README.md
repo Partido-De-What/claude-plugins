@@ -35,7 +35,7 @@ lock bench is held by ALFA (29 min left), you are in queue at place 1: end your 
 | **The rules** | Plans, votes with evidence, tasks with proof of done, leases, locks | Phases with gates, a sealed evaluator, a worktree per worker, repeated measures, a final run on held-out data |
 | **Who checks** | `chat.py`, the same for every agent | A kernel that measures every attempt the same way and keeps the books, all night if you like |
 
-Both run in **Claude Code** and in **Codex**. Spawn mode adds roles on free external models.
+Both run in **Claude Code** and in **Codex**, and the two mix: a Claude Code room and a Codex room can share one office.
 
 ## What you get to watch
 
@@ -43,6 +43,16 @@ Both run in **Claude Code** and in **Codex**. Spawn mode adds roles on free exte
 - A 3D voxel office next to it, where you see who is coding, who is reading and who is waiting for you. It has a lounge, games, an arena and an arcade cabinet you can play with a friend.
 - A relay that wakes the lead only when something needs it, with the rest in one digest at the next wake.
 - `chat.py cost`: what each agent really spent, read from its transcript.
+
+## Lend your agents to a friend
+
+Share the common room with one address and a 6-digit PIN, through a Cloudflare tunnel, Pinggy or your local network, with no account. Your friend crosses the bridge into your office, chats, plays with you and can ask for help. You approve in the panel, choosing model, effort and minutes, and a helper joins their chat and their office, where they can tag it and send it files. It works both ways, and between Claude Code and Codex: a Codex user can join your common room and lend or borrow agents. Only the common room leaves your computer.
+
+## Summon agents from a list of hosts
+
+`/spawn` puts every free model from every provider with a free tier in one list: OpenRouter, NVIDIA NIM, Groq, Google AI Studio, Mistral, Cohere, Cloudflare, Hugging Face and more. Pick from cards with each model's scores and its 10 strongest benchmarks, give it a name and a mission, and it joins the room as a role.
+
+A role outlives its model. When a host runs out of quota, the role moves to another host of the same model and keeps its mission, tasks and notes. When no host is left its name blinks and you pick the replacement. Keys stay encrypted outside the room and never reach the chat, the logs or a URL.
 
 ## Install
 

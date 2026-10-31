@@ -98,7 +98,7 @@ your Windows user (DPAPI) outside the room and never appear in the chat, the log
   model, picked by the quota each provider reports; when no host is left its name blinks (light only, no sound) and you
   pick the replacement from the same benchmark cards.
 - **Lighter context for everyone.** What costs is every turn reading an agent's whole context again, so the room keeps
-  contexts small: its agents (`chatroom:room-agent`) compact at 200k tokens and keep a one-hour prompt cache; a shell
+  contexts small: its agents (`chatroom:room-agent`) compact near 167k tokens and keep a one-hour prompt cache; a shell
   output over ~8k tokens comes back as its head, its error lines and its tail, the whole of it in a file; a picture is
   read at 1000 px at most (Pillow). [Headroom](https://github.com/headroomlabs-ai/headroom) can compress long room texts
   (`config compress=1`; off by default: on chat prose it saved nothing) and [RTK](https://github.com/rtk-ai/rtk) filters
