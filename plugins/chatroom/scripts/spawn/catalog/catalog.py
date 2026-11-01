@@ -427,6 +427,48 @@ def probe(complete=None, only=None, workers=8):
     return got
 
 
+PING_TOOL = [{'type': 'function', 'function': {'name': 'here', 'description': 'Say you are here.', 'parameters': {'type': 'object', 'properties': {}}}}]
+PING_ASK = [{'role': 'user', 'content': 'Call the tool here.'}]
+
+
+def mark_gone(canonical, adapter):
+    """a host said 410: off this model's list; a host that still lists it comes back at the next update, and goes at its next 410"""
+    cat = load()
+    for m in cat['models']:
+        if m['canonical'] == canonical:
+            m['routes'] = [r for r in m['routes'] if r['adapter'] != adapter]
+    save(cat)
+
+
+def ping(only=None, top=None, complete=None, load_key=None, workers=8):
+    """`chat.py spawn ping`: before a round, one small request with one tool to every free host that has a key: [{model, host,
+    s, result}], fastest first. Through the limiter like a role's request, so a host out of quota fails at once for all its
+    models, and a 410 takes the host off the model"""
+    if complete is None:
+        from spawn.providers import complete
+    if load_key is None:
+        from spawn.keys import load as load_key
+    models = sorted((m for m in load()['models'] if only is None or m['canonical'] in only), key=order)[:top]
+
+    def one(m, r):
+        t0, stop = time.time(), threading.Event()
+        timer = threading.Timer(PROBE_WAIT, stop.set)
+        timer.start()
+        try:
+            got = complete(r['adapter'], r['model_id'], PING_ASK, tools=PING_TOOL, max_tokens=1024, attempts=1, stop=stop)
+            result = f"ok tool={len(got.get('tool_calls') or [])} text={len(got.get('text') or '')}"
+        except Exception as exc:
+            result = f"error {_kind(exc)}: {' '.join(str(getattr(exc, 'detail', exc)).split())[:100]}"
+            if getattr(exc, 'status', None) == 410:
+                mark_gone(m['canonical'], r['adapter'])
+        finally:
+            timer.cancel()
+        return {'model': m['canonical'], 'host': r['adapter'], 's': round(time.time() - t0, 1), 'result': result}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        rows = list(pool.map(lambda x: one(*x), [(m, r) for m in models for r in m['routes'] if r.get('free') and load_key(r['adapter'])]))
+    return sorted(rows, key=lambda r: (not r['result'].startswith('ok'), r['s']))
+
+
 def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None):
     """il giro completo, da chiamare in un thread (la card Catalogo, Prepara spawn): le liste dei provider che hanno una
     chiave, la fonte veloce Artificial Analysis una volta al giorno (con la sua chiave, D2), i risultati del ricercatore
@@ -620,6 +662,10 @@ def _prova_update(tmp):
     got = probe(complete=fake, workers=2)
     assert got['glm-5-3']['ok'] and got['glm-5-3']['host'] == 'open_router' and got['kimi-k3'] == {**got['kimi-k3'], 'ok': False, 'error': 'quota'}
     assert next(m for m in load()['models'] if m['canonical'] == 'glm-5-3')['probe']['ok']
+    class Gone(Exception):
+        status, detail = 410, 'end of life'
+    rows = ping(top=1, complete=lambda a, *k, **kw: (_ for _ in ()).throw(Gone()) if a != 'x' else {'tool_calls': [1], 'text': ''}, load_key=lambda a: True)
+    assert rows and all(r['host'] == 'x' or 'error' in r['result'] for r in rows), rows
     assert dead({'probe': {'ok': False, 'tries': {'huggingface': 'payment', 'cloudflare': 'paid_only'}}}) and not dead({'probe': {'ok': False, 'tries': {'gemini': 'quota'}}}) and not dead({}) and not PROBE['running'] and PROBE['done'] == PROBE['total'] == len(cat['models'])
 
 

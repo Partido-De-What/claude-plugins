@@ -41,9 +41,12 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    agent (a style, a rule) go in the brief, or right after the spawn, before they first go idle.
 8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
-   In the desktop app run both as background shell commands with `--until-line --batch 60` / `--until-tag`: no 30-minute
-   cap; the relay exits only for what needs you, gathering 60 s of events into one wake, with the rest as a digest; start
-   them again after handling the lines.
+   Best under Monitor: `alerts --follow --messages --stream --batch 20`: it never exits, what needs you comes in one block
+   every 20 s with the rest as a digest, and you re-arm it only when Monitor's 30 minutes end, not at each message.
+   Without Monitor run background shell commands with `--until-line --batch 60` / `--until-tag`: no 30-minute cap; the
+   relay exits only for what needs you, and you start it again after handling the lines. A post of yours says so when the
+   relay is down. `status` shows `waiting_lead` and each agent's `turn` (working, waiting, closed); a CHECK says who waits
+   for you past 5 minutes. In a post, `{ora}` or `{time}` becomes the hour: never write it from memory.
    Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
    what you read stays in your context, read again at every one of your turns.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run

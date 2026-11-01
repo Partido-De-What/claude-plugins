@@ -24,6 +24,7 @@ RETRYABLE = frozenset(k for k, a in ACTION.items() if a == 'retry')
 _CONTEXT = re.compile(r'context[_ ]length[_ ]exceeded|context[_ ]window|maximum context length|too many tokens|'
                       r'prompt is too long|input is too long|reduce the length', re.I)
 _QUOTA = re.compile(r'quota|credits?|daily limit|free[- ]tier limit|per[- ]day|requests per day|insufficient[_ ]balance', re.I)
+_DAILY = re.compile(r"today'?s|\bdaily\b|per[- ]day|used up your", re.I)     # over until tomorrow, whatever Retry-After says
 _OVERLOAD = re.compile(r'overloaded|capacity|resource[_ ]?exhausted|temporarily unavailable|degraded function', re.I)
 _RATE = re.compile(r'rate[_ ]limit|too many requests', re.I)
 
@@ -77,12 +78,12 @@ def classify(status, body='', headers=None):
         kind = 'payment'
     elif status == 403:
         kind = 'quota' if _QUOTA.search(text) else 'forbidden'
-    elif status == 404:
+    elif status in (404, 410):
         kind = 'not_found'
     elif status == 413:
         kind = 'too_large'
     elif status == 429:
-        kind = 'quota' if _QUOTA.search(text) and not wait else 'rate_limit'
+        kind = 'quota' if _DAILY.search(text) or (_QUOTA.search(text) and not wait) else 'rate_limit'
     elif status in (408, 504):
         kind = 'timeout'
     elif status == 529 or (status and status >= 500 and _OVERLOAD.search(text)):
@@ -96,6 +97,11 @@ def classify(status, body='', headers=None):
     else:
         kind = 'bad_request'
     return ProviderError(kind, status, wait, text)
+
+
+def daily(err):
+    """the host said this lasts until tomorrow, or wants money"""
+    return err.kind == 'payment' or bool(_DAILY.search(err.detail))
 
 
 def from_exception(exc):
@@ -119,6 +125,9 @@ def _prova():
     assert c(429, '{"error": "Rate limit exceeded"}', {'retry-after': '7'}) == 'rate_limit'
     assert classify(429, '', {'retry-after': '7'}).retry_after == 7.0
     assert c(429, '{"error": {"message": "free-models-per-day limit reached"}}') == 'quota'
+    assert c(429, "You've reached today's free-model token quota", {'retry-after': '30'}) == 'quota'
+    assert c(429, 'AiError: you have used up your daily free allocation') == 'quota' and c(410, 'Gone') == 'not_found'
+    assert daily(classify(429, "today's quota")) and not daily(classify(429, 'quota')) and daily(classify(402))
     assert c(400, '{"error": {"code": "context_length_exceeded"}}') == 'context' and c(400, 'bad field x') == 'bad_request'
     assert c(503, 'model overloaded') == 'overloaded' and c(500, 'boom') == 'upstream' and c(504) == 'timeout'
     assert c(413, 'tokens per minute') == 'too_large'

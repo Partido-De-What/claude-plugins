@@ -63,7 +63,7 @@ il tuo messaggio
 - il tuo QUADERNO (sopravvive quando il contesto viene compattato o riprendi): aggiungi una riga con
     python "{{CHAT}}" notebook "decisione, file, trappola, cosa resta" --as {{AS}} --room "{{ROOM}}"
   e leggilo con lo stesso comando senza il testo. Scrivi lì ciò che non devi dimenticare, con riferimenti invece di riassunti
-  (#n del messaggio, file:riga), così puoi riaprire la fonte; leggilo per primo quando inizi o riprendi, e dopo una compattazione.
+  (#n del messaggio, file:riga), così puoi riaprire la fonte; leggilo per primo quando inizi o riprendi, e dopo una compattazione. Dopo una compattazione gli strumenti della chat possono tornare deferred: caricali con ToolSearch (select:mcp__chatroom__chat_read,mcp__chatroom__chat_post,mcp__chatroom__chat_wait,mcp__chatroom__chat_expand).
   Le tue regole (il tuo ruolo, i vincoli del brief, una decisione da mantenere) vanno con --rule: tenute parola per parola e
   mostrate per prime, perché una compattazione conserva circa metà delle regole che riassume.
 - RISPONDI a un messaggio: aggiungi --reply N al comando di post: la risposta mostra la riga a cui risponde e tagga il suo
@@ -75,6 +75,8 @@ il tuo messaggio
   sempre con una didascalia nell'heredoc. Le vedono tutti, anche l'utente, nel viewer. Le immagini postate da altri compaiono
   in read come percorsi di file: guardale prima di commentare (Read tool in Claude Code, view_image in Codex). Quando il tuo
   lavoro produce qualcosa di visivo, mostralo.
+- i file temporanei vanno in {{ROOM}}/scratch/{{AS}}/, mai in una cartella che dividi con gli altri
+- quando altri controllano un file: post --file PERCORSO aggiunge nome e sha256, la versione di cui parli. Se aspetti una corsa o un download, non una persona: post --idle --external
 
 REGOLE DELLA CHAT:
 1. I messaggi sono BREVI (al massimo ~150 parole) e tanti. Rispondi nominando la persona (@NAME) e il numero del messaggio (#n).
@@ -83,12 +85,12 @@ REGOLE DELLA CHAT:
    questo da solo taglia di un quarto o più i token della stanza).
 2. ALERT: dopo ogni messaggio vero, post stampa una riga ALERT con gli indirizzi di chi riguarda: quelli che tagghi (@NAME, o
    --reply), tutti per @all/@tutti e per un PIANO, un VOTO o un CHIUSO. Un messaggio che non tagga nessuno non pinga nessuno
-   (gli altri lo leggono alla lettura successiva), quindi tagga chi deve rispondere. Manda loro subito il ping che mostra, con
+   (gli altri lo leggono alla lettura successiva), quindi tagga chi deve rispondere. Se mostra un ping, mandalo subito (dove la stanza consegna da sola post non stampa nulla), con
    lo strumento che ALERT nomina: SendMessage in Claude Code (il campo `to` è l'ID agente grezzo; per te non esiste ListAgents),
    send_message in Codex (`target` è il percorso dell'agente, per esempio /root/name). ALERT lascia fuori gli agenti in attesa,
    a meno che il tuo messaggio non li tagghi: per richiamare un agente in attesa, taggalo con @NAME, non pingarlo a mano.
    Quando ricevi un ping così mentre lavori: fermati, leggi la chat, rispondi se ti riguarda, poi riprendi.
-3. TIMER: non stare in silenzio per più di {{HEARTBEAT}} secondi. Quando il timer ti avvisa, posta subito uno STATUS, sempre con la
+3. TIMER: non stare in silenzio per più di {{HEARTBEAT}} secondi. Non ti avvisa mentre hai un task o un lock, aspetti la risposta del lead o stai usando i tuoi strumenti. Quando il timer ti avvisa, posta subito uno STATUS, sempre con la
    PERCENTUALE della tua parte fatta: cosa stai facendo ("controllo X nel file Y, 40%"), oppure le tue conclusioni in poche
    frecce e termini tecnici ("parser 80% scritto / 50% verificato → bug in Z"). Prima di una verifica lunga, posta uno STATUS
    che la annuncia, poi lanciala (una suite di test, una build, tutto ciò che carica forte GPU o CPU: tramite

@@ -24,7 +24,9 @@ Più agenti battono uno solo soltanto quando il lavoro si divide in tre o più p
    ogni agente (uno stile, una regola) vanno nel brief, o subito dopo lo spawn, prima che vadano in idle.
 8. Relay: `alerts --follow --messages` sotto Monitor (timeout più lungo, riarmato quando finisce) in Claude Code; in Codex un ciclo di `wait_agent` ~60 s + `alerts --messages`. Senza relay nessuno consegna i messaggi dell'utente.
    Le letture lunghe tue (un diff grande, il log di una corsa, una trascrizione lunga) falle fare a un subagente che restituisce una decina di righe: ciò che leggi resta nel tuo contesto, riletto a ogni tuo turno.
-   Nell'app desktop lanciali come comandi di shell in background con `--until-line --batch 60` (esce solo per ciò che chiede te, raccoglie 60 s di eventi in un solo risveglio, il resto come riassunto) / `--until-tag`: niente tetto di 30 minuti, la loro uscita ti sveglia, rilanciali dopo aver gestito le righe.
+   Meglio sotto Monitor: `alerts --follow --messages --stream --batch 20`: non esce mai, ciò che chiede te arriva in un blocco ogni 20 s col resto come riassunto, e lo riarmi solo quando finiscono i 30 minuti di Monitor, non a ogni messaggio.
+   Senza Monitor lanciali come comandi di shell in background con `--until-line --batch 60` (esce solo per ciò che chiede te, raccoglie 60 s di eventi in un solo risveglio, il resto come riassunto) / `--until-tag`: niente tetto di 30 minuti, la loro uscita ti sveglia, rilanciali dopo aver gestito le righe. Un tuo post te lo dice quando il relay è giù.
+   `status` mostra `waiting_lead` e il `turn` di ogni agente (working, waiting, closed); un CHECK dice chi ti aspetta da oltre 5 minuti. In un post `{ora}` o `{time}` diventa l'ora: mai scriverla a memoria.
    Sveglia: nell'app desktop nessuno arma il monitor del plugin, quindi dopo la tua prima chiamata come LEAD lancia `python scripts/inbox.py --until-tag` (solo per le stanze senza il tuo relay; in `claude` da terminale parte da solo).
 9. Task con un test reale: impostali tu, dalla shell (sotto).
 

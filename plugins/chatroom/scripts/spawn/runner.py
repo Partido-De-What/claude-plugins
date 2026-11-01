@@ -32,6 +32,9 @@ from spawn import errors
 
 ATTEMPTS_WITH_ALTERNATIVE = 3
 CTX_SHARE, DEFAULT_CTX, MAX_TOKENS, WAIT, BRAKE, JOIN_READ, TURN = 0.8, 32768, 4096, 540, 30, 30, 2000   # TURN: what a turn adds to the input, roughly
+REASONING_TOKENS = 12000     # a model that reasons spends max_tokens on it first: at 2500 Gemini gave 200 characters, Nemotron nothing; at 12000 whole answers
+# shortcut: one measure (118 KB did not end in 260 s on NVIDIA, 1/11), the tokens of input a host holds in time; a table when there are more
+HOST_INPUT = {'nvidia_nim': 25000}
 NAME = re.compile(r'[A-Z][A-Z0-9_]{1,19}\Z')
 STATES = ('service', 'switch', 'notokens', 'stopped')
 SHELL = {'type': 'function', 'function': {'name': 'shell', 'description': 'Run a shell command in your own folder (120 s at most). '
@@ -144,7 +147,8 @@ def best_route(room, canonical, name=None, exclude=()):
         quota = q.get('quota')
         return (bool(q.get('down')) or (q.get('cooldown_s') or 0) > 0 or quota == 0, k in others,
                 -(0.5 if quota is None else quota), q.get('recent_429') or 0, not ping.get('ok'), ping.get('ms') or 10 ** 6)
-    rs = [r for r in routes_of(canonical) if f"{r['adapter']}:{r['model_id']}" not in exclude and keys.load(r['adapter'])]
+    out = getattr(LIMITER, 'is_out', lambda *a: False)
+    rs = [r for r in routes_of(canonical) if f"{r['adapter']}:{r['model_id']}" not in exclude and keys.load(r['adapter']) and not out(r['adapter'], r['model_id'])]
     return min(rs, key=score, default=None)
 
 
@@ -285,7 +289,12 @@ class Runner(threading.Thread):
         if not limits:
             return False
         full = tokens([{'role': 'system', 'content': self.system(role)}]) + tokens(tool_defs(role, self.room))
-        return full + (role.get('max_tokens') or MAX_TOKENS) + TURN > 0.8 * min(limits)
+        return full + self.budget(role) + TURN > 0.8 * min(limits)
+
+    def budget(self, role):
+        """what one answer may spend; a route that reasons gets room for its thinking too"""
+        r, mt = role['route'], role.get('max_tokens') or MAX_TOKENS
+        return max(mt, min(REASONING_TOKENS, r.get('max_out') or REASONING_TOKENS)) if r.get('reasoning') else mt
 
     def call(self, role, h, tools=True, max_tokens=None):
         r = role['route']
@@ -293,7 +302,7 @@ class Runner(threading.Thread):
         if bool(role.get('compact')) != compact:          # per host, again at every change of door; the role's line says it
             role = update(self.room, self.name, compact=compact)
         defs = tool_defs(role, self.room, compact) if tools else None
-        mt = max_tokens or role.get('max_tokens') or MAX_TOKENS
+        mt = max_tokens or self.budget(role)
         here = f"{r['adapter']}:{r['model_id']}"        # another free host of the model: give this one 3 tries, not the limiter's 10
         alt = role.get('canonical') and best_route(self.room, role['canonical'], self.name, exclude=(here, *role.get('tried', [])))
         return self._complete(r['adapter'], r['model_id'], h, tools=defs, max_tokens=mt, effort=role.get('effort'),
@@ -349,8 +358,9 @@ class Runner(threading.Thread):
         if q and q.get('quota') == 0:                     # the provider said this host's quota is over: change door before calling
             raise errors.ProviderError('quota', None, None, 'no quota left on this host (limiter)')
         h = self.history(role)
-        if tokens(h) > CTX_SHARE * (role['route'].get('ctx') or DEFAULT_CTX):
-            h = self.handover(role, h)
+        size, host = tokens(h), HOST_INPUT.get(role['route']['adapter'], 10 ** 12)
+        if size > CTX_SHARE * (role['route'].get('ctx') or DEFAULT_CTX) or size > host:
+            h = self.handover(role, h, full=size > host)
         r = self.call(role, h)
         used = role.get('usage') or {}
         u = r.get('usage') or {}
@@ -397,6 +407,12 @@ class Runner(threading.Thread):
         if e.action == 'handover':
             self.handover(role, self.history(role), full=True)
             return
+        if e.kind == 'no_output' and (role.get('max_tokens') or MAX_TOKENS) < REASONING_TOKENS:   # it thought until the budget ended, whatever the catalog says: again with more
+            update(self.room, self.name, max_tokens=REASONING_TOKENS)
+            return
+        if e.kind == 'not_found' and e.status == 410 and role.get('canonical'):    # end of life: this host is off the model's list
+            from spawn.catalog import catalog
+            catalog.mark_gone(role['canonical'], route['adapter'])
         if e.action in ('repair', 'resume'):              # a tool call or an answer that could not be mended: ask again
             h = self.history(role)
             h.append({'role': 'user', 'content': 'Your last answer was cut or its tool call arguments were broken: answer again.'})

@@ -32,6 +32,8 @@ from spawn import errors
 
 ATTEMPTS, BASE_DELAY, MAX_DELAY, JITTER = 10, 2.0, 60.0, 1.0
 WINDOW = 60.0
+OUT_SHORT = 900.0                                    # a quota with no word on how long: a quarter of an hour, then one try again
+LONG_RETRY = 600.0                                   # a Retry-After past this is a quota, not a wait: the roles change host
 # requests per minute, in flight at once, and whether the provider counts per model ('model') or per key ('key').
 # shortcut: published free-tier figures as of 10/2026, a 429 with Retry-After still corrects them; when a provider
 # publishes per-model limits in its model list, read them from there.
@@ -87,6 +89,7 @@ class Limiter:
         self.lanes, self.quota, self.sleep, self.clock = {}, {}, sleep, clock
         self.windows, self.hits, self.seen = {}, {}, set()       # lane name -> {window: {limit, remaining, reset_at}}; route -> 429 times
         self.daily, self.today = {}, {}                          # (provider, key) -> free requests a day; -> [UTC day, requests started]
+        self.out, self.paid = {}, {}                             # name (or provider, key, model) -> wall clock when it comes back; (provider, key) -> models that asked for money
 
     def _name(self, provider, key, model):
         scope = FREE_LIMITS.get(provider, DEFAULT)[2]
@@ -96,13 +99,15 @@ class Limiter:
         rpm, conc, _ = FREE_LIMITS.get(provider, DEFAULT)
         return self.lanes.setdefault(self._name(provider, key, model), _Lane(rpm, conc))
 
-    def _admit(self, lane, stop):
+    def _admit(self, lane, stop, names=()):
         """wait for a start in the window, a free slot and (during an episode) the probe's turn; True when this one is
-        the probe"""
+        the probe. A host out of quota fails here at once, who already waits for its lane too"""
         with self.cond:
             while True:
                 if stop is not None and stop.is_set():
                     raise errors.ProviderError('stopped', None, None, 'the role was stopped')
+                if any(self.out.get(n, 0) > time.time() for n in names):
+                    raise errors.ProviderError('quota', None, None, 'this host said its quota is over (limiter)')
                 now = self.clock()
                 while lane.starts and lane.starts[0] <= now - WINDOW:
                     lane.starts.popleft()
@@ -172,15 +177,19 @@ class Limiter:
         for _ in range(max(1, int(attempts or ATTEMPTS))):
             if tokens:
                 self._tokens(provider, key, model, tokens, stop)
-            probe = self._admit(lane, stop)
+            probe = self._admit(lane, stop, (self._name(provider, key, model), (provider, fingerprint(key), model)))
             self._count(provider, key, model)
             try:
                 out = fn()
             except Exception as exc:
                 err = errors.from_exception(exc) if not isinstance(exc, errors.ProviderError) else exc
+                if err.kind == 'rate_limit' and (err.retry_after or 0) > LONG_RETRY:
+                    err = errors.ProviderError('quota', err.status, err.retry_after, err.detail)
                 if err.kind in ('rate_limit', 'quota'):
                     with self.cond:
                         self.hits.setdefault((provider, model), deque(maxlen=200)).append(self.clock())
+                if err.kind in ('quota', 'payment'):
+                    self._mark_out(provider, key, model, err)
                 if err.kind != 'stream_cut' and err.kind not in errors.RETRYABLE:
                     self._done(lane, probe, None, neutral=not probe)    # not the lane's fault; a probe that got an answer reopens it
                     raise err
@@ -192,6 +201,27 @@ class Limiter:
             self._done(lane, probe, None)
             return out
         raise last
+
+    def _mark_out(self, provider, key, model, err):
+        """no more requests until it is back: to this model, to the whole host when it said its day is over (a host that
+        counts per model: that model) or when a second model asks for money (one alone may be paid only). shortcut: in this
+        process only, so a new process spends one try per host to find out; a file if that ever costs"""
+        wall, wide, one = time.time(), self._name(provider, key, model), (provider, fingerprint(key), model)
+        until = (int(wall // 86400) + 1) * 86400 if errors.daily(err) else wall + (err.retry_after or OUT_SHORT)
+        with self.cond:
+            paid = self.paid.setdefault(wide[:2], set())
+            if err.kind == 'payment':
+                paid.add(model)
+            self.out[wide if len(paid) > 1 or (err.kind == 'quota' and errors.daily(err)) else one] = until
+            self.cond.notify_all()
+
+    def is_out(self, provider, model, key=None):
+        """the host said its quota is over, or wants money"""
+        scoped = model if FREE_LIMITS.get(provider, DEFAULT)[2] == 'model' else '*'
+        wall = time.time()
+        with self.cond:
+            return any(until > wall and n[0] == provider and n[2] in (scoped, model) and (key is None or n[1] == fingerprint(key))
+                       for n, until in self.out.items())
 
     def _count(self, provider, key, model):
         """one request started today on this key (OpenRouter counts the free requests per UTC day)"""
@@ -280,6 +310,7 @@ class Limiter:
             best = best or {'quota': None, 'remaining_requests': None, 'limit_requests': None, 'remaining_tokens': None,
                             'limit_tokens': None, 'reset_s': None, 'cooldown_s': 0, 'down': False, 'inflight': 0}
             best['recent_429'] = sum(1 for x in self.hits.get((provider, model), ()) if now - x <= RECENT)
+            best['down'] = best['down'] or self.is_out(provider, model, key)
             return best
 
     def routes(self):

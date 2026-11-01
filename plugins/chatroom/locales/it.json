@@ -96,7 +96,6 @@
  "chat.err.cmd_post.error_there_is_no": "error: non c'è nessun messaggio #{reply}. Non è stato scritto nulla.",
  "chat.err.cmd_post.error_use_one_of": "error: usa uno solo tra --status, --idle, --finding. Non è stato scritto nulla.",
  "chat.err.cmd_post.error_versions_of_the": "error: {PLAN_MAX} versioni del piano bastano: il LEAD rivede i punti aperti e decide. Scrivi ciò che ancora vi divide in un solo messaggio taggato @LEAD. Non è stato scritto nulla.",
- "chat.err.cmd_post.error_you_already_said": "error: hai già detto di essere in attesa (#{n}): non scrivere un'altra attesa, chiudi il turno (in Codex, wait --as {name} --timeout {IDLE_WAIT_MAX}). Non è stato scritto nulla. L'attesa finisce quando scrivi un messaggio o uno --status.",
  "chat.err.cmd_post.error_you_already_said2": "error: hai già detto di essere in attesa: non scrivere un'altra attesa, chiudi il turno (in Codex, wait --as {name} --timeout {IDLE_WAIT_MAX}). Non è stato scritto nulla.",
  "chat.err.cmd_prompt.prompt_give_one_participant": "prompt: indica un partecipante",
  "chat.err.cmd_remove.remove_give_participants_a": "remove: indica --participants A,B",
@@ -214,7 +213,7 @@
  "chat.say.cmd_notebook.noted_in": "annotato in {path}",
  "chat.say.cmd_notebook.your_notebook_is_empty": "(il tuo quaderno è vuoto)",
  "chat.say.cmd_post.a_no_on_v": "Un no su v{version}: il LEAD rivede la divisione. Il tuo no deve dire su cosa poggia (file:riga, un output, #n); un sì vuole lo stesso.",
- "chat.say.cmd_post.checkpoint_this_is_your": "CHECKPOINT: questo è il tuo messaggio numero {mine} ({every} per checkpoint). Scrivi UN messaggio a @LEAD: cosa è fatto, cosa manca, e se devi continuare; poi aspetta la risposta.",
+ "chat.say.cmd_post.checkpoint_this_is_your": "CHECKPOINT: questo è il tuo messaggio numero {mine}, status e attese esclusi ({every} per checkpoint). Scrivi UN messaggio a @LEAD: cosa è fatto, cosa manca, e se devi continuare; poi aspetta la risposta.",
  "chat.say.cmd_post.note_plan_vn_closed": "NOTA: \"PIANO vN\" / \"CHIUSO vN\" contano solo come intestazione, seguita da due punti o da una parentesi (\"PIANO v2: ...\", \"PIANO v2 (bozza): ...\"). Scritto così è una frase: riscrivilo come \"PIANO vN: ...\" se è un piano.",
  "chat.say.cmd_post.note_your_vote_is": "NOTA: il tuo VOTO non è sulla prima riga del messaggio, quindi non conta. Riscrivilo come messaggio a sé, che comincia con \"VOTO vN: sì, verificato ...\" o \"VOTO vN: no, perché ...\".",
  "chat.say.cmd_post.posted_a_finding_everyone": "scritto #{n} (una scoperta: tutti la vedono alla prossima lettura, anche con read --focus; nessun ping)",
@@ -1891,7 +1890,6 @@
  "kernel.propose_evidence.committed_by_kernel": "📌 {eid} registrata dal kernel (poggia su corse che ha misurato lui: {srcs}): {text}",
  "chat.err.cmd_heavy.usage": "chat.py heavy -- <comando> (una suite di test, una build, un profilo: aspetta la macchina)",
  "chat.say.cmd_heavy.waiting": "⏳ la macchina è occupata da \"{label}\" ({minutes} min): aspetto",
- "chat.say.print_alert.room_delivers": "ALERT: nessun ping da mandare: lo consegna la stanza (un agente in wait legge la chat, uno al lavoro lo riceve dal mod, uno fermo dalla presa)",
  "chat.err.cmd_rotate.usage": "chat.py rotate NOME --as LEAD (chiede a NOME di scrivere il quaderno), poi rotate NOME --now --as LEAD (lo ritira e scrive il prompt nuovo)",
  "chat.say.rotate.ask": "@{name} ROTAZIONE: continuerai come agente nuovo. Scrivi ora il quaderno (notebook \"...\" --as {name}): il tuo stato, i prossimi passi, le decisioni con #n e file:riga; le tue regole con --rule. Poi posta una riga \"quaderno pronto\" e chiudi il turno: niente resoconto, basta una riga.",
  "chat.say.rotate.asked": "chiesto a {name} di scrivere il quaderno (#{n}); quando dice che è pronto: rotate {name} --now",
@@ -1933,5 +1931,12 @@
  "chat.say.reopen.line": "RIAPERTA: {reason}. I voti dati finora non contano più: la prossima versione del PIANO si vota come sempre.",
  "chat.say.reopen.done": "riaperta (#{n}): gli agenti che la stanza tiene ancora lo sentono da soli; uno già uscito va ripreso con SendMessage, e la stanza lo tiene di nuovo",
  "chat.check.gone": "{k} ha chiuso la sua corsa con la stanza aperta, senza idle e senza task presi (ultimo suo messaggio #{n}): se c'era lavoro da fare, riprendilo o mettilo sulla bacheca",
- "chat.check.silent": "{k} ha {ids} ma la sua corsa tace da {minutes} minuti e niente la tiene: probabilmente è finita; riprendilo o riassegna"
+ "chat.check.silent": "{k} ha {ids} ma la sua corsa tace da {minutes} minuti e niente la tiene: probabilmente è finita; riprendilo o riassegna",
+ "chat.say.cmd_post.already_idle": "Sei già in attesa da #{n}: non è stato scritto nulla e non si è perso nulla. Chiudi il turno: la stanza ti consegna ciò che arriva.",
+ "chat.err.cmd_post.crossed": "error: {ns} ha incrociato il tuo messaggio ed è qui sopra, ora letto. Non è stato scritto nulla: se il tuo testo vale ancora riposta lo stesso, passerà.",
+ "chat.err.cmd_post.no_file": "error: non c'è il file {path}. Non è stato scritto nulla.",
+ "chat.say.cmd_post.relay_off": "!!! il tuo relay non gira: niente ti sveglia finché non lo rilanci (alerts --follow --messages --stream sotto Monitor, o --until-line).",
+ "chat.check.waits_lead": "{k} ti aspetta da {minutes} minuti (#{n}): {text}",
+ "chat.err.mcp_call.unknown_params": "error: {tool} non ha il parametro {unknown}. Non è stato fatto nulla. I suoi parametri: {known}.",
+ "chat.say.hold.report_now": "Qui hai finito, {name}, ma il tuo ultimo messaggio non è un rapporto, e chi ti ha lanciato non riceve altro. Consegna ora il rapporto finale, sotto 300 parole: con SubagentHandback se hai quello strumento, altrimenti come tuo ultimo messaggio."
 }

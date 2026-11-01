@@ -21,6 +21,7 @@ from limits import HOLD_WAIT
 POLL = 2
 ROOM_IDLE = 6 * 3600           # a room whose chat has not moved for six hours holds nobody
 REASON_MAX = 6000              # characters of messages in a reason; past it the agent reads the rest
+REPORT_MIN = 200               # last words shorter than this are not a report ("waiting for CLOSED")
 
 
 def candidates():
@@ -55,6 +56,14 @@ def closed(room):
     """a CLOSED was posted (chat.py lets a participant's through only with every vote in) and the lead did not reopen"""
     import chat
     return chat.is_shut(room, room.messages()[-50:])
+
+
+def done_closing(room, name):
+    """the lead called the closing and this agent has answered it: it stays for nobody, its idle or its task included"""
+    import chat
+    items = room.messages()
+    n = chat.winding(room, items)
+    return bool(n) and any(m['from'] == name and m['n'] > n and not m.get('kind') for m in items)
 
 
 def waits(room, name):
@@ -92,7 +101,7 @@ def handback(ev):
     import chat
     room = chat.Room(key)
     why = waits(room, name)
-    if closed(room):
+    if closed(room) or done_closing(room, name):
         return None
     if not why:
         left(room, name)
@@ -115,6 +124,46 @@ def left(room, name):
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
     except OSError:
         pass
+
+
+def last_words(room, name):
+    """the text of the agent's last turn, '' if that turn handed its report over (the tool), None with no transcript here"""
+    import chat
+    path = chat.agent_file(room.roster().get(name))
+    if not path:
+        return None
+    try:
+        with open(path, 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - 262144))
+            lines = f.read().decode('utf-8', errors='replace').splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            msg = json.loads(line).get('message') or {}
+        except ValueError:
+            continue
+        if msg.get('role') == 'assistant' and isinstance(msg.get('content'), list):
+            if any(c.get('name') == 'SubagentHandback' for c in msg['content'] if isinstance(c, dict)):
+                return None
+            return ' '.join(c.get('text', '') for c in msg['content'] if isinstance(c, dict) and c.get('type') == 'text')
+    return None
+
+
+def report(room, name):
+    """the agent goes. A run that ends on "waiting for CLOSED" leaves its lead with no report (two agents of three, 1/11):
+    asked once, in any permission mode, and only when its last words are not one. None lets it stop"""
+    import chat
+    mark = room.dir / f'report_asked_{name}.txt'
+    words = last_words(room, name)
+    if words is None or len(words) >= REPORT_MIN or mark.exists():
+        return None
+    try:
+        mark.write_text(str(int(time.time())))
+    except OSError:
+        return None
+    chat.use(room.config().get('lang'))
+    return {'decision': 'block', 'reason': chat.say('chat.say.hold.report_now', name=name)}
 
 
 def news(room, name):
@@ -161,13 +210,15 @@ def decide(ev, wait=HOLD_WAIT, poll=POLL):
 def _hold(room, aid, key, name, end, wait, poll):
     import chat
     while True:
-        if closed(room) or find(aid) != (key, name):      # closed, gone quiet for hours, or retired meanwhile
+        if find(aid) != (key, name):                      # gone quiet for hours, or retired meanwhile
             return None
+        if closed(room):
+            return report(room, name)
         chat.Locks(room).tick()
         new = news(room, name)
-        if not new and not waits(room, name):             # nothing for it and nothing it waits for: its work is done, it goes
+        if not new and (not waits(room, name) or done_closing(room, name)):   # nothing it waits for: its work is done, it goes
             left(room, name)
-            return None
+            return report(room, name)
         if new:
             try:
                 import inbox
@@ -224,6 +275,13 @@ def _prova():
     assert not r.in_wait('A')                                                     # a dead holder's mark does not count
     r.append('LEAD', 'CLOSED v1: done')
     assert decide({'agent_id': 'aaaa1111'}, wait=5, poll=0.2) is None             # closed: it stops for good
+    ag = base / 'c' / 'projects' / 'p' / 's' / 'subagents'
+    ag.mkdir(parents=True)
+    (ag / 'agent-aaaa1111.jsonl').write_text(json.dumps({'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'waiting for CLOSED'}]}}) + '\n')
+    chat._AGENT_FILES.clear()
+    got = decide({'agent_id': 'aaaa1111'}, wait=5, poll=0.2)
+    assert got and got['decision'] == 'block' and 'SubagentHandback' in got['reason'], got    # short last words: its report, once
+    assert decide({'agent_id': 'aaaa1111'}, wait=5, poll=0.2) is None
     print('hold prova ok')
 
 

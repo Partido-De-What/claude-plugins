@@ -44,6 +44,9 @@ shell only if they want to (the shell starts in the role's own folder, through R
 wall: a role with the shell can reach what the user's account reaches, so say so when the user gives it). Suggest names and missions from the
 request, but the user chooses the models.
 
+Before a round on many models, `python "CHAT" spawn ping --room "ROOM" [--top N] [canonical ...]` asks each free host with a
+key one small request with one tool, prints who answers and in how long, and writes ROOM/spawn/ping.json.
+
 ## 4. While the roles work
 
 Follow the room as in the chatroom start skill (relay, WATCH lines, CHECK lines). What the runner does by itself:

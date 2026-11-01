@@ -96,7 +96,6 @@
  "chat.err.cmd_post.error_there_is_no": "error: there is no message #{reply}. Nothing was posted.",
  "chat.err.cmd_post.error_use_one_of": "error: use one of --status, --idle, --finding. Nothing was posted.",
  "chat.err.cmd_post.error_versions_of_the": "error: {PLAN_MAX} versions of the plan are enough: the LEAD reviews the open points and decides. Post what still divides you in one message tagged @LEAD. Nothing was posted.",
- "chat.err.cmd_post.error_you_already_said": "error: you already said you are idle (#{n}): do not post another idle, end your turn (in Codex, wait --as {name} --timeout {IDLE_WAIT_MAX}). Nothing was posted. Your idle ends when you post a message or a --status.",
  "chat.err.cmd_post.error_you_already_said2": "error: you already said you are idle: do not post another idle, end your turn (in Codex, wait --as {name} --timeout {IDLE_WAIT_MAX}). Nothing was posted.",
  "chat.err.cmd_prompt.prompt_give_one_participant": "prompt: give one participant name",
  "chat.err.cmd_remove.remove_give_participants_a": "remove: give --participants A,B",
@@ -214,7 +213,7 @@
  "chat.say.cmd_notebook.noted_in": "noted in {path}",
  "chat.say.cmd_notebook.your_notebook_is_empty": "(your notebook is empty)",
  "chat.say.cmd_post.a_no_on_v": "A no on v{version}: the LEAD reviews the split. Your no must say what it rests on (file:line, an output, #n); a yes needs the same.",
- "chat.say.cmd_post.checkpoint_this_is_your": "CHECKPOINT: this is your message number {mine} ({every} per checkpoint). Post ONE message to @LEAD: what is done, what is left, and whether you should continue; then wait for the answer.",
+ "chat.say.cmd_post.checkpoint_this_is_your": "CHECKPOINT: this is your message number {mine}, statuses and idles not counted ({every} per checkpoint). Write ONE message to @LEAD: what is done, what is left and whether you should go on; then wait for the answer.",
  "chat.say.cmd_post.note_plan_vn_closed": "NOTE: \"PLAN vN\" / \"CLOSED vN\" count only as a heading, followed by a colon or a bracket (\"PLAN v2: ...\", \"PLAN v2 (draft): ...\"). Written like this it is a sentence: post it again as \"PLAN vN: ...\" if it is a plan.",
  "chat.say.cmd_post.note_your_vote_is": "NOTE: your VOTE is not on the first line of the message, so it does not count. Post it again as its own message, starting with \"VOTE vN: yes, checked ...\" or \"VOTE vN: no, because ...\".",
  "chat.say.cmd_post.posted_a_finding_everyone": "posted #{n} (a finding: everyone sees it at their next read, read --focus included; no ping)",
@@ -1891,7 +1890,6 @@
  "kernel.propose_evidence.committed_by_kernel": "📌 {eid} committed by the kernel (it rests on runs it measured: {srcs}): {text}",
  "chat.err.cmd_heavy.usage": "chat.py heavy -- <command> (a test suite, a build, a profile: it waits for the machine)",
  "chat.say.cmd_heavy.waiting": "⏳ the machine is busy with \"{label}\" ({minutes} min): waiting for it",
- "chat.say.print_alert.room_delivers": "ALERT: no ping to send: the room delivers it (an agent in wait reads the chat, one at work gets it from the mod, a stopped one from the hold)",
  "chat.err.cmd_rotate.usage": "chat.py rotate NAME --as LEAD (asks NAME to write its notebook), then rotate NAME --now --as LEAD (retires it, writes the fresh prompt)",
  "chat.say.rotate.ask": "@{name} ROTATE: you will go on as a fresh agent. Now write your notebook (notebook \"...\" --as {name}): your state, the next steps, the decisions with their #n and file:line; your rules go with --rule. Then post one line \"notebook ready\" and end your turn: no report, one line is enough.",
  "chat.say.rotate.asked": "asked {name} to write its notebook (#{n}); when it says it is ready: rotate {name} --now",
@@ -1933,5 +1931,12 @@
  "chat.say.reopen.line": "REOPENED: {reason}. The votes given so far no longer count: the next PLAN version is voted as usual.",
  "chat.say.reopen.done": "reopened (#{n}): the agents the room still holds hear it by themselves; one that already ended needs a SendMessage to resume, and the room holds it again",
  "chat.check.gone": "{k} ended its run with the room open, with no idle and nothing taken (its last message is #{n}): if work was left, resume it or put that work on the board",
- "chat.check.silent": "{k} holds {ids} but its run has been silent for {minutes} minutes and nothing holds it: it has probably ended; resume it or reassign"
+ "chat.check.silent": "{k} holds {ids} but its run has been silent for {minutes} minutes and nothing holds it: it has probably ended; resume it or reassign",
+ "chat.say.cmd_post.already_idle": "Already idle since #{n}: nothing posted, nothing lost. End your turn: the room hands you what comes next.",
+ "chat.err.cmd_post.crossed": "error: {ns} crossed your message and is shown above, now read. Nothing was posted: if your text still stands post it again, it will go through.",
+ "chat.err.cmd_post.no_file": "error: no file {path}. Nothing was posted.",
+ "chat.say.cmd_post.relay_off": "!!! your relay is not running: nothing wakes you until you start it again (alerts --follow --messages --stream under Monitor, or --until-line).",
+ "chat.check.waits_lead": "{k} waits for you since {minutes} minutes (#{n}): {text}",
+ "chat.err.mcp_call.unknown_params": "error: {tool} has no parameter {unknown}. Nothing was done. Its parameters: {known}.",
+ "chat.say.hold.report_now": "You are done here, {name}, but your last message is not a report, and your caller gets nothing else. Deliver your final report now, under 300 words: through SubagentHandback if you have that tool, otherwise as your last message."
 }
