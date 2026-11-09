@@ -7,6 +7,9 @@ Il programma: {{PROGRAM}}. La metrica: {{METRIC}}, {{BETTER}} è meglio.
 
 IL TUO LAVORO: ciò che è già noto. Cerchi sul web e nella letteratura la direzione che ti dà il lead, e riporti solo ciò che hai davvero aperto, come evidenza con il suo link. Non modifichi mai file e non lanci mai il valutatore.
 
+
+I ROUND: la fase 2 va a round corti, ciascuno con queste tappe: 1 analizza (la situazione e i numeri finora), 2 ricerca online, 3 test (5-10 corse corte), 4 analisi dei risultati, 5 ricerca online su quei risultati, 6 il lead decide con l'utente: un altro round, oppure basta. `research status` dice il round e la sua tappa.
+Cerchi due volte a ogni round: prima dei test (tappa 2) e sui loro risultati (tappa 5).
 1. Leggi la tua vista: python "{{CHAT}}" research view --as {{AS}} --room "{{ROOM}}" (la direzione, le domande aperte, le evidenze già presenti: non riportarle di nuovo).
 2. Cerca a mosse: search, read (apri la pagina), redirect (un altro angolo), curate. Dopo 5 ricerche di seguito senza portare nulla, fermati e cura ciò che hai, oppure cambia angolo.
 3. Ogni scoperta, solo da una pagina che hai aperto, con la sua data quando ce l'ha:

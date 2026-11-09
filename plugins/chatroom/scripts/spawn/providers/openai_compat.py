@@ -46,7 +46,7 @@ PROFILES = {
     'cerebras': {'mt': 'max_completion_tokens', 'reasoning': ('effort', 'lmh')},
     'sambanova': {'reasoning': ('effort', 'lmh')},
     'cohere': {'reasoning': ('effort', {e: 'high' for e in EFFORTS}), 'names': True},
-    'cloudflare': {'mt': 'max_completion_tokens', 'reasoning': ('template', 'thinking')},
+    'cloudflare': {'mt': 'max_completion_tokens', 'reasoning': ('template', 'thinking'), 'flat': True},   # flat: content as a string
     'huggingface': {}, 'siliconflow': {}, 'tokenrouter': {}, 'llm7': {},
     'ollama_cloud': {'reasoning': ('effort', 'lmhmax')},
     'kilo': {'reasoning': ('object', 'all')},
@@ -83,6 +83,15 @@ def build_body(provider, model, messages, tools=None, max_tokens=4096, effort=No
     if tools:
         body['tools'] = tools
     how = p.get('reasoning')
+    if effort == 'off' and how:                      # thinking off where the provider has a switch (an empty answer, asked again)
+        kind = how if isinstance(how, str) else how[0]
+        if kind == 'object':
+            body['reasoning'] = {'enabled': False}
+        elif kind == 'template':
+            body['chat_template_kwargs'] = {how[1]: False}
+        elif kind == 'flag':
+            body[how[1]] = False
+        effort = None
     if effort and how:
         if how == 'thinking':
             body['thinking'] = {'type': 'enabled', 'clear_thinking': False}
@@ -113,8 +122,14 @@ def prepare_history(messages, provider):
     written on another host (its _origin) loses what only that host can read, its reasoning, reasoning_details and the
     tool calls' extra_content (signatures), and keeps its text and tool calls; _origin itself never travels"""
     out = copy.deepcopy(messages)
+    flat = PROFILES.get(provider, {}).get('flat')
     for m in out:
         origin = m.pop('_origin', None)
+        c = m.get('content')
+        if flat and c is None:                       # Cloudflare: "'array' not in 'string'", and null refused too
+            m['content'] = ''
+        elif flat and isinstance(c, list) and all(isinstance(p, dict) and p.get('type') == 'text' for p in c):
+            m['content'] = ''.join(p.get('text', '') for p in c)
         if m.get('role') == 'assistant' and origin is not None and origin != provider:
             for f in HISTORY_REASONING:
                 m.pop(f, None)
@@ -146,13 +161,19 @@ def headers(provider, key):
 
 
 # ------------------------------------------------------------------ corrections after a refusal (once each)
-_TPM = re.compile(r'tokens\s+per\s+minute\s*\(\s*tpm\s*\)\s*:\s*limit\s+(\d{1,19})\s*,\s*requested\s+(\d{1,19})', re.I)
+_TPM = re.compile(r'tokens\s+per\s+minute\s*\(\s*[io]?tpm\s*\)\s*:\s*limit\s+(\d{1,19})\s*,\s*requested\s+(\d{1,19})', re.I)
+_CAP = re.compile(r'max[_ ]?(?:completion[_ ])?tokens?\b[^0-9]{0,60}?(?:less than or equal to|<=|at most)\s*(\d{2,7})', re.I)
 
 
 def correct(body, status, text, used):
     """a corrected copy of body for a refusal we know how to fix, or None; used: the corrections already made"""
     low = text.lower()
-    if status == 413 and 'tpm' not in used:
+    mt = 'max_completion_tokens' if 'max_completion_tokens' in body else 'max_tokens'
+    cap = _CAP.search(text)
+    if status == 400 and cap and 'cap' not in used and isinstance(body.get(mt), int) and body[mt] > int(cap[1]):
+        used.add('cap')                              # Cohere: "max tokens must be less than or equal to 8192"
+        return {**body, mt: int(cap[1])}
+    if (status == 413 or (status == 429 and 'request too large' in low)) and 'tpm' not in used:
         m = _TPM.search(text)
         mt = 'max_completion_tokens' if 'max_completion_tokens' in body else 'max_tokens'
         if m and int(m[2]) > int(m[1]) and isinstance(body.get(mt), int):
@@ -226,6 +247,8 @@ class Answer:
                         self._text(part['text'])
             elif isinstance(content, str):
                 self._text(content)
+            elif isinstance(content, (int, float)) and not isinstance(content, bool):
+                self._text(str(content))            # a number alone in a chunk: digits lost from a fact-check otherwise
             for f in ('reasoning_content', 'reasoning'):
                 if isinstance(delta.get(f), str) and delta[f]:
                     self._reason(delta[f], f)
@@ -266,10 +289,13 @@ class Answer:
             c['extra'] = tc['extra_content']
 
     def message(self):
-        """the assistant message for the history, with what must travel back intact"""
-        m = {'role': 'assistant', 'content': ''.join(self.text) or None, **({'_origin': self.origin} if self.origin else {})}
-        if self.reasoning:
-            m[self.reasoning_field or 'reasoning_content'] = ''.join(self.reasoning)
+        """the assistant message for the history, with what must travel back intact; <think>/<thought> blocks a model
+        wrote in its text go to the reasoning"""
+        text, thought = split_thoughts(''.join(self.text))
+        m = {'role': 'assistant', 'content': text or None, **({'_origin': self.origin} if self.origin else {})}
+        reason = ''.join(self.reasoning) + thought
+        if reason:
+            m[self.reasoning_field or 'reasoning_content'] = reason
         if self.details:
             m['reasoning_details'] = self.details
         if self.calls:
@@ -284,11 +310,23 @@ class Answer:
 
     def result(self):
         msg = self.message()
-        return {'message': msg, 'text': msg['content'] or '', 'reasoning': ''.join(self.reasoning),
-                'tool_calls': msg.get('tool_calls', []), 'finish': self.finish, 'usage': self.usage}
+        text = msg['content'] or ''
+        out = int((self.usage or {}).get('completion_tokens') or 0)
+        return {'message': msg, 'text': text, 'reasoning': msg.get(self.reasoning_field or 'reasoning_content', ''),
+                'tool_calls': msg.get('tool_calls', []), 'finish': self.finish, 'usage': self.usage,
+                'usage_suspect': bool(self.usage) and len(text) > 40 and out * 20 < len(text)}   # 1 token out for 5 KB: the count, or the text, is wrong
 
 
-def _stream(client, url, hdrs, body, answer, seen=None):
+THOUGHT = re.compile(r'<(think|thinking|thought)>(.*?)(?:</\1>|\Z)', re.S | re.I)
+
+
+def split_thoughts(text):
+    """(text without its thinking blocks, the thinking): Gemma and some distilled models write it inline"""
+    found = [m[2].strip() for m in THOUGHT.finditer(text or '')]
+    return (THOUGHT.sub('', text).strip(), '\n'.join(found)) if found else (text, '')
+
+
+def _stream(client, url, hdrs, body, answer, seen=None, stop=None):
     with client.stream('POST', url, headers=hdrs, json=body) as r:
         if seen:
             seen(r.headers)                        # the provider's x-ratelimit-* windows, a refusal's too
@@ -298,6 +336,8 @@ def _stream(client, url, hdrs, body, answer, seen=None):
             answer.feed(json.loads(r.read()))      # a provider that ignored stream=true
             return
         for line in r.iter_lines():
+            if stop is not None and stop.is_set():  # the caller's time is up: the stream ends here, not at its own pace
+                raise errors.ProviderError('stopped', None, None, 'stopped during the stream', answer.result() if answer.text else None)
             if not line.startswith('data:'):
                 continue
             data = line[5:].strip()
@@ -313,7 +353,7 @@ def _stream(client, url, hdrs, body, answer, seen=None):
 
 
 def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None, key=None, extra=None, session_id=None,
-         on_delta=None, client=None):
+         on_delta=None, client=None, stop=None):
     """one completion, streamed; returns {'message', 'text', 'reasoning', 'tool_calls', 'finish', 'usage'} or raises
     errors.ProviderError. A stream that breaks after some output raises 'stream_cut' with .partial = the result so far"""
     if key is None:
@@ -331,12 +371,12 @@ def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None,
         while True:
             answer = Answer(on_delta, provider)
             try:
-                _stream(client, url, headers(provider, key), body, answer, lambda h: LIMITER.observe(provider, key, model, h))
+                _stream(client, url, headers(provider, key), body, answer, lambda h: LIMITER.observe(provider, key, model, h), stop)
             except errors.ProviderError as e:
                 if e.kind == 'auth' and key and catalog.get(provider).get('anon'):
                     key = ''                         # a refused key on a provider whose free models need none: once more without it
                     continue
-                fixed = correct(body, e.status, e.detail, used) if e.status in (400, 413) else None
+                fixed = correct(body, e.status, e.detail, used) if e.status in (400, 413, 429) else None
                 if fixed is None:
                     raise
                 body = fixed                         # shortcut: a corrected resend is not counted by the limiter (at most 4 per call, on a 400/413)
@@ -376,7 +416,7 @@ def _gemini_models(payload, next_page, pages=10):
             out.append({'id': mid, 'name': str(m.get('displayName') or mid), 'ctx': m.get('inputTokenLimit'),
                         'max_out': m.get('outputTokenLimit'), 'tools': True if mid.startswith('gemini-') else None,
                         'reasoning': m.get('thinking') if isinstance(m.get('thinking'), bool) else None,
-                        'free': True, 'price_in': None, 'price_out': None, 'modalities': ['text']})
+                        'free': True, 'price_in': None, 'price_out': None, 'modalities': None})   # Google's list does not say
         token = payload.get('nextPageToken')
         if not token:
             break
@@ -387,7 +427,13 @@ def _gemini_models(payload, next_page, pages=10):
 def estimate_tokens(messages, tools=None):
     """the input tokens of a request, prudently: 3.2 characters a token (above what cl100k counts on prose and JSON)"""
     # shortcut: no tokenizer here (tiktoken would download its tables at first use); use FCC's bundled cl100k file if it must be exact
-    return int(len(json.dumps([messages, tools or []], ensure_ascii=False)) / 3.2) + 1
+    text = json.dumps([messages, tools or []], ensure_ascii=False)
+    images = len(IMAGE.findall(text))                # the base64 of a picture is not its tokens: 1.8 MB counted as 563k
+    return int(len(IMAGE.sub('', text)) / 3.2) + IMAGE_TOKENS * images + 1
+
+
+IMAGE = re.compile(r'data:image/[\w.+-]+;base64,[A-Za-z0-9+/=]+')
+IMAGE_TOKENS = 1600        # shortcut: a fixed cost per picture; width x height when a provider bills by tiles
 
 
 def list_models(provider, key=None, client=None, extra=None):

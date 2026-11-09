@@ -94,16 +94,27 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
     than the estimate here. attempts: the limiter's tries for a wait-fixable failure (10 by default; fewer when the
     caller has another host for this model). Returns chat()'s result; raises errors.ProviderError for what neither a wait nor a repair can fix"""
     lim = limiter or LIMITER
+    spare = []
     if key is None:
         from spawn import keys
-        k = keys.load(provider)
-        if not k:
+        ks = keys.load_all(provider)
+        if not ks:
             raise errors.ProviderError('auth', None, None, f'no key for {provider}')
-        key, kw['extra'] = k['key'], kw.get('extra') or k['extra']
+        key, kw['extra'], spare = ks[0]['key'], kw.get('extra') or ks[0]['extra'], ks[1:]
     budget = int(kw.get('max_tokens') or 4096)        # what a request counts against tokens per minute: its input and its max_tokens
-    call = lambda msgs, t: lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, msgs, tools=t, key=key, **kw), stop,
-                                   tokens=tokens if tokens and msgs is messages else openai_compat.estimate_tokens(msgs, t) + budget,
-                                   attempts=attempts)
+
+    def call(msgs, t):
+        nonlocal key
+        while True:
+            try:
+                return lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, msgs, tools=t, key=key, stop=stop, **kw), stop,
+                               tokens=tokens if tokens and msgs is messages else openai_compat.estimate_tokens(msgs, t) + budget,
+                               attempts=attempts)
+            except errors.ProviderError as e:
+                if e.kind not in ('quota', 'payment') or not spare:
+                    raise
+                nxt = spare.pop(0)                    # the second key of the provider, before the host is called out of quota
+                key, kw['extra'] = nxt['key'], nxt['extra'] or kw.get('extra')
     text, thinking, result = '', '', None
     for attempt in range(RESUMES + 1):
         try:
@@ -118,8 +129,9 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
             result = got
         else:                                      # a continuation: keep only the new part
             extra = continuation_suffix(text, got['text'])
-            if extra is None:
-                raise errors.ProviderError('stream_cut', None, None, 'the continuation does not join the text', result)
+            if extra is None:                         # the almost whole answer is kept, marked: thrown away it was lost
+                result['finish'], result['partial'] = 'stream_cut', True
+                break
             result['text'] = text + extra
             result['message']['content'] = result['text'] or None
             for f in ('tool_calls', 'finish', 'usage'):
@@ -129,13 +141,13 @@ def complete(provider, model, messages, *, tools=None, key=None, stop=None, limi
         text, thinking = result['text'], result['reasoning']
         if not cut:
             break
-    if result['finish'] == 'length' and not (result['text'] or '').strip() and not result['tool_calls']:
-        # the reasoning ate the whole output budget and nothing visible came out: once more without the effort and with
-        # twice the budget; still nothing, and the role moves to another host
-        kw2 = {**kw, 'effort': None, 'max_tokens': 2 * int(kw.get('max_tokens') or 4096)}
-        again = lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, messages, tools=tools, key=key, **kw2), stop,
+    if not (result['text'] or '').strip() and not result['tool_calls'] and not result.get('partial'):
+        # nothing visible came out (the reasoning ate the budget, or an empty answer, 9 times in 10 on one host): once more
+        # with the thinking off where the provider has a switch, and twice the budget; still nothing, and the role moves on
+        kw2 = {**kw, 'effort': 'off', 'max_tokens': 2 * int(kw.get('max_tokens') or 4096)}
+        again = lim.run(provider, key, model, lambda: openai_compat.chat(provider, model, messages, tools=tools, key=key, stop=stop, **kw2), stop,
                         tokens=openai_compat.estimate_tokens(messages, tools) + kw2['max_tokens'], attempts=attempts)
-        if again['finish'] == 'length' and not (again['text'] or '').strip() and not again['tool_calls']:
+        if not (again['text'] or '').strip() and not again['tool_calls']:
             raise errors.ProviderError('no_output', None, None, 'the reasoning used the whole output budget', again)
         result = again
     schemas = {t['function']['name']: t['function'].get('parameters') for t in tools or [] if t.get('function')}
@@ -199,7 +211,12 @@ def _prova():
         script[:] = [res('', finish='length'), res('visible now')]
         sent.clear()
         r = complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter(), effort='high', max_tokens=100)
-        assert r['text'] == 'visible now' and len(sent) == 2 and kws[-1]['effort'] is None and kws[-1]['max_tokens'] == 200, kws[-1]
+        assert r['text'] == 'visible now' and len(sent) == 2 and kws[-1]['effort'] == 'off' and kws[-1]['max_tokens'] == 200, kws[-1]
+        script[:] = [res('', finish='stop'), res('now')]
+        assert complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter())['text'] == 'now'   # empty with stop: asked again too
+        script[:] = [errors.ProviderError('stream_cut', None, None, 'cut', res('a' * 500, finish=None)), res('z' * 400)]
+        r = complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter())
+        assert r['partial'] and r['finish'] == 'stream_cut' and r['text'] == 'a' * 500, r
         script[:] = [res('', finish='length'), res('', finish='length')]
         try:
             complete('groq', 'm', [{'role': 'user', 'content': 'q'}], key='k', limiter=Limiter())

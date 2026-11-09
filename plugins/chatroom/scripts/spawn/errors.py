@@ -21,10 +21,11 @@ ACTION = {'rate_limit': 'retry', 'overloaded': 'retry', 'upstream': 'retry', 'ti
           'auth': 'stop', 'payment': 'stop', 'forbidden': 'stop', 'too_large': 'stop', 'bad_request': 'stop'}
 RETRYABLE = frozenset(k for k, a in ACTION.items() if a == 'retry')
 
-_CONTEXT = re.compile(r'context[_ ]length[_ ]exceeded|context[_ ]window|maximum context length|too many tokens|'
+_CONTEXT = re.compile(r'context[_ ]length[_ ]exceeded|context[_ ]window|maximum context length|'
                       r'prompt is too long|input is too long|reduce the length', re.I)
 _QUOTA = re.compile(r'quota|credits?|daily limit|free[- ]tier limit|per[- ]day|requests per day|insufficient[_ ]balance', re.I)
-_DAILY = re.compile(r"today'?s|\bdaily\b|per[- ]day|used up your", re.I)     # over until tomorrow, whatever Retry-After says
+_DAILY = re.compile(r"today'?s|\bdaily\b|per[- ]day|used up your|PerDay|limit:\s*0\b", re.I)     # over until tomorrow, whatever Retry-After says
+_RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')        # Gemini says the wait in its body, not in a header
 _OVERLOAD = re.compile(r'overloaded|capacity|resource[_ ]?exhausted|temporarily unavailable|degraded function', re.I)
 _RATE = re.compile(r'rate[_ ]limit|too many requests', re.I)
 
@@ -70,8 +71,12 @@ def classify(status, body='', headers=None):
     """ProviderError for an HTTP answer that is not a success; body is its text (JSON or not)"""
     text = body if isinstance(body, str) else str(body)
     wait = retry_after(headers)
+    if wait is None and _RETRY_DELAY.search(text):
+        wait = float(_RETRY_DELAY.search(text)[1])
     if _CONTEXT.search(text):
         kind = 'context'
+    elif 'tool_use_failed' in text:                 # Groq: the model wrote a tool call it could not finish; asked again, it can
+        kind = 'tool_json'
     elif status == 401:
         kind = 'auth'
     elif status == 402:
@@ -128,6 +133,9 @@ def _prova():
     assert c(429, "You've reached today's free-model token quota", {'retry-after': '30'}) == 'quota'
     assert c(429, 'AiError: you have used up your daily free allocation') == 'quota' and c(410, 'Gone') == 'not_found'
     assert daily(classify(429, "today's quota")) and not daily(classify(429, 'quota')) and daily(classify(402))
+    g = classify(429, '{"error": {"message": "quota", "details": [{"retryDelay": "17s"}]}}')
+    assert g.kind == 'rate_limit' and g.retry_after == 17.0 and daily(classify(429, 'quota metric GenerateRequestsPerDay limit: 0'))
+    assert c(500, '{"error": {"code": "tool_use_failed"}}') == 'tool_json' and c(400, 'max tokens must be less than or equal to 8192') == 'bad_request'
     assert c(400, '{"error": {"code": "context_length_exceeded"}}') == 'context' and c(400, 'bad field x') == 'bad_request'
     assert c(503, 'model overloaded') == 'overloaded' and c(500, 'boom') == 'upstream' and c(504) == 'timeout'
     assert c(413, 'tokens per minute') == 'too_large'

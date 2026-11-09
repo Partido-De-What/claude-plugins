@@ -30,7 +30,7 @@ from research import _params_b                            # noqa: E402  la tagli
 MAX_AGE = 12 * 3600
 FAST_TIMEOUT = 30
 NOT_CHAT = re.compile(r'embed|rerank|guard|safety|parse|lyria|reward|detector|nvclip|moderation|whisper|transcri|tts', re.I)   # #506 p.4
-ROUTE_KEYS = ('ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price_out')
+ROUTE_KEYS = ('ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price_out', 'modalities')
 
 
 def order(m):
@@ -347,7 +347,7 @@ def study(room_dir, lang='it'):
 PROBE = {'running': False, 'done': 0, 'total': 0}
 PROBE_ASK = [{'role': 'user', 'content': 'Reply with the single word OK.'}]
 # what the service decides, not a wait: such a host is gone for us. A refused key is not here (the user can fix it)
-DEAD = {'payment', 'not_found', 'paid_only', 'not_chat', 'no_host'}
+DEAD = {'payment', 'not_found', 'paid_only', 'not_chat', 'no_host', 'no_free'}   # no_free: a quota whose limit is 0
 _PAID = re.compile(r'Free plan|only available on agentic harnesses', re.I)
 _NOT_CHAT = re.compile(r'Interactions API|Invalid model|required properties|terms acceptance', re.I)
 
@@ -368,6 +368,8 @@ def _kind(exc):
         return 'paid_only'
     if kind == 'bad_request' and _NOT_CHAT.search(detail):
         return 'not_chat'
+    if kind == 'quota' and re.search(r'limit:\s*0\b', detail):
+        return 'no_free'                                 # Gemini's "limit: 0": no free tier for this model, not a day's quota
     return kind
 
 
@@ -429,6 +431,10 @@ def probe(complete=None, only=None, workers=8):
 
 PING_TOOL = [{'type': 'function', 'function': {'name': 'here', 'description': 'Say you are here.', 'parameters': {'type': 'object', 'properties': {}}}}]
 PING_ASK = [{'role': 'user', 'content': 'Call the tool here.'}]
+# a 1x1 white PNG: a host that refuses pictures says so here, not in the first real request
+PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC'
+PING_IMAGE = [{'role': 'user', 'content': [{'type': 'text', 'text': 'What colour is this picture? One word.'},
+                                           {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{PNG}'}}]}]
 
 
 def mark_gone(canonical, adapter):
@@ -440,7 +446,7 @@ def mark_gone(canonical, adapter):
     save(cat)
 
 
-def ping(only=None, top=None, complete=None, load_key=None, workers=8):
+def ping(only=None, top=None, complete=None, load_key=None, workers=8, vision=False):
     """`chat.py spawn ping`: before a round, one small request with one tool to every free host that has a key: [{model, host,
     s, result}], fastest first. Through the limiter like a role's request, so a host out of quota fails at once for all its
     models, and a 410 takes the host off the model"""
@@ -448,15 +454,20 @@ def ping(only=None, top=None, complete=None, load_key=None, workers=8):
         from spawn.providers import complete
     if load_key is None:
         from spawn.keys import load as load_key
-    models = sorted((m for m in load()['models'] if only is None or m['canonical'] in only), key=order)[:top]
+    sees = lambda m: any('image' in (r.get('modalities') or ['image']) for r in m.get('routes') or [])   # unknown: tried
+    models = sorted((m for m in load()['models'] if (only is None or m['canonical'] in only) and (not vision or sees(m))), key=order)[:top]
 
     def one(m, r):
         t0, stop = time.time(), threading.Event()
         timer = threading.Timer(PROBE_WAIT, stop.set)
         timer.start()
         try:
-            got = complete(r['adapter'], r['model_id'], PING_ASK, tools=PING_TOOL, max_tokens=1024, attempts=1, stop=stop)
-            result = f"ok tool={len(got.get('tool_calls') or [])} text={len(got.get('text') or '')}"
+            if vision:
+                got = complete(r['adapter'], r['model_id'], PING_IMAGE, max_tokens=1024, attempts=1, stop=stop)
+                result = f"ok vision text={' '.join((got.get('text') or '').split())[:30]}"
+            else:
+                got = complete(r['adapter'], r['model_id'], PING_ASK, tools=PING_TOOL, max_tokens=1024, attempts=1, stop=stop)
+                result = f"ok tool={len(got.get('tool_calls') or [])} text={len(got.get('text') or '')}"
         except Exception as exc:
             result = f"error {_kind(exc)}: {' '.join(str(getattr(exc, 'detail', exc)).split())[:100]}"
             if getattr(exc, 'status', None) == 410:
@@ -466,7 +477,20 @@ def ping(only=None, top=None, complete=None, load_key=None, workers=8):
         return {'model': m['canonical'], 'host': r['adapter'], 's': round(time.time() - t0, 1), 'result': result}
     with ThreadPoolExecutor(max_workers=workers) as pool:
         rows = list(pool.map(lambda x: one(*x), [(m, r) for m in models for r in m['routes'] if r.get('free') and load_key(r['adapter'])]))
+    cat, now = load(), time.time()                       # the real answer of each route, for routes_of: not the latency of the host's list
+    for m in cat['models']:
+        for r in m.get('routes') or []:
+            row = next((x for x in rows if x['model'] == m['canonical'] and x['host'] == r['adapter']), None)
+            if row:
+                r['vision' if vision else 'ping'] = {'ok': row['result'].startswith('ok'), 'ms': int(row['s'] * 1000), 'at': now, 'real': True}
+    save(cat)
     return sorted(rows, key=lambda r: (not r['result'].startswith('ok'), r['s']))
+
+
+def age_days(cat=None):
+    """days since the catalog was updated (a 14-day-old one offered routes that were gone)"""
+    cat = cat or load()
+    return (time.time() - float(cat.get('updated') or 0)) / 86400 if cat.get('updated') else None
 
 
 def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None):

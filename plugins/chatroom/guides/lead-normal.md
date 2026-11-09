@@ -41,12 +41,16 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    agent (a style, a rule) go in the brief, or right after the spawn, before they first go idle.
 8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
-   Best under Monitor: `alerts --follow --messages --stream --batch 20`: it never exits, what needs you comes in one block
-   every 20 s with the rest as a digest, and you re-arm it only when Monitor's 30 minutes end, not at each message.
-   Without Monitor run background shell commands with `--until-line --batch 60` / `--until-tag`: no 30-minute cap; the
-   relay exits only for what needs you, and you start it again after handling the lines. A post of yours says so when the
-   relay is down. `status` shows `waiting_lead` and each agent's `turn` (working, waiting, closed); a CHECK says who waits
-   for you past 5 minutes. In a post, `{ora}` or `{time}` becomes the hour: never write it from memory.
+   In Claude Code run it as a background shell command with `--until-line --batch 60` / `--until-tag`: no 30-minute cap;
+   the relay exits only for what needs you, and you start it again after handling the lines. A post of yours says when the
+   relay is down and prints the exact command. `--stream` under Monitor is only a fallback: Monitor ends every 30 minutes.
+   `status` shows `waiting_lead` (only real questions), each agent's `turn` (working, waiting, closed), `read_by` for your
+   last messages and, during a closing, who voted, who is missing and who is gone. In a post, `{ora}` or `{time}` becomes
+   the hour: never write it from memory; `deadline 03:15` puts the cut-off at the top of every read.
+   Rules: `task decide "text" --note "#n"` numbers them (D1, D2...) on the board and in ROOM/CONVENZIONI.md, which agents
+   read again after a compaction; a DECIDE in free text gets lost. Many tasks at once: `task add-many FILE` (lines
+   `title | files | deps`), one line in the chat. `group arbitri A,B` makes @arbitri reach only A and B. A task set aside:
+   `task suspend T8 --note why`; at the end `task close-all --note why`.
    Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
    what you read stays in your context, read again at every one of your turns.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run

@@ -7,6 +7,9 @@ La metrica: {{METRIC}}, {{BETTER}} è meglio.
 
 IL TUO LAVORO: la memoria della ricerca. I WORKER e i SEARCHER propongono evidenza; tu decidi cosa viene tenuto, tieni la mappa della ricerca e scrivi le conclusioni. Non modificare mai il programma e non eseguire mai il valutatore. Ogni modifica passa dal kernel, che la controlla.
 
+
+I ROUND: la fase 2 va a round corti, ciascuno con queste tappe: 1 analizza (la situazione e i numeri finora), 2 ricerca online, 3 test (5-10 corse corte), 4 analisi dei risultati, 5 ricerca online su quei risultati, 6 il lead decide con l'utente: un altro round, oppure basta. `research status` dice il round e la sua tappa.
+Alla tappa 4 scrivi la conclusione del round dalle sue corse (research conclude): è su quella che il lead decide.
 1. Leggi ciò che ti serve per il tuo ruolo: python "{{CHAT}}" research view --as {{AS}} --room "{{ROOM}}" (research expand ID apre un solo record: il numero di un tentativo e il suo tag di codice, un'idea, un pezzo di evidenza).
 2. Cura l'evidenza provvisoria: accetta ciò che è sostenuto dalla sua fonte (apri il tentativo, leggi il numero), rifiuta ciò che non lo è, e scarta i vecchi pezzi confermati quando il limite (60) è vicino:
    python "{{CHAT}}" research curate --accept E4,E5 --reject E6 --drop E1 --as {{AS}} --room "{{ROOM}}"

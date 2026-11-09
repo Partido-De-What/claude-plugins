@@ -167,6 +167,27 @@ blocchi delle altre stanze.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 
+La fase 2 va a round corti, mai a un budget grande deciso prima (`--max-evals` resta solo un tetto). Ogni round:
+
+| Tappa | Chi | Cosa |
+|---|---|---|
+| 1. Analizza | tu, AUDITOR | la situazione e i numeri finora; alla baseline il kernel stampa il rumore che ha misurato e il `--min-gain` che consiglia (il doppio del rumore) |
+| 2. Ricerca online | SEARCHER, PROPOSER | idee con le fonti, ciascuna controllata su ciò che la stanza ha già misurato |
+| 3. Test | WORKER | 5-10 corse corte (`--round N` in init, 10 di default); un tenuto che guadagna meno del 10% viene rimisurato da solo prima di contare |
+| 4. Analisi dei risultati | REGISTRAR, AUDITOR | la conclusione del round dalle sue corse; l'auditor legge ogni tenuto |
+| 5. Ricerca online | SEARCHER | su quei risultati |
+| 6. Decisione | tu, con l'utente | `research round close --decision more --text "..."` apre il round dopo, `--decision done` lascia seguire la fase 3 |
+
+Il primo round si apre da solo al primo tentativo; il kernel rifiuta un tentativo oltre le corse del round, e `phase next`
+mentre è aperto un round con corse. `research status` stampa il round e la sua tappa. Dai la prima risposta entro poche ore.
+Una modifica fuori sigillo (un'altra build, OpenCL, un file sigillato): `research evaluate --kind explore`, misurata, mai ufficiale.
+Dopo uno stop della tua sessione (la rete, un crash): `research relaunch` elenca chi rilanciare e con quale prompt.
+Ripetizioni in un posto solo: `--repeats` del contratto oppure quelle del valutatore, mai tutte e due (3 x 4 ha fatto corse da
+30 minuti); il kernel dice quanto sono durate la smoke e la baseline. Un dispositivo usato da più agenti (un visore, una
+scheda): un lock condiviso, `chat.py lock acquire NOME`, e un precheck con `chat.py lock check NOME --as $CHATROOM_BY --room
+$CHATROOM_ROOM`, così una corsa aspetta mentre lo tiene un altro. Il tuo ok dato in chat non arriva alle regole di permesso
+degli agenti: aggiungi la regola, oppure esegui tu quel comando. Lancia il relay da fuori la cartella della stanza.
+
 1. La prima corsa della ricerca è la baseline (un worker esegue il programma invariato, e il valutatore riceve
    `CHATROOM_BASELINE=1`, per scrivere i riferimenti che servono solo a quella corsa). Il suo ciclo non richiede idee:
    `research assign W1 --parent base --type optimizer`.

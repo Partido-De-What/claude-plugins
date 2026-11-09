@@ -30,6 +30,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import statistics
 import subprocess
 import sys
@@ -49,6 +50,9 @@ CURATED_MAX = 60          # committed evidence kept at once (the registrar drops
 SIMILAR = 0.5             # an idea this close to an earlier one (word trigrams, Jaccard) is refused
 VIEW_MAX = 3000           # characters of a role's view; research expand ID opens one record
 AUX_KINDS = ('ablation', 'baseline', 'control', 'repeat')
+ROUND_MAX = 10            # attempts in one round of phase 2: then results are read, searched on and the lead decides
+REPLICA_GAIN = 0.10       # a keep that gains less than this is measured once more before it counts (noise gave 7% on equal code)
+IDLE_ASSIGN_MIN = 20      # minutes after an assign with no run of that worker: the run never started
 KERNEL = (0, 11, 2)      # written into the state: an older kernel (another install, an MCP server not restarted) refuses it
 AUX_BASE, SMOKE_BASE = 100000, 200000   # numbers of evidence and smoke runs: never the same as an attempt's (at most 100000)
 NO_HOOKS = str(Path(__file__).resolve().parent / '.no-git-hooks')   # a folder that does not exist: git finds no hooks there
@@ -307,7 +311,7 @@ def _better(c, value, than):
 # ---------------------------------------------------------------------------------------------------------- contract
 def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, max_evals=100, repo='.', sealed=(), tag=None,
          result_file=False, keep=(), draft=False, final=None, build=None, build_min=None, repeats=1, min_gain=None, guards=None,
-         provenance=False, precheck=None, build_dir=None, final_dry=None):
+         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None):
     """the lead or the user writes the contract: which file changes, how it is built and evaluated, what is sealed, the
     budget, how noise is handled. --draft starts at phase 1 (the evaluator is still being written, sealed later)"""
     if by not in room.user_names():
@@ -383,7 +387,8 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
                 'metric_source': 'file' if result_file else 'output', 'keep': keep, 'final': final or '',
                 'build': build or '', 'build_s': max(1, int(float(build_min) * 60)) if build_min else 0,
                 'repeats': int(repeats or 1), 'min_gain': str(min_gain) if min_gain is not None else '', 'roles': {}, 'guards': guards, 'provenance': bool(provenance),
-                'precheck': precheck or '', 'build_dir': _build_dir(room, build_dir), 'final_dry': final_dry or '', 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S')}
+                'precheck': precheck or '', 'build_dir': _build_dir(room, build_dir), 'final_dry': final_dry or '', 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'round_max': int(round_max or ROUND_MAX)}
     _save(room, 'contract.json', contract)
     st = _migrate(contract, {'evals': 0, 'best': None, 'head': base, 'pending': None, 'phase': 1 if draft else 2})
     _save(room, 'state.json', st)
@@ -551,6 +556,103 @@ def _commit_of(c, ref):
     if m:
         return _git(main, 'rev-list', '-n', '1', f"{c['branch']}/att-{m.group(1)}")
     return _git(main, 'rev-parse', ref)
+
+
+def _round(st):
+    """the open round of phase 2, or None"""
+    r = (st.get('rounds') or [None])[-1]
+    return r if r and not r.get('closed') else None
+
+
+def stage(st, r):
+    """where a round is: 1-2 analyse and search the web (no run yet), 3 tests, 4-6 read the results, search again, decide"""
+    done = st['evals'] - r['start']
+    return say('kernel.round.stage_start') if done <= 0 else say('kernel.round.stage_test', n=done, max=r['max']) if done < r['max'] \
+        else say('kernel.round.stage_end')
+
+
+def round_open(room, by, max_runs=None, goal=''):
+    """the lead opens a round: a few short runs on the ideas of this round, then results, search, decision"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.round.only_lead'))
+    c, st = _state(room)
+    if st['phase'] != 2:
+        raise ValueError(say('kernel.assign.cycles_are_assigned_in', phase=st['phase'], PHASES=phase_name(st['phase'])))
+    if _round(st):
+        raise ValueError(say('kernel.round.still_open', k=_round(st)['k']))
+    m = int(max_runs or c.get('round_max') or ROUND_MAX)
+    if not 1 <= m <= 50:
+        raise ValueError(say('kernel.round.max_range'))
+    r = {'k': len(st.get('rounds') or []) + 1, 'max': m, 'goal': ' '.join((goal or '').split())[:200], 'start': st['evals'],
+         'opened': time.time(), 'closed': None}
+    _edit(room, lambda c2, s2: s2.setdefault('rounds', []).append(r))
+    _log(room, by, 'round', {'open': r['k'], 'max': m, 'goal': r['goal']})
+    return say('kernel.round.opened', k=r['k'], max=m, goal=r['goal'] or '-')
+
+
+def round_close(room, by, decision, text, max_runs=None):
+    """the lead closes the round with what it showed and the decision: more (the next round opens) or done (phase 3 may follow)"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.round.only_lead'))
+    c, st = _state(room)
+    r = _round(st)
+    if not r:
+        raise ValueError(say('kernel.round.no_open'))
+    if decision not in ('more', 'done'):
+        raise ValueError(say('kernel.round.decision_word'))
+    text = ' '.join((text or '').split())
+    if len(text) < 30:
+        raise ValueError(say('kernel.round.text_short'))
+    if st.get('pending'):
+        raise ValueError(say('kernel.round.run_going', n=st['pending']['n']))
+
+    def apply(c2, s2):
+        s2['rounds'][-1].update(closed=time.time(), decision=decision, text=text[:1500], runs=s2['evals'] - r['start'])
+    _edit(room, apply)
+    _log(room, by, 'round', {'close': r['k'], 'decision': decision, 'text': text[:1500]})
+    out = say('kernel.round.closed', k=r['k'], decision=decision, n=st['evals'] - r['start'], text=text[:300])
+    return out + ('\n' + round_open(room, by, max_runs or r['max']) if decision == 'more' else say('kernel.round.done_next'))
+
+
+def relaunch(room):
+    """after the session stopped (the network, a crash): who to spawn again, with which prompt, where its line stands"""
+    c, st = _state(room)
+    out = []
+    for role, names in c.get('roles', {}).items():
+        for k in names:
+            p, w = Path(room.dir) / 'prompts' / f'{k}.md', st['workers'].get(k)
+            out.append(f"{k} ({role}): " + (str(p) if p.is_file() else say('kernel.relaunch.no_prompt', k=k))
+                       + (f" · {w['work']} @ {str(w.get('head', ''))[:7]}" + (f" · best att-{w['best']['n']}" if w.get('best') else '') if w else ''))
+    r = _round(st)
+    return '\n'.join(out or [say('kernel.relaunch.no_roles')]) + '\n' + say('kernel.relaunch.tail') + (
+        '\n' + say('kernel.round.status', k=r['k'], stage=stage(st, r), goal=r['goal'] or '-') if r else '')
+
+
+def _caches(c):
+    """the CMake caches of the shared build folder (--build-dir), at most three levels down"""
+    root = Path(c.get('build_dir') or '')
+    if not c.get('build_dir') or not root.is_dir():
+        return root, []
+    return root, [p for pat in ('CMakeCache.txt', '*/CMakeCache.txt', '*/*/CMakeCache.txt') for p in root.glob(pat)]
+
+
+def _cache_restore(room, c):
+    """a patch with set(... FORCE) leaves its options in the shared cache (att-4 and att-5 built with KleidiAI inside):
+    every build starts again from the baseline's cache"""
+    snap = _dir(room) / 'cmake-cache'
+    root = Path(c.get('build_dir') or '')
+    for p in snap.rglob('CMakeCache.txt') if c.get('build_dir') and snap.is_dir() else []:
+        dst = root / p.relative_to(snap)
+        if dst.parent.is_dir():
+            shutil.copyfile(p, dst)
+
+
+def _cache_save(room, c):
+    root, found = _caches(c)
+    for p in found:
+        dst = _dir(room) / 'cmake-cache' / p.relative_to(root)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, dst)
 
 
 def assign(room, by, worker, idea=None, parent='best', kind='explorer', force=False):
@@ -839,7 +941,7 @@ def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, ex
     chat. kind=attempt (phase 2) competes for the best; ablation, baseline, control, repeat (phase 3) only measure;
     smoke (phase 1) checks the evaluator runs"""
     c, st = _state(room)
-    if kind not in ('attempt', 'fix', 'smoke', *AUX_KINDS):
+    if kind not in ('attempt', 'fix', 'smoke', 'explore', *AUX_KINDS):
         raise ValueError(say('kernel.evaluate.kind_attempt_fix_smoke', AUX_KINDS=", ".join(AUX_KINDS)))
     _need(room, c, name, 'WORKER')
     if st.get('wait_go') and kind in ('attempt', 'fix'):
@@ -1001,6 +1103,9 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         raise ValueError(say('kernel._evaluate.runs_belong_to_the', kind=kind, phase=phase, PHASES=phase_name(phase)))
     if kind == 'smoke' and phase != 1:
         raise ValueError(say('kernel._evaluate.smoke_runs_belong_to'))
+    explore = kind == 'explore'                           # outside the seal (another build, a sealed file changed): measured, never official
+    if explore and phase != 2:
+        raise ValueError(say('kernel.evaluate.explore_phase'))
     if not c.get('evaluate'):
         raise ValueError(say('kernel._evaluate.the_contract_has_no'))
     key, wk = _worker(st, name)
@@ -1020,19 +1125,19 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
             raise ValueError(say('kernel._evaluate.a_fix_corrects_a'))
         if wk.get('since_evidence', 0) >= S_MAX and c.get('roles'):
             raise ValueError(say('kernel._evaluate.attempts_without_any_evidence', S_MAX=S_MAX))
-    if phase >= 2:
+    if phase >= 2 and not explore:
         for rel, sha in c['sealed'].items():
             if not _seal_holds(work, rel, sha):
                 raise ValueError(say('kernel._evaluate.the_sealed_file_changed', rel=rel, head=wk["head"]))
     tracked = [x for x in _git(work, 'diff', '--name-only', wk['head']).splitlines() if x.strip()]
-    if phase >= 2:
+    if phase >= 2 and not explore:
         others = [f for f in tracked if f != c['program']]
         if others:
             raise ValueError(say('kernel._evaluate.only_may_change_also', program=c['program'], others=', '.join(others[:10]), head=wk['head']))
     kept = tuple(c.get('keep', []))
     untracked = [x[3:].strip('"') for x in _git(work, 'status', '--porcelain', '--untracked-files=all').splitlines() if x.startswith('??')]
     untracked = [f for f in untracked if '__pycache__/' not in f and not f.endswith(('.pyc', '.pyo')) and not f.startswith(kept)]
-    if untracked and phase >= 2:
+    if untracked and phase >= 2 and not explore:
         raise ValueError(say('kernel._evaluate.only_may_change_new', program=c['program'], untracked=', '.join(untracked[:10])))
     first = st.get('baseline') is None and kind == 'attempt'
     if kind == 'attempt':
@@ -1044,6 +1149,16 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         seen = next((p for p in wk.get('programs', []) if p['sha'] == program_sha), None)
         if seen and not first:
             raise ValueError(say('kernel._evaluate.this_exact_program_already', n=seen['n']))
+        if not first and phase == 2:                       # attempts go by rounds: a few, then results, search and a decision
+            r = _round(st)
+            if not r and not st.get('rounds'):
+                round_open(room, c.get('by') or 'LEAD')
+                c, st = _state(room)
+                r = _round(st)
+            if not r:
+                raise ValueError(say('kernel.round.no_open'))
+            if st['evals'] - r['start'] >= r['max']:
+                raise ValueError(say('kernel.round.full', k=r['k'], max=r['max']))
     if kind in AUX_KINDS:
         if not of or not any(f"att-{a['n']}" == of and a['state'] != 'revoked' for a in st['attempts']):
             raise ValueError(say('kernel._evaluate.a_run_says_what', kind=kind))
@@ -1054,19 +1169,19 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     desc = ' '.join((desc or ('baseline' if first else '')).split())[:200]
     if not desc:
         raise ValueError(say('kernel._evaluate.say_what_this_run'))
-    n = (st['evals'] + 1) if kind == 'attempt' else (AUX_BASE + st['aux'] + 1) if kind in AUX_KINDS else (SMOKE_BASE + st['aux'] + 1)
+    n = (st['evals'] + 1) if kind == 'attempt' else (AUX_BASE + st['aux'] + 1) if kind in (*AUX_KINDS, 'explore') else (SMOKE_BASE + st['aux'] + 1)
     tag = f"{c['branch']}/att-{n}"
     if _git(work, 'tag', '--list', tag):
         raise ValueError(say('kernel._evaluate.tag_already_exists_while', tag=tag))
-    if c.get('precheck'):                                 # the machine as the contract wants it (idle VRAM, no stray server...)
-        code, _ = _run(c['precheck'], work, d / 'runs' / 'precheck.log', 120, _env(CHATROOM_KIND='precheck'))
+    if c.get('precheck'):                                 # the machine as the contract wants it (idle VRAM, no stray server, the device lock...)
+        code, _ = _run(c['precheck'], work, d / 'runs' / 'precheck.log', 120, _env(CHATROOM_KIND='precheck', CHATROOM_BY=name, CHATROOM_ROOM=str(room.dir)))
         if code != 0:
             tail = (d / 'runs' / 'precheck.log').read_text(encoding='utf-8', errors='replace').strip().splitlines()[-5:]
             raise ValueError(say('kernel.precheck.failed', code=code, tail=' | '.join(tail)[:300]))
     pending = {'n': n, 'by': name, 'worker': key, 'desc': desc, 'ts': time.time(), 'kind': kind, 'idea': idea}
     _edit(room, lambda c2, s2: s2.update(pending=pending))  # from here a cut-off run is a crash at the next call
     try:
-        if phase == 1:                                    # the drafted files, never the kept data or build folders
+        if phase == 1 or explore:                         # the drafted files, never the kept data or build folders
             _git(work, 'add', '-A', '--', '.', *_excludes(work, c))
         else:
             _git(work, 'add', '--', c['program'])
@@ -1096,6 +1211,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
                 + f"): {desc[:100]}", 'board')
     line_best = wk.get('best') or st.get('baseline')
     loses = (lambda v: not _better(c, v, line_best['metric'])) if kind == 'attempt' and not first and not fix and line_best else None
+    _cache_restore(room, c)
     value, why, secs, spread, protocol, text = _measure(c, work, d, n, env, log, started, loses)
     guards = c.pop('_guards', {}) if value is not None else {}
     env_lines, built_ok, values = c.pop('_env', [])[:12], c.pop('_built', False), c.pop('_values', [])
@@ -1114,6 +1230,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         status, why = 'smoke', say('kernel._evaluate.the_evaluator_runs_and')
     elif kind in AUX_KINDS:
         status, why = kind, say('kernel._evaluate.measured_against', of=of)
+    elif explore:
+        status, why = 'explore', say('kernel._evaluate.explore')
     else:
         best = wk.get('best') or st.get('baseline')     # a line without a keep yet competes with the baseline
         if fix and best:
@@ -1129,6 +1247,18 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         else:
             status, why = 'discard', say('kernel._evaluate.not_better_than_att', n=best['n'], v2=format(best['metric'], '.6g')) + \
                 (say('kernel._evaluate.by_more_than', min_gain=c['min_gain']) if c.get('min_gain') else '')
+    if status == 'keep' and kind == 'attempt' and not first and not fix and line_best and line_best.get('metric') \
+            and abs(value - line_best['metric']) < REPLICA_GAIN * abs(line_best['metric']):
+        v2, _, s_2, _, _, _ = _measure(c, work, d, n, env, log.with_name(f'{n}-replica.log'), started, None)
+        for k in ('_guards', '_env', '_built', '_values'):
+            c.pop(k, None)
+        secs += s_2
+        both = None if v2 is None else (value + v2) / 2
+        if both is None or not _better(c, both, line_best['metric']):
+            status, why = 'discard', say('kernel._evaluate.replica_lost', v1=f'{value:.6g}', v2='—' if v2 is None else f'{v2:.6g}')
+        else:
+            why += say('kernel._evaluate.replica_held', v2=f'{v2:.6g}')
+            value = both
     if status != 'keep' or kind != 'attempt':
         if kind != 'smoke':
             _git(work, 'reset', '-q', '--hard', wk['head'])   # back to the best: the attempt keeps its tag
@@ -1185,6 +1315,18 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     c3, s3 = _state(room)
     flags = (say('kernel._evaluate.only_numbers_changed_tuning') if tuning and kind == 'attempt' else '') + \
             (say('kernel._evaluate.line_s_put_back', readded=readded) if readded else '')
+    if (first or kind == 'smoke') and value is not None:
+        if first:
+            _cache_save(room, c3)                          # the cache every later build starts from
+        if len(values) >= 2 and statistics.median(values):
+            noise = 100 * (max(values) - min(values)) / abs(statistics.median(values))
+            gain = float(str(c3.get('min_gain') or '0').rstrip('%') or 0) if str(c3.get('min_gain') or '').endswith('%') else None
+            flags += say('kernel._evaluate.noise_hint', noise=f'{noise:.1f}', want=f'{2 * noise:.1f}') + (
+                say('kernel._evaluate.noise_low', gain=c3['min_gain']) if gain is not None and gain < 2 * noise else '')
+        elif c3.get('repeats', 1) < 2:
+            flags += say('kernel._evaluate.noise_unknown')
+        if secs > 600:                                     # 12 repeats once (3 in the contract x 4 in the evaluator): over 30 minutes a run
+            flags += say('kernel._evaluate.run_long', minutes=f'{secs / 60:.0f}', repeats=c3.get('repeats', 1))
     if kind == 'attempt' and status == 'keep' and s3['best']:     # a keep beats the line's best; the global best wants min_gain more
         flags += (say('kernel._evaluate.new_global_best') if s3['best']['n'] == n else
                   say('kernel._evaluate.line_keep', best=s3['best']['n'], metric=f"{s3['best']['metric']:.6g}", gain=c.get('min_gain') or '0'))
@@ -2008,6 +2150,13 @@ def _seal(room, by, sealed, stay=False):
     if later:
         raise ValueError(say('kernel._seal.the_last_good_smoke', n=smoke['n'], later=later[-1]))
     commit = _git(work, 'rev-parse', smoke['commit'])
+    drafter = st['workers'].get(smoke.get('worker')) or {}
+    if drafter.get('work') and Path(drafter['work']).is_dir():   # what is sealed is what the last smoke ran: nothing after it
+        dw = Path(drafter['work'])
+        head = _git(dw, 'rev-parse', 'HEAD')
+        dirty = _git(dw, 'status', '--porcelain', '--untracked-files=no', '--', '.', *_excludes(dw, c), check=False).strip()
+        if head != commit or dirty:
+            raise ValueError(say('kernel._seal.not_last_smoke', n=smoke['n'], head=head[:7]))
     _git(work, 'reset', '-q', '--hard', commit)
     _clean(work, c)
     seals = {}
@@ -2066,8 +2215,10 @@ def _phase_next(room, by, force):
         _log(room, by, 'phase', {'go': 2})
         return say('kernel._phase_next.phase_2_open')
     elif p == 2:
-        ready = _verdict_holds(room, st, 2, 'answer_ready') or not auditor
-        why = '' if ready or st['evals'] >= c['max_evals'] else say('kernel._phase_next.the_auditor_has_not')
+        done = bool(st.get('rounds') and st['rounds'][-1].get('decision') == 'done')
+        ready = _verdict_holds(room, st, 2, 'answer_ready') or done or (not auditor and not (_round(st) and st['evals'] > _round(st)['start']))
+        why = '' if ready or st['evals'] >= c['max_evals'] else say('kernel._phase_next.the_auditor_has_not') if auditor \
+            else say('kernel.round.close_first', k=_round(st)['k'])   # no auditor: the round's decision is the gate
         if st['best'] is None:
             why = say('kernel._phase_next.there_is_no_kept')
     elif p == 3:
@@ -2315,6 +2466,10 @@ def detectors(c, st):
             out.append(say('kernel.detectors.of_its_last_attempts', key=key, len_tun=len(tun), len_mine=len(mine[-8:])))
         if w.get('paused'):
             out.append(say('kernel.detectors.paused_after_crashes', key=key, CRASH_MAX=CRASH_MAX))
+        given = max((a['ts'] for a in st['assigns'] if a['worker'] == key), default=0)
+        ran = max((a.get('ts', 0) for a in st['attempts'] if a.get('worker') == key), default=0)
+        if given and given > ran and (st.get('pending') or {}).get('worker') != key and time.time() - given > IDLE_ASSIGN_MIN * 60:
+            out.append(say('kernel.detectors.assigned_idle', key=key, minutes=int((time.time() - given) // 60)))
     runs = [a for a in st['attempts'] if a['kind'] == 'attempt']
     keeps = [a for a in runs if a['status'] == 'keep']
     if len(runs) >= 10 and keeps and runs[-1]['n'] - keeps[-1]['n'] >= 10:
@@ -2380,6 +2535,10 @@ def status(room):
     if held:
         head += (say('kernel.status.gpu_held_by', by=held['by'], reason=held['reason']) + (say('kernel.status.pid_log', pid=held['pid'], get=held.get('log')) if held.get('pid')
                  else say('kernel.word.until', time=time.strftime('%H:%M', time.localtime(held['until'])))))
+    r = _round(st)
+    if st['phase'] == 2 and (r or st.get('rounds')):
+        head += '\n' + (say('kernel.round.status', k=r['k'], stage=stage(st, r), goal=r['goal'] or '-') if r else
+                        say('kernel.round.none_open', k=st['rounds'][-1]['k'], decision=st['rounds'][-1].get('decision')))
     lines = [head]
     if len(st['workers']) > 1 or '_main' not in st['workers']:
         last = {k: max((a.get('ts', 0) for a in st['attempts'] if a.get('worker') == k), default=0) for k in st['workers']}
@@ -2545,7 +2704,13 @@ def _cmd(room, a):
                          bool(getattr(a, 'draft', False)), getattr(a, 'final', None), getattr(a, 'build', None),
                          getattr(a, 'build_min', None), getattr(a, 'repeats', None) or 1, getattr(a, 'min_gain', None),
                          getattr(a, 'guard', None), getattr(a, 'provenance', None), getattr(a, 'precheck', None),
-                         getattr(a, 'build_dir', None), getattr(a, 'final_dry', None)))
+                         getattr(a, 'build_dir', None), getattr(a, 'final_dry', None), getattr(a, 'round', None)))
+    if act == 'round' and rest[:1] == ['open']:
+        return post(round_open(room, a.name, getattr(a, 'round', None), a.text or a.desc or ''))
+    if act == 'round' and rest[:1] == ['close']:
+        return post(round_close(room, a.name, getattr(a, 'decision', None), a.text or a.desc, getattr(a, 'round', None)))
+    if act == 'relaunch':
+        return print(relaunch(room))
     if act == 'amend':
         return post(amend(room, a.name, a.evaluate, a.budget_min, a.max_evals, a.result_file, getattr(a, 'build', None),
                           getattr(a, 'build_min', None), getattr(a, 'repeats', None), getattr(a, 'min_gain', None),

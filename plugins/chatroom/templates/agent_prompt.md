@@ -72,6 +72,10 @@ your message
   caption in the heredoc. Everyone sees them, the user too, in the viewer. Pictures posted by others appear in read as file
   paths: look at them before you comment (Read tool in Claude Code, view_image in Codex). When your work produces something visual, show it.
 - temporary files go in {{ROOM}}/scratch/{{AS}}/, never in a folder you share with the others
+- agree with an order without a message: python "{{CHAT}}" ack N --as {{AS}} --room "{{ROOM}}" (MCP: chat_read ack=N); write only when you add something
+- a shared file is never rewritten: add a line with python "{{CHAT}}" append FILE "line" --as {{AS}} --room "{{ROOM}}" (the last line of an id wins)
+- the room's rules are numbered on the board (D1, D2...): read them again after a compaction. {n} in a message becomes its own number (for a signature)
+- the pages or items of your task go in its --files, so two tasks never hold the same ones; waiting for a file: wait --until-path PATH (MCP: chat_wait path)
 - when others check a file: post --file PATH adds its name and sha256, the version you mean. Waiting for a run or a download, not for a person: post --idle --external
 
 RULES OF THE CHAT:

@@ -21,7 +21,9 @@ requests and tokens left, when that window resets and the 429s of the last 10 mi
 host, and what the cards show. Nothing is known about a route before its first answer."""
 import email.utils
 import hashlib
+import json
 import math
+import os
 import random
 import re
 import threading
@@ -32,6 +34,7 @@ from spawn import errors
 
 ATTEMPTS, BASE_DELAY, MAX_DELAY, JITTER = 10, 2.0, 60.0, 1.0
 WINDOW = 60.0
+GONE_S = 3600.0                                      # a 404 or a 403 on a route: an hour, not one try per item of the job
 OUT_SHORT = 900.0                                    # a quota with no word on how long: a quarter of an hour, then one try again
 LONG_RETRY = 600.0                                   # a Retry-After past this is a quota, not a wait: the roles change host
 # requests per minute, in flight at once, and whether the provider counts per model ('model') or per key ('key').
@@ -78,14 +81,15 @@ def fingerprint(key):
 
 class _Lane:
     def __init__(self, rpm, concurrency):
-        self.rpm, self.concurrency = rpm, concurrency
+        self.rpm, self.concurrency, self.base_rpm, self.slow_until = rpm, concurrency, rpm, 0.0   # slow_until: a 429 with no word halved rpm
         self.starts, self.inflight = deque(), 0
         self.ready_at, self.probe, self.failures, self.last_error = 0.0, False, 0, None   # the recovery episode
 
 
 class Limiter:
-    def __init__(self, sleep=time.sleep, clock=time.monotonic):
+    def __init__(self, sleep=time.sleep, clock=time.monotonic, path=None):
         self.cond = threading.Condition()
+        self.path, self.path_seen = path, None          # path: hosts out of quota, shared by every process of this user
         self.lanes, self.quota, self.sleep, self.clock = {}, {}, sleep, clock
         self.windows, self.hits, self.seen = {}, {}, set()       # lane name -> {window: {limit, remaining, reset_at}}; route -> 429 times
         self.daily, self.today = {}, {}                          # (provider, key) -> free requests a day; -> [UTC day, requests started]
@@ -106,6 +110,9 @@ class Limiter:
             while True:
                 if stop is not None and stop.is_set():
                     raise errors.ProviderError('stopped', None, None, 'the role was stopped')
+                self._sync()
+                if lane.slow_until and self.clock() >= lane.slow_until:
+                    lane.rpm, lane.slow_until = lane.base_rpm, 0.0
                 if any(self.out.get(n, 0) > time.time() for n in names):
                     raise errors.ProviderError('quota', None, None, 'this host said its quota is over (limiter)')
                 now = self.clock()
@@ -175,9 +182,14 @@ class Limiter:
         lane = self._lane(provider, key, model)
         last = None
         for _ in range(max(1, int(attempts or ATTEMPTS))):
-            if tokens:
-                self._tokens(provider, key, model, tokens, stop)
-            probe = self._admit(lane, stop, (self._name(provider, key, model), (provider, fingerprint(key), model)))
+            try:
+                if tokens:
+                    self._tokens(provider, key, model, tokens, stop)
+                probe = self._admit(lane, stop, (self._name(provider, key, model), (provider, fingerprint(key), model)))
+            except errors.ProviderError as e:
+                if e.kind == 'stopped' and last:           # the cause, not "stopped": what the host said the tries before
+                    raise errors.ProviderError('stopped', last.status, None, f'stopped after {_ + 1} tries, the last: {last.kind} {last.status or ""} {last.detail[:200]}')
+                raise
             self._count(provider, key, model)
             try:
                 out = fn()
@@ -188,8 +200,11 @@ class Limiter:
                 if err.kind in ('rate_limit', 'quota'):
                     with self.cond:
                         self.hits.setdefault((provider, model), deque(maxlen=200)).append(self.clock())
-                if err.kind in ('quota', 'payment'):
+                if err.kind in ('quota', 'payment', 'not_found', 'forbidden'):
                     self._mark_out(provider, key, model, err)
+                if err.kind == 'rate_limit' and err.retry_after is None:
+                    with self.cond:                        # a 429 with no Retry-After: the free tier is tighter than written, half the pace for 10 minutes
+                        lane.rpm, lane.slow_until = max(1, lane.base_rpm // 2), self.clock() + 600
                 if err.kind != 'stream_cut' and err.kind not in errors.RETRYABLE:
                     self._done(lane, probe, None, neutral=not probe)    # not the lane's fault; a probe that got an answer reopens it
                     raise err
@@ -207,19 +222,57 @@ class Limiter:
         counts per model: that model) or when a second model asks for money (one alone may be paid only). shortcut: in this
         process only, so a new process spends one try per host to find out; a file if that ever costs"""
         wall, wide, one = time.time(), self._name(provider, key, model), (provider, fingerprint(key), model)
-        until = (int(wall // 86400) + 1) * 86400 if errors.daily(err) else wall + (err.retry_after or OUT_SHORT)
+        until = (int(wall // 86400) + 1) * 86400 if errors.daily(err) else wall + (GONE_S if err.kind in ('not_found', 'forbidden') else err.retry_after or OUT_SHORT)
         with self.cond:
             paid = self.paid.setdefault(wide[:2], set())
             if err.kind == 'payment':
                 paid.add(model)
             self.out[wide if len(paid) > 1 or (err.kind == 'quota' and errors.daily(err)) else one] = until
+            self._save_out()
             self.cond.notify_all()
+
+    def _sync(self):
+        """what other processes found out (the viewer, a script of the user): the shared file, read again when it changed"""
+        if not self.path:
+            return
+        try:
+            st = self.path.stat().st_mtime_ns
+        except OSError:
+            return
+        if st == self.path_seen:
+            return
+        self.path_seen = st
+        try:
+            got = json.loads(self.path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return
+        now = time.time()
+        for k, until in got.items():
+            n = tuple(k.split('|', 2))
+            if len(n) == 3 and until > now and until > self.out.get(n, 0):
+                self.out[n] = until
+
+    def _save_out(self):
+        if not self.path:
+            return
+        self._sync()
+        now = time.time()
+        data = {'|'.join(n): u for n, u in self.out.items() if u > now}
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(f'.{os.getpid()}.tmp')
+            tmp.write_text(json.dumps(data), encoding='utf-8')
+            os.replace(tmp, self.path)
+            self.path_seen = self.path.stat().st_mtime_ns
+        except OSError:
+            pass
 
     def is_out(self, provider, model, key=None):
         """the host said its quota is over, or wants money"""
         scoped = model if FREE_LIMITS.get(provider, DEFAULT)[2] == 'model' else '*'
         wall = time.time()
         with self.cond:
+            self._sync()
             return any(until > wall and n[0] == provider and n[2] in (scoped, model) and (key is None or n[1] == fingerprint(key))
                        for n, until in self.out.items())
 
@@ -346,7 +399,13 @@ class Limiter:
         return out
 
 
-LIMITER = Limiter()                                  # one per process: the viewer's server of the room
+def out_path():
+    import os as _os
+    from pathlib import Path
+    return Path(_os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'spawn' / 'out.json'
+
+
+LIMITER = Limiter(path=out_path())                   # one per process; what is out of quota is shared through the file
 
 
 def _prova():

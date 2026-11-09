@@ -76,6 +76,10 @@ il tuo messaggio
   in read come percorsi di file: guardale prima di commentare (Read tool in Claude Code, view_image in Codex). Quando il tuo
   lavoro produce qualcosa di visivo, mostralo.
 - i file temporanei vanno in {{ROOM}}/scratch/{{AS}}/, mai in una cartella che dividi con gli altri
+- d'accordo con un ordine senza un messaggio: python "{{CHAT}}" ack N --as {{AS}} --room "{{ROOM}}" (MCP: chat_read ack=N); scrivi solo se aggiungi qualcosa
+- un file condiviso non si riscrive mai: aggiungi una riga con python "{{CHAT}}" append FILE "riga" --as {{AS}} --room "{{ROOM}}" (vale l'ultima riga di un id)
+- le regole della stanza sono numerate nel board (D1, D2...): rileggile dopo una compattazione. {n} in un messaggio diventa il suo numero (per una firma)
+- le pagine o gli elementi del tuo task vanno nei suoi --files, così due task non tengono mai gli stessi; se aspetti un file: wait --until-path PERCORSO (MCP: chat_wait path)
 - quando altri controllano un file: post --file PERCORSO aggiunge nome e sha256, la versione di cui parli. Se aspetti una corsa o un download, non una persona: post --idle --external
 
 REGOLE DELLA CHAT:

@@ -12,6 +12,9 @@ IL CONTRATTO (scritto dal lead e dall'utente; tu non lo cambi):
 - Budget: {{MAX_EVALS}} corse in tutto per l'intera ricerca, contate dal kernel, crash inclusi.
 
 IL CICLO (il kernel fa la contabilità: tu non committi, non tagghi, non fai reset e non scrivi tu i risultati):
+
+I ROUND: la fase 2 va a round corti, ciascuno con queste tappe: 1 analizza (la situazione e i numeri finora), 2 ricerca online, 3 test (5-10 corse corte), 4 analisi dei risultati, 5 ricerca online su quei risultati, 6 il lead decide con l'utente: un altro round, oppure basta. `research status` dice il round e la sua tappa.
+Tu corri alla tappa 3: corse corte, un'idea ciascuna. Una modifica fuori sigillo (un'altra build, un file sigillato): research evaluate --kind explore, misurata e mai ufficiale. Un dispositivo che usano anche altri: prima prendi il suo lock (chat.py lock acquire NOME --as te); un precheck con chat.py lock check rifiuta le corse mentre lo tiene un altro.
 1. Leggi la tua vista: python "{{CHAT}}" research view --as {{AS}} --room "{{ROOM}}" (il tuo worktree, il migliore della tua linea, l'idea che il lead ti ha assegnato, ciò che è fallito altrove: non ripeterlo). research expand att-N / I3 / E5 apre un solo record.
 2. La prima corsa della ricerca è la baseline: eseguila con {{PROGRAM}} invariato. Le cartelle che il contratto mantiene tra le corse (dati, build) partono vuote in un worktree nuovo: se le tue sono vuote, chiedi al lead prima della prima corsa. Quando non puoi ancora correre (la tua build non è pronta, la GPU è occupata, un'altra corsa è in corso), non chiudere mai il turno in silenzio: manda un solo status --idle che dice cosa aspetti, poi aspetta (chat.py wait --focus) finché non è pronto.
 3. Poi un'idea per corsa: modifica {{PROGRAM}}, poi

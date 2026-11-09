@@ -20,7 +20,11 @@ EOF
 ```
 
    Add the user's extra instruction, if there is one, to that message.
-3. Send every agent in the roster the same notice (SendMessage in Claude Code; in Codex send_message, or followup_task if its turn has ended), idle agents included (a message from the lead wakes them too).
+3. Look at `python "CHAT" status --room "ROOM"`: `closing.missing` are the agents that have not answered yet, `closing.gone`
+   the ones whose run already ended. In Claude Code the room hands the CLOSING to the agents it holds: do not SendMessage
+   them (an agent that already finished starts again and reports twice). SendMessage only the `gone` ones that still owe a
+   vote, and tell the user which ones closed without one. In Codex send the notice with send_message, or followup_task if
+   an agent's turn has ended. Then `task close-all --note "the room closed" --as LEAD`, so no task stays taken or open.
 4. Wait for the agents' final reports (in Claude Code they arrive as notifications; in Codex use `wait_agent`; no separate close call is needed), then export the transcript:
 
 ```bash

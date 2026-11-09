@@ -157,6 +157,27 @@ room a window (this room's runs wait), and `research status` lists the runs and 
 
 ## 4. Phase 2: investigation, the loop you run
 
+Phase 2 goes by short rounds, never by a big budget decided before (`--max-evals` is only a ceiling). Each round:
+
+| Step | Who | What |
+|---|---|---|
+| 1. Analyse | you, AUDITOR | the situation and the numbers so far; at the baseline the kernel prints the noise it measured and the `--min-gain` it suggests (twice the noise) |
+| 2. Search the web | SEARCHER, PROPOSER | ideas with their sources, each checked against what the room already measured |
+| 3. Test | WORKER | 5-10 short runs (`--round N` in init, 10 by default); a keep that gains under 10% is measured again by itself before it counts |
+| 4. Read the results | REGISTRAR, AUDITOR | the round's conclusion from its runs; the auditor reads every keep |
+| 5. Search the web | SEARCHER | on those results |
+| 6. Decide | you, with the user | `research round close --decision more --text "..."` opens the next round, `--decision done` lets phase 3 follow |
+
+The first round opens by itself at the first attempt; the kernel refuses an attempt past the round's runs, and `phase next`
+while a round with runs is open. `research status` prints the round and its step. Give the first answer within a few hours.
+A change outside the seal (another build, OpenCL, a sealed file): `research evaluate --kind explore`, measured, never official.
+After a stop of your session (the network, a crash): `research relaunch` lists who to spawn again, with which prompt.
+Repeats in one place: the contract's `--repeats` or the evaluator's own, never both (3 x 4 made 30-minute runs); the
+kernel says how long a smoke and the baseline took. A device several agents use (a headset, a board): a shared lock,
+`chat.py lock acquire NAME`, and a precheck with `chat.py lock check NAME --as $CHATROOM_BY --room $CHATROOM_ROOM`, so a run
+waits while another holds it. Your OK given in the chat does not reach the agents' permission rules: add the rule, or run
+that command yourself. Start the relay from outside the room folder.
+
 1. The first run of the research is the baseline (a worker runs the program unchanged; the evaluator gets
    `CHATROOM_BASELINE=1`, to write the references only that run needs). Its cycle needs no idea:
    `research assign W1 --parent base --type optimizer`.

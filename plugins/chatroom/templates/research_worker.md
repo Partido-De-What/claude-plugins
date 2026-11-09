@@ -18,6 +18,9 @@ THE CONTRACT (written by the lead and the user; you do not change it):
 - Budget: {{MAX_EVALS}} runs in all for the whole research, counted by the kernel, crashes included.
 
 THE LOOP (the kernel does the bookkeeping: you never commit, tag, reset or write the results yourself):
+
+THE ROUNDS: phase 2 goes by short rounds, each with these steps: 1 analyse (the situation and the numbers so far), 2 search the web, 3 test (5-10 short runs), 4 read the results, 5 search the web on them, 6 the lead decides with the user: another round, or done. `research status` says the round and its step.
+You run at step 3: short runs, one idea each. A change outside the seal (another build, a sealed file): research evaluate --kind explore, measured and never official. A device others use too: take its lock first (chat.py lock acquire NAME --as you); a precheck with chat.py lock check refuses runs while another holds it.
 1. Read your view: python "{{CHAT}}" research view --as {{AS}} --room "{{ROOM}}" (your worktree, your line's best, the idea
    the lead assigned you, what failed elsewhere: do not repeat it). research expand att-N / I3 / E5 opens one record.
 2. The first run of the research is the baseline: run it with {{PROGRAM}} unchanged. Folders the contract keeps between

@@ -120,14 +120,17 @@ def _say(room, key, **f):
 
 
 # ------------------------------------------------------------------ catalog and tokens
-def routes_of(canonical, cat=None):
-    """the hosts of a model in the catalog, free ones with tools first, the fastest ping first"""
+def routes_of(canonical, cat=None, need=None):
+    """the hosts of a model in the catalog, free ones with tools first, the fastest fresh ping first; need='image': only
+    hosts that read pictures (said by the provider, or by spawn ping --vision)"""
     from spawn.catalog import catalog
     cat = cat or catalog.load()
     m = next((m for m in cat['models'] if m['canonical'] == canonical), None)
     tries = ((m or {}).get('probe') or {}).get('tries') or {}      # a host the probe found refusing (no credits, gone): never
-    rs = [r for r in (m or {}).get('routes', []) if r.get('free') and r.get('tools') is not False and tries.get(r['adapter']) not in catalog.DEAD]
-    return sorted(rs, key=lambda r: (not (r.get('ping') or {}).get('ok'), (r.get('ping') or {}).get('ms') or 10 ** 6))
+    rs = [r for r in (m or {}).get('routes', []) if r.get('free') and r.get('tools') is not False and tries.get(r['adapter']) not in catalog.DEAD
+          and (not need or need in (r.get('modalities') or []) or (r.get('vision') or {}).get('ok'))]
+    fresh = lambda p: p if p and time.time() - float(p.get('at') or time.time()) < 86400 else {}   # a ping of last week says little
+    return sorted(rs, key=lambda r: (not fresh(r.get('ping')).get('ok'), fresh(r.get('ping')).get('ms') or 10 ** 6))
 
 
 def best_route(room, canonical, name=None, exclude=()):
@@ -174,10 +177,12 @@ def _encoder():
 
 def tokens(messages):
     """an estimate of the tokens of a history: tiktoken's cl100k when it loads, else 4 characters a token"""
+    from spawn.providers.openai_compat import IMAGE, IMAGE_TOKENS
     text = json.dumps(messages, ensure_ascii=False)
+    images, text = len(IMAGE.findall(text)), IMAGE.sub('', text)    # a picture is not its base64: that faked a full context
     if not _ENC:
         _ENC.append(_encoder())
-    return len(_ENC[0].encode(text, disallowed_special=())) if _ENC[0] else len(text) // 4
+    return (len(_ENC[0].encode(text, disallowed_special=())) if _ENC[0] else len(text) // 4) + IMAGE_TOKENS * images
 
 
 # ------------------------------------------------------------------ the tools

@@ -8,6 +8,9 @@ The program: {{PROGRAM}}. The evaluator: `{{EVALUATE}}`. The metric: {{METRIC}},
 YOUR JOB: nothing is believed until you checked it. You never edit the program and never run research evaluate. You
 judge the gates, check every kept attempt, and withdraw what does not hold. Your verdicts go through the kernel.
 
+
+THE ROUNDS: phase 2 goes by short rounds, each with these steps: 1 analyse (the situation and the numbers so far), 2 search the web, 3 test (5-10 short runs), 4 read the results, 5 search the web on them, 6 the lead decides with the user: another round, or done. `research status` says the round and its step.
+At step 4 read every keep of the round; your answer_ready or search_more is what the lead weighs at step 6.
 1. Read what your role needs: python "{{CHAT}}" research view --as {{AS}} --room "{{ROOM}}" (the keeps to check, the
    detectors, the live evidence); research expand att-N for one attempt.
 2. Every KEEP: read its change, git show <its tag> in the research worktree. Look for a gain that is not real:

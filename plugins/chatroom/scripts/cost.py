@@ -114,15 +114,16 @@ def room_costs(room):
 
 def table(costs, leads=()):
     """the lines of chat.py cost; a lead has its row but stays out of the total: its session runs every room it leads"""
-    rows = [f"{'who':12} {'requests':>8} {'eq tokens':>11} {'out':>8} {'rewrites':>8} {'protocol':>8} {'context':>8}"]
+    rows = [f"{'who':12} {'requests':>8} {'eq tokens':>11} {'out':>8} {'rewrites':>8} {'wait':>6} {'chat':>6} {'context':>8} {'compact':>7}"]
     total = 0.0
     for name, t in sorted(costs.items(), key=lambda kv: -(kv[1] or {}).get('eq', 0)):
         if not t:
             rows.append(f'{name:12} n/a')
             continue
         total += 0 if name in leads else t['eq']
+        share = (lambda x: 100 * x / t['eq'] if t['eq'] else 0)
         rows.append(f"{name:12} {t['requests']:>8} {t['eq'] / 1e6:>10.2f}M {t['out'] / 1e3:>7.0f}k {t['rewrites']:>8} "
-                    f"{100 * t['protocol_eq'] / t['eq'] if t['eq'] else 0:>7.0f}% {t['context'] / 1e3:>7.0f}k")
+                    f"{share(t.get('wait_eq', 0)):>5.0f}% {share(t['protocol_eq'] - t.get('wait_eq', 0)):>5.0f}% {t['context'] / 1e3:>7.0f}k {t.get('compactions', 0):>7}")
     rows.append(f"{'total':12} {'':>8} {total / 1e6:>10.2f}M")
     return rows
 
@@ -136,7 +137,7 @@ def checks(costs):
         if t['rewrites'] >= 3:
             out.append((f'rewrites:{name}:{t["rewrites"] // 3}', name, 'rewrites', t['rewrites']))
         if t.get('compactions', 0) >= 2:
-            out.append((f'compactions:{name}', name, 'compactions', t['compactions']))     # once: it is the normal pace of a long job
+            out.append((f"compactions:{name}:{t['compactions'] // 4}", name, 'compactions', t['compactions']))     # again every 4: 13 in one night is not the normal pace
         spent = t['eq'] - t['wait_eq']                    # a wait is the room's cost of waiting, not chatter to cut
         share = (t['protocol_eq'] - t['wait_eq']) / spent if spent else 0
         if share > 0.5 and t['requests'] >= PROTOCOL_MIN:

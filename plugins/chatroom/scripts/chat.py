@@ -433,17 +433,64 @@ def waits_for_lead(room, items=None, only=None, now=None):
     is a message or an idle that names the lead, not an acknowledgement, and the lead has written nothing for it since"""
     items, c = room.messages() if items is None else items, room.config()
     leads, users, now, out = c.get('self_names', []), room.user_names(), now or time.time(), []
+    if is_shut(room, items) or winding(room, items):   # a closing: every answer to it is an acknowledgement
+        return out
     for k in [only] if only else c.get('participants', []):
         m = next((x for x in reversed(items) if x['from'] == k and x.get('kind') != 'board'), None)
         if k in c.get('left', []) or not m or m.get('kind') not in (None, IDLE):
             continue
         text = m.get('text', '')
-        if not any(names(text, n) for n in leads) or is_ack(text):
-            continue
+        if not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
+            continue                                  # a report to the lead is no question: 49 of 55 such CHECKs were noise
         said = [x.get('text', '') for x in items if x['n'] > m['n'] and x['from'] in users and not x.get('kind')]
         if not any(tags(t, k) or tags_everyone(t) or not re.search(r'(?<![\w.])@\w', t) for t in said):
             out.append((k, m['n'], (now - float(m.get('ts') or now)) / 60, ' '.join(text.split())[:120]))
     return out
+
+
+READ_MAX = 40             # new messages past which a plain read gives the digest (155k characters re-read by a lead after a compaction)
+LEAD_CTX = 300_000        # tokens of the lead's context: past this, recap and a fresh start cost less than every turn
+
+
+def cut(text, n):
+    """text up to n characters, cut at a word with an ellipsis: a closing card cut mid-word was written again by hand"""
+    text = text or ''
+    return text if len(text) <= n else text[:n].rsplit(' ', 1)[0].rstrip(',;:') + '…'
+
+
+def file_sha(path):
+    import hashlib
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ''
+
+
+def free_tasks(room, name, board=None, items=None):
+    """open tasks someone could take now (dependencies done, not assigned to another, files free): ids"""
+    b = Board(room)
+    data, items = board or b.load(), room.messages() if items is None else items
+    return [t['id'] for t in data['tasks'] if t['state'] == 'open' and t.get('assigned_to') in (None, name)
+            and not b.blockers(data, t, name or '', items)]
+
+
+def deadline_line(room):
+    """'now 02:30+0100 (01:30 UTC), deadline 03:15+0100, in 45 min' when the lead set one, else ''"""
+    try:
+        when = float(room.config().get('deadline') or 0)
+    except (TypeError, ValueError):
+        return ''
+    if not when:
+        return ''
+    now = time.time()
+    return say('chat.say.deadline.line', now=time.strftime('%H:%M%z'), utc=time.strftime('%H:%M', time.gmtime(now)),
+               at=time.strftime('%H:%M%z', time.localtime(when)), minutes=int((when - now) // 60)) + '\n'
+
+
+def relay_command(room, name):
+    """the relay to start again, as a background shell command (no 30-minute cap, its exit wakes the lead)"""
+    return (f'python "{Path(__file__).resolve().as_posix()}" alerts --room "{Path(room.dir).resolve().as_posix()}" --as {name} '
+            '--follow --messages --until-line --batch 60')
 
 
 def relay_down(room):
@@ -750,7 +797,7 @@ def parse_profile(text):
     return name, clean_profile(profile)
 
 
-ACK_HEAD = re.compile(r"(?:[↪\s,:.]|#\d+|@\S+|STATUS\s+\d+\s?%)*(?:ricevut[oa]|capito|ok(?:ay)?|received|got it|understood|roger)\b", re.IGNORECASE)
+ACK_HEAD = re.compile(r"(?:[↪\s,:.]|#\d+|@\S+|STATUS\s+\d+\s?%)*(?:ricevut[oa]|capito|ok(?:ay)?|received|got it|understood|roger|lett[oi]|vist[oi]|pres[oi]|fatto|d'accordo|seen|noted|done|agreed)\b", re.IGNORECASE)
 NOT_ACK = re.compile(r"\?|\b(?:ma|per[oò]|but|however|bloccat[oaie]|blocked|non posso|cannot|can't|errore|error|fallit[oaie]|failed)\b", re.IGNORECASE)
 
 
@@ -1038,7 +1085,7 @@ class Room:
             if status == IDLE and self.idle_entry(name, items):
                 return None                   # already idle: checked under the lock, so two idles cannot race
             n = len(items) + 1
-            entry = {'n': n, 'time': time.strftime('%H:%M:%S'), 'ts': time.time(), 'from': name, 'text': text}
+            entry = {'n': n, 'time': time.strftime('%H:%M:%S'), 'ts': time.time(), 'from': name, 'text': text.replace('{n}', str(n))}
             if status:
                 entry['kind'] = IDLE if status == IDLE else status if status in ('board', 'finding', 'card', *SETUP_KINDS) else 'status'
             if state:
@@ -1139,7 +1186,8 @@ class Room:
                 print(say('chat.say.show.message_from_the_lead'))
             elif m['from'] in users:
                 print(say('chat.say.show.message_from_the_user'))
-            print(f"--- #{m['n']} {m['time']} {m['from']}{tag}:\n{short.get(m['n'], m['text'])}", flush=True)
+            zone = time.strftime('%z', time.localtime(m['ts'])) if m.get('ts') else ''
+            print(f"--- #{m['n']} {m['time']}{zone} {m['from']}{tag}:\n{short.get(m['n'], m['text'])}", flush=True)
             if m.get('doc'):
                 from share import doc_path
                 p = doc_path(self.dir, m['doc'])
@@ -1208,9 +1256,16 @@ class Room:
     def read(self, name, focus=False):
         items = self.messages()
         self.timer_warning(name, items)
-        items = [m for m in items if m['n'] > self.cursor(name)]
+        print(deadline_line(self), end='')
+        start = self.cursor(name)
+        if name in self.config().get('self_names', []):     # a lead has from its relay what was delivered: not news again
+            start = max(start, self.delivered(name))
+        items = [m for m in items if m['n'] > start]
         if not items:
             return print(say('chat.say.read.no_new_messages'))
+        if not focus and len(items) > READ_MAX:
+            print(say('chat.say.read.digest_now', n=len(items)))
+            focus = True
         self.set_cursor(name, items[-1]['n'])
         items = [m for m in items if m['from'] != name]    # your own messages are not news to you
         if not items:
@@ -1239,15 +1294,20 @@ class Room:
                 if not m.get('kind') and PLAN_WORD.search(m.get('text', '')):
                     print(f"  #{m['n']} {m['from']}: {m['text'].strip().splitlines()[0][:160]}", flush=True)
 
-    def wait(self, name, timeout, focus=False, cancel=None):
-        """wait, marked as waiting meanwhile: a message for an agent in wait needs no ping (it sees the chat file)"""
+    def wait(self, name, timeout, focus=False, cancel=None, until=None):
+        """wait, marked as waiting meanwhile: a message for an agent in wait needs no ping (it sees the chat file);
+        until: a path, the wait ends when it appears or changes"""
+        if name not in self.user_names():
+            budget, used = call_budget(self), sum(self.counters().get(name, {}).values())
+            if budget and used >= 1.5 * budget:
+                return print(say('chat.say.wait.budget_over', used=used, budget=budget))
         mark = self.dir / f'waiting_{name}.txt'
         try:
             mark.write_text(f'{time.time() + min(timeout, self.idle_wait_max(name)) + 5:.0f} {os.getpid()}')
         except OSError:
             pass
         try:
-            return self._wait(name, timeout, focus, cancel)
+            return self._wait(name, timeout, focus, cancel, until)
         finally:
             try:
                 mark.unlink()
@@ -1263,16 +1323,19 @@ class Room:
         except (OSError, ValueError):
             return False
 
-    def _wait(self, name, timeout, focus=False, cancel=None):
+    def _wait(self, name, timeout, focus=False, cancel=None, until=None):
         """focus: what wakes it is shown as read --focus shows it (in full only what concerns you); cancel: an Event the
         MCP server sets when the client gives up on the call, so the messages are not consumed by an answer nobody reads"""
         items = self.messages()
         idle = self.idle_entry(name, items)
         timeout = max(1, min(timeout, self.idle_wait_max(name) if idle else WAIT_MAX))
         start, limit, users = time.time(), self.heartbeat(), self.user_names()
+        was = _stamp(Path(until)) if until else None
         while True:
             if cancel is not None and cancel.is_set():
                 return
+            if until and _stamp(Path(until)) != was:
+                return print(say('chat.say.wait.path_changed', path=until))
             cursor = self.cursor(name)
             new = [m for m in items if m['n'] > cursor and m['from'] != name]
             idle = self.idle_entry(name, items)
@@ -1449,6 +1512,9 @@ def cmd_post(room, a, text=None):
         text = state_line(state)
     if getattr(a, 'file', None):
         text = (text + '\n' if text else '') + file_stamp(a.file)
+    for g, members in (room.config().get('groups') or {}).items():   # @arbitri reaches its members, and only them
+        if tags(text, g):
+            text = re.sub(rf'(?<![\w@])@{re.escape(g)}(?![\w-])', lambda m: f"{m[0]} ({' '.join('@' + x for x in members)})", text, count=1, flags=re.IGNORECASE)
     if a.name in room.user_names():                   # the lead's clock is a guess: chat.py writes the hour
         text = text.replace('{ora}', time.strftime('%H:%M')).replace('{time}', time.strftime('%H:%M'))
     if kind and not text:
@@ -1529,16 +1595,24 @@ def cmd_post(room, a, text=None):
             print(f"  #{m['n']} {m['from']}: {body[:400]}" + (' [...]' if len(body) > 400 else ''))
     if kind == IDLE:
         print(say('chat.say.cmd_post.you_are_now_idle', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
+        free = free_tasks(room, a.name)
+        if free:                                      # work nobody holds: before waiting, take one
+            print(say('chat.say.cmd_post.free_tasks', ids=', '.join(free[:6])))
         if idle_life.is_on(room, settings()):         # life in idle: say once how to see the office and choose a place
             print(say('idle.hint', name=a.name))
         return
     if was_idle:
         print(say('chat.say.cmd_post.you_are_no_longer'))
+    if kind == 'status':
+        prev = [m for m in room.messages() if m['from'] == a.name and m.get('kind') == 'status' and m['n'] != n][-1:]
+        p0, p1 = (re.search(r'(\d{1,3})\s?%', x) for x in ((prev[0]['text'] if prev else ''), text))
+        if prev and p0 and p1 and time.time() - prev[0]['ts'] < 300 and abs(int(p1[1]) - int(p0[1])) < 10:
+            print(say('chat.say.cmd_post.status_soon'))     # read by every agent: a status is worth a real change
     if kind:
         return
     print_alert(room, a.name, n, text, images)
     if a.name in room.config().get('self_names', []) and relay_down(room):
-        print(say('chat.say.cmd_post.relay_off'))
+        print(say('chat.say.cmd_post.relay_off', cmd=relay_command(room, a.name)))
     stuck = waiting_names(room)
     for k in stuck:
         if k != a.name and k in recipients(room, {'from': a.name, 'text': text}):
@@ -1603,13 +1677,15 @@ def parse_state(text):
         elif kind is list:
             out[k] = [str(x)[:200] for x in (v if isinstance(v, list) else [v])][:20]
         else:
-            out[k] = str(v)[:300]
+            v = ', '.join(map(str, v)) if isinstance(v, list) else str(v)   # a list in the line, not its Python repr
+            out[k] = v if len(v) <= 300 else cut(v, 300)
     return out
 
 
 def state_line(st):
     """the readable line of a structured status: task: step (pct%) · files · blocked by · next · needs"""
-    line = f"{st.get('task', '')}: {st.get('step', '')} ({st['pct']}%)".lstrip(': ')
+    line = ': '.join(x for x in (st.get('task'), st.get('step')) if x) + f" ({st['pct']}%)"
+    line = line.lstrip()
     if st.get('files'):
         line += ' · ' + ', '.join(st['files'])
     for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs'):
@@ -1949,7 +2025,13 @@ class Board:
             return False
         age, spent = self.room.silence(who, items), None if since is None else time.time() - since
         age = spent if age is None else age if spent is None else min(age, spent)
-        return age is not None and age > LEASE_HEARTBEATS * self.room.heartbeat()
+        if age is None or age <= LEASE_HEARTBEATS * self.room.heartbeat():
+            return False
+        p = agent_file(self.room.roster().get(who))   # it works with its tools and does not post: it still holds its task
+        try:
+            return not (p and time.time() - p.stat().st_mtime < LEASE_HEARTBEATS * self.room.heartbeat())
+        except OSError:
+            return True
 
     def blockers(self, b, t, name, items):
         """why `name` cannot take t now: [] when it can"""
@@ -2034,14 +2116,19 @@ class Board:
             if out and not force:
                 raise ValueError(say('chat.err.fn.has_pieces_still_lent', id=t['id'], out=', '.join(out)))
             t.update(owner=name, state='done', proof=proof[:PROOF_MAX], ts=time.time(), rule=2)   # rule 2: closed with an artifact
+            here = Path(t.get('cwd') or os.getcwd())
+            t['shas'] = {f: file_sha(here / f) for f in t['files'] if (here / f).is_file()}
+            missing = [f for f in t['files'] if not f.endswith('/') and not (here / f).exists()]
             if gaps:
                 t['gaps'] = gaps[:PROOF_MAX]
             if extra:
                 t['extra_files'] = extra[:30]
             freed = [o['id'] for o in b['tasks'] if o['state'] == 'open' and t['id'] in o['deps']
                      and all(self.find(b, d)['state'] == 'done' for d in o['deps'])]
-            return (say('chat.say.fn.done_by', id=t['id'], name=name, title=t['title'][:100]) + (say('chat.say.fn.proof', proof=proof[:160]) if proof else '')
-                    + (say('chat.say.fn.not_done', gaps=gaps[:160]) if gaps else '') + (say('chat.say.fn.now_free', freed=", ".join(freed)) if freed else ''))
+            return (say('chat.say.fn.done_by', id=t['id'], name=name, title=cut(t['title'], 100))
+                    + (say('chat.say.fn.not_done', gaps=gaps[:PROOF_MAX]) if gaps else '') + (say('chat.say.fn.proof', proof=cut(proof, 200)) if proof else '')
+                    + (say('chat.say.fn.now_free', freed=", ".join(freed)) if freed else '')
+                    + (say('chat.say.fn.missing_files', files=', '.join(missing[:5])) if missing else ''))
         return self.change(fn)
 
     def amend(self, name, tid, files, force=False):
@@ -2232,10 +2319,14 @@ class Board:
         write_atomic(d / f"{t['id']}.md", '\n'.join(out) + '\n')
         return d / f"{t['id']}.md"
 
-    def decide(self, name, text):
+    def decide(self, name, text, ref=None):
+        """a rule of the room: numbered on the board and in ROOM/CONVENZIONI.md, read again after a compaction"""
         def fn(b):
-            b['decisions'] = (b['decisions'] + [{'text': text[:300], 'by': name, 'ts': time.time()}])[-50:]
-            return say('chat.say.fn.decision_by', name=name, text=text[:180])
+            k = max((d.get('k', 0) for d in b['decisions']), default=len(b['decisions'])) + 1
+            b['decisions'] = (b['decisions'] + [{'k': k, 'text': text[:600], 'by': name, 'ts': time.time(), 'ref': ref}])[-200:]
+            with open(self.room.dir / 'CONVENZIONI.md', 'a', encoding='utf-8') as f:
+                f.write(f"- D{k} {time.strftime('%Y-%m-%d %H:%M')} {name}" + (f' ({ref})' if ref else '') + f": {text}\n")
+            return say('chat.say.fn.decision_by', name=name, text=f'D{k} ' + cut(text, 180))
         return self.change(fn)
 
     def fact(self, name, text):
@@ -2250,9 +2341,9 @@ class Board:
         b, items = self.load(), self.room.messages()
         lines = ([say('chat.word.facts')] + [f"- {f['text'][:160]} ({f['by']})" for f in b['facts'][-8:]]) if b['facts'] else []
         if b['decisions']:
-            lines += [say('chat.say.show.decisions_latest')] + [f"- {d['text'][:160]} ({d['by']})" for d in b['decisions'][-6:]]
+            lines += [say('chat.say.show.decisions_latest')] + [f"- D{d.get('k', '?')} {cut(d['text'], 200)} ({d['by']})" for d in b['decisions'][-12:]]
         lines.append(say('chat.word.tasks') if b['tasks'] else say('chat.say.show.tasks_none_yet_chat'))
-        for t in sorted((t for t in b['tasks'] if t['state'] != 'done'), key=lambda t: (t['state'] != 'taken', t['ts'])):
+        for t in sorted((t for t in b['tasks'] if t['state'] not in ('done', 'dropped')), key=lambda t: (t['state'] != 'taken', t['ts'])):
             state = say('chat.say.show.in_progress', owner=t['owner']) if t['state'] == 'taken' else say(f"chat.word.state.{t['state']}")
             lines.append(f"{t['id']} [{state}] {t['title'][:120]}"
                          + (say('chat.word.after', deps=', '.join(t['deps'])) if t['deps'] and t['state'] == 'open' else '')
@@ -2362,7 +2453,36 @@ def cmd_task(room, a):
     elif act == 'fact' and rest:
         line = b.fact(a.name, ' '.join(rest))
     elif act == 'decide' and rest:
-        line = b.decide(a.name, ' '.join(rest))
+        line = b.decide(a.name, ' '.join(rest), getattr(a, 'note', None))
+    elif act == 'suspend' and rest:                   # set aside on purpose: no lease, no hold, anyone takes it up again later
+        def susp(bd):
+            t = Board.find(bd, rest[0])
+            if t['state'] in ('done', 'dropped') or (a.name not in room.user_names() and t['owner'] not in (None, a.name)):
+                raise ValueError(say('chat.err.fn.is_not_yours', id=t['id']))
+            t['notes'] = t['notes'] + [f"suspended by {a.name}: {a.note or '-'}"]
+            t.update(owner=None, state='suspended', ts=time.time())
+            return say('chat.say.fn.suspended', id=t['id'], name=a.name, note=a.note or '-')
+        line = b.change(susp)
+    elif act == 'close-all':                          # the room ends: nothing left looking taken or open
+        if a.name not in room.user_names() or not a.note:
+            sys.exit(say('chat.err.cmd_task.close_all'))
+
+        def close_all(bd):
+            ids = [t['id'] for t in bd['tasks'] if t['state'] not in ('done', 'dropped')]
+            for t in bd['tasks']:
+                if t['id'] in ids:
+                    t['notes'] = t['notes'] + [f"dropped by {a.name}: {a.note}"]
+                    t.update(owner=None, state='dropped', ts=time.time())
+            return say('chat.say.fn.closed_all', n=len(ids), ids=' '.join(ids) or '-', note=a.note)
+        line = b.change(close_all)
+    elif act == 'add-many' and rest:                  # many tasks, one line in the chat (24 cards in a row read by 15 agents)
+        lines = [x for x in Path(rest[0]).read_text(encoding='utf-8').splitlines() if x.strip() and not x.lstrip().startswith('#')]
+        ids = []
+        for x in lines:
+            title, files, deps = (x.split('|') + ['', ''])[:3]
+            b.add(a.name, title.strip(), split(deps), split(files))
+            ids.append(b.load()['tasks'][-1]['id'])
+        line = say('chat.say.fn.added_many', n=len(ids), first=ids[0] if ids else '-', last=ids[-1] if ids else '-', name=a.name)
     elif act in ('handoff', 'help', 'assign', 'offer') and len(rest) > 1:
         want = rest[1].lstrip('@')                    # the name as the room writes it, in any case; a stranger in capitals
         known = [*room.config().get('participants', []), *room.roster()]
@@ -2387,6 +2507,64 @@ def cmd_task(room, a):
     print(f'{line}  (#{n})')
 
 
+def cmd_append(room, a):
+    """chat.py append FILE "line" --as NAME: one line at the end of a shared file, under the room's lock (six agents
+    writing one file lost two corrections): a correction is a new line, the last line of an id wins"""
+    if not a.name or len(a.pairs) < 2:
+        sys.exit(say('chat.err.cmd_append.usage'))
+    path, line = Path(a.pairs[0]), ' '.join(a.pairs[1:]).rstrip('\n')
+
+    def run():
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+            f.flush()
+            os.fsync(f.fileno())
+    room.locked(run)
+    print(say('chat.say.append.done', path=path))
+
+
+def cmd_ack(room, a):
+    """chat.py ack N --as NAME: message #N read and agreed, without a message that 15 agents would read"""
+    if not a.name or not a.pairs or not a.pairs[0].lstrip('#').isdigit():
+        sys.exit(say('chat.err.cmd_ack.usage'))
+    n = int(a.pairs[0].lstrip('#'))
+
+    def run():
+        d = read_json(room.dir / 'acks.json', {})
+        d[str(n)] = sorted(set(d.get(str(n), [])) | {a.name})
+        write_atomic(room.dir / 'acks.json', json.dumps(d))
+    room.locked(run)
+    if n > room.cursor(a.name):
+        room.set_cursor(a.name, n)
+    print(say('chat.say.ack.done', n=n))
+
+
+def cmd_deadline(room, a):
+    """chat.py deadline HH:MM --as LEAD: the cut-off of the room, shown at the top of every read, wait and status"""
+    if a.name not in room.user_names() or not a.pairs or not re.fullmatch(r'\d{1,2}:\d{2}', a.pairs[0]):
+        sys.exit(say('chat.err.cmd_deadline.usage'))
+    h, m = map(int, a.pairs[0].split(':'))
+    now = time.localtime()
+    when = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, h, m, 0, 0, 0, -1))
+    when += 86400 if when < time.time() - 60 else 0
+    room.edit_config(lambda config: config.update(deadline=int(when)))
+    n = room.append(a.name, say('chat.say.deadline.set', line=deadline_line(room).strip()) + ' @all', 'board')
+    print(say('chat.say.posted', n=n))
+
+
+def cmd_group(room, a):
+    """chat.py group NAME A,B --as LEAD: @NAME in a message reaches A and B only (a decision for 3 agents, not 15)"""
+    if a.name not in room.user_names() or len(a.pairs) != 2 or not re.fullmatch(r'[A-Za-z][\w-]{1,30}', a.pairs[0]):
+        sys.exit(say('chat.err.cmd_group.usage'))
+    members = [x.strip() for x in a.pairs[1].split(',') if x.strip()]
+
+    def change(config):
+        config.setdefault('groups', {})[a.pairs[0]] = members
+        return config
+    room.edit_config(change)
+    print(say('chat.say.group.set', name=a.pairs[0], members=', '.join(members)))
+
+
 def cmd_board(room, a):
     """chat.py board: the board in short; board T12: one task in full; board --all: everything"""
     import compress
@@ -2402,6 +2580,13 @@ def cmd_lock(room, a):
     if act == 'status':
         locks.tick()
         return print('\n'.join(locks.lines()) or say('chat.say.lock.none'))
+    if act == 'check' and key:                        # for a precheck: 0 when free or yours, 3 when another holds it
+        locks.tick()
+        l = locks.load().get(key) or {}
+        if l.get('owner') and l['owner'] != a.name and not locks.over(l):
+            print(say('chat.say.lock.busy', lock=key, owner=l['owner']))
+            sys.exit(3)
+        return print(say('chat.say.lock.free', lock=key))
     if act not in ('acquire', 'release') or not key or not a.name:
         sys.exit(say('chat.err.cmd_lock.usage'))
     if act == 'release':
@@ -2453,7 +2638,10 @@ def cmd_spawn(room, a):
         sys.exit(say('chat.err.main.error', exc=exc))
     if a.pairs[:1] == ['ping']:                       # spawn ping [canonical...] [--top N]: who answers now, with its tools, before a round
         from spawn.catalog import catalog
-        rows = catalog.ping(a.pairs[1:] or None, getattr(a, 'top', None))
+        old = catalog.age_days()
+        if old is not None and old > 1:
+            print(say('spawn.ping.old_catalog', days=f'{old:.0f}'))
+        rows = catalog.ping(a.pairs[1:] or None, getattr(a, 'top', None), vision=bool(getattr(a, 'vision', False)))
         for r in rows:
             print(f"{r['model']:<36} {r['host']:<14} {r['s']:>6.1f} s  {r['result']}")
         (room.dir / 'spawn').mkdir(exist_ok=True)
@@ -2479,7 +2667,7 @@ def cmd_expand(room, a):
     print(compress.expand(room, k))
 
 
-INFO_CHECKS = ('gaps:', 'coverage:', 'cost:compactions:', 'cost:protocol:')   # a fact, not a fault: in the relay's digest and in recap, no wake
+INFO_CHECKS = ('gaps:', 'coverage:', 'cost:compactions:', 'cost:protocol:', 'changed:', 'idlefree:')   # a fact, not a fault: in the relay's digest and in recap, no wake
 PROOF_RUN = re.compile(r'\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|\b(?:commit|tests?|pytest|suite)\b', re.IGNORECASE)
 CTX_ROTATE = 150_000      # tokens of one agent's context: each turn reads it all again; past this the lead rotates it
 _AGENT_FILES = {}
@@ -2556,8 +2744,12 @@ def failures(room, now=None):
         if t.get('lender') and t['state'] == 'taken' and not t.get('accepted', True) and t['owner'] != t['lender'] \
                 and time.time() - t.get('lent_ts', 0) > ACCEPT_MIN * 60:
             out.append((f"unaccepted:{t['id']}", say('chat.check.lent_by_to_was', id=t['id'], lender=t['lender'], owner=t['owner'], ACCEPT_MIN=ACCEPT_MIN)))
-        if t['state'] == 'done' and t.get('gaps'):
+        if t['state'] == 'done' and t.get('gaps') and not any(o['ts'] > t['ts'] and o['id'] != t['id'] and re.search(rf"\b{t['id']}\b", o['title'] + ' '.join(o['notes'])) for o in board['tasks']):
             out.append((f"gaps:{t['id']}", say('chat.check.is_closed_with_parts', id=t['id'], gaps=t['gaps'][:120])))
+        for f, sha in (t.get('shas') or {}).items() if t['state'] == 'done' else ():
+            p = Path(t.get('cwd') or '.') / f
+            if p.is_file() and file_sha(p) != sha:     # the proof named this version
+                out.append((f"changed:{t['id']}:{f}:{file_sha(p)[:8]}", say('chat.check.changed_after_done', id=t['id'], f=f)))
     flips = {}
     for m in items:
         if m.get('kind'):
@@ -2589,7 +2781,7 @@ def failures(room, now=None):
         elif not m.get('kind') and m['from'] not in users:
             real_since += 1
     used_board = board['tasks'] or board['facts'] or board['decisions']       # a room that never used the board is not drifting from it
-    if used_board and real_since >= DRIFT_MESSAGES and not research_room:   # there the kernel holds the plan
+    if used_board and real_since >= max(DRIFT_MESSAGES, 6 * len(people)) and not research_room:   # there the kernel holds the plan
         out.append((f"drift:{len(items)//DRIFT_MESSAGES}", say('chat.check.messages_since_the_last', real_since=real_since)))
     active = [k for k in people if k not in config.get('left', [])]
     closed = max((m['n'] for m in items if not m.get('kind') and closing(m.get('text', ''))[0]), default=0) if is_shut(room, items) else 0
@@ -2600,6 +2792,10 @@ def failures(room, now=None):
                             or re.search(r"\b(?:the user|l'utente|dell'utente|all'utente|utente|committente)\b", i.get('text', ''), re.IGNORECASE))
                      for i in idles)                  # waiting for the user (or the lead, by name) is not a stall
     outside = any(i and i.get('external') for i in idles)   # a run or a download will move the room by itself
+    sleepers = [k for k, i in zip(active, idles) if i]
+    free = free_tasks(room, None, board, items)
+    if len(sleepers) >= 2 and free and not is_shut(room, items):
+        out.append((f"idlefree:{len(sleepers)}:{len(free)}", say('chat.check.idle_free', n=len(sleepers), names=', '.join(sleepers[:6]), m=len(free), ids=', '.join(free[:6]))))
     if len(active) > 1 and all(idles) and not waits_user and not outside and not taken and not (closed and closed > plan):
         since = max((m['n'] for m in items if m.get('from') in active and m.get('kind') != IDLE), default=0)
         out.append((f"allidle:{since}", say('chat.check.everyone_is_idle_no')))
@@ -2633,8 +2829,13 @@ def failures(room, now=None):
                 out.append((f"checkpoint:{k}:{mine // every}", say('chat.check.reached_messages_it_asks', k=k, v2=mine // every * every)))
     try:
         import cost                                   # what each agent costs, from its transcript (read incrementally)
-        for key, name, kind, value in cost.checks(cost.room_costs(room)):
+        costs = cost.room_costs(room)
+        for key, name, kind, value in cost.checks(costs):
             out.append((f'cost:{key}', say(f'chat.check.cost_{kind}', k=name, v=value)))
+        for k in config.get('self_names', []):        # the lead too: 913k tokens read again at each of its turns, unseen
+            ctx = (costs.get(k) or {}).get('context') or 0
+            if ctx >= LEAD_CTX:
+                out.append((f'ctx:{k}:{ctx // 100_000}', say('chat.check.lead_context', k=k, ctx=ctx // 1000)))
     except Exception:
         pass
     if not is_shut(room, items) and not winding(room, items):
@@ -2721,7 +2922,8 @@ def write_agents_md(room):
 MCP_TOOLS = [
     {'name': 'chat_read', 'description': 'The new messages of the room. focus=true (default): in full only what concerns you, the rest as a digest. '
                                          'range "A-B": those messages in full (your place moves on only if they are the next unread ones).',
-     'inputSchema': {'type': 'object', 'properties': {'focus': {'type': 'boolean'}, 'range': {'type': 'string'}}}},
+     'inputSchema': {'type': 'object', 'properties': {'focus': {'type': 'boolean'}, 'range': {'type': 'string'},
+                                                      'ack': {'type': 'integer', 'description': 'agree with message #ack without writing a message'}}}},
     {'name': 'chat_post', 'description': 'Post in the room: a message (if it returns pings to send, send them), or a status (status=true, '
                                          'with the percentage, or state as JSON), an idle status (external=true: you wait for a run or '
                                          'something else outside the room), a finding, or a reply to #reply. A tag for you that crossed '
@@ -2735,7 +2937,8 @@ MCP_TOOLS = [
                                                                                    'free_min (minutes you expect to wait still)'}}}},
     {'name': 'chat_wait', 'description': 'Wait for someone to write (up to 110 s; while idle 270 s, 540 s with config cache_ttl=1h). focus=true (default): what '
                                          'arrives is shown as chat_read shows it.',
-     'inputSchema': {'type': 'object', 'properties': {'timeout': {'type': 'integer'}, 'focus': {'type': 'boolean'}}}},
+     'inputSchema': {'type': 'object', 'properties': {'timeout': {'type': 'integer'}, 'focus': {'type': 'boolean'},
+                                                      'path': {'type': 'string', 'description': 'also wake when this file appears or changes'}}}},
     {'name': 'board', 'description': 'The task board in short: open and taken tasks, who does what, the done ones as ids. id: one task in full, with its proof and gaps. all=true: everything, heavy on a long room.',
      'inputSchema': {'type': 'object', 'properties': {'id': {'type': 'string'}, 'all': {'type': 'boolean'}}}},
     {'name': 'task', 'description': 'Change the task board: add (text, files, deps), take (id, force), next (take the first free one), '
@@ -2844,7 +3047,10 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
     try:
         with capture():
             if tool == 'chat_read':
-                if args.get('range'):
+                if args.get('ack'):
+                    ns.pairs = [str(args['ack'])]
+                    cmd_ack(room, ns)
+                elif args.get('range'):
                     first, _, last = str(args['range']).partition('-')
                     room.read_range(int(first.strip().lstrip('#')), int((last or first).strip().lstrip('#')), name)
                 else:
@@ -2861,7 +3067,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 timeout = int(args.get('timeout', 100))
                 if wait_cap and timeout > wait_cap:
                     timeout = wait_cap                # under the client's own limit: the answer always arrives
-                room.wait(name, timeout, bool(args.get('focus', True)), cancel)
+                room.wait(name, timeout, bool(args.get('focus', True)), cancel, args.get('path'))
                 idle_note(room, name)
             elif tool == 'board':
                 ns.pairs, ns.all = [str(args['id'])] if args.get('id') else [], bool(args.get('all'))
@@ -3622,7 +3828,7 @@ def cmd_alerts(room, a):
         once (one wake under Monitor) and goes on"""
         if not spoke or time.time() - spoke[0] < batch:
             return False
-        tail = [say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:140] for l in info[-6:]))] if info else []
+        tail = [say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:200] for l in info[-20:]))] if info else []
         if held or tail:
             print('\n'.join(held + tail), flush=True)
         held.clear(), info.clear(), spoke.clear()
@@ -3713,7 +3919,7 @@ def cmd_alerts(room, a):
         # --until-line: its exit wakes the lead (a background shell, no 30-minute cap); --batch N: what comes within N s joins it
         if not a.follow:
             if until and (info or held):
-                print('\n'.join(held + ([say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:140] for l in info[-6:]))] if info else [])), flush=True)
+                print('\n'.join(held + ([say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:200] for l in info[-20:]))] if info else [])), flush=True)
             return
         if until and due():
             return
@@ -3809,8 +4015,19 @@ def cmd_status(room, a):
     gone = read_json(room.dir / 'gone.json', {})
     turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) else 'waiting' if room.in_wait(k) else 'working' for k in idle}
     lead = [{'name': k, 'message': n, 'minutes': int(minutes), 'text': text} for k, n, minutes, text in waits_for_lead(room, items)]
+    w = winding(room, items)
+    closing_ = {'voted': [k for k in idle if any(m['from'] == k and m['n'] > w and not m.get('kind') for m in items)],
+                'gone': [k for k in idle if turn[k] == 'closed']} if w else None
+    if closing_:
+        closing_['missing'] = [k for k in idle if k not in closing_['voted'] and k not in closing_['gone']]
+    leads = room.config().get('self_names', [])
+    mine = [m['n'] for m in items if m['from'] in leads and not m.get('kind')][-3:]
+    acks = read_json(room.dir / 'acks.json', {})
+    read_by = {n: {'read': [k for k in idle if room.cursor(k) >= n or k in acks.get(str(n), [])],
+                   'not_yet': [k for k in idle if room.cursor(k) < n and k not in acks.get(str(n), [])]} for n in mine}
     print(json.dumps({'total': len(items), 'per_participant': counts, 'seconds_silent': silent, 'idle': idle, 'turn': turn, 'waiting_lead': lead,
-                      'calls': calls, 'budget_calls': int(room.config().get('budget_calls', BUDGET_CALLS)), 'locks': Locks(room).lines()}, ensure_ascii=False))
+                      'closing': closing_, 'read_by': read_by, 'calls': calls, 'budget_calls': call_budget(room),
+                      'deadline': deadline_line(room).strip() or None, 'locks': Locks(room).lines()}, ensure_ascii=False))
 
 
 def cmd_recap(room, a):
@@ -3846,7 +4063,7 @@ def cmd_recap(room, a):
     out += [f"for you: #{m['n']} {m['from']}: {' '.join(m['text'].split())[:160]}" for m in asks[-5:]]
     out += [f"waits for you: {k} #{n}, {int(minutes)} min" for k, n, minutes, _ in waits_for_lead(room, items)]
     if relay_down(room):
-        out.append(say('chat.say.cmd_post.relay_off'))
+        out.append(say('chat.say.cmd_post.relay_off', cmd=relay_command(room, lead)))
     gaps = [f"{t['id']} {' '.join(t['gaps'].split())[:100]}" for t in b['tasks'] if t['state'] == 'done' and t.get('gaps')]
     if gaps:
         out.append(f"gaps ({len(gaps)}): " + ' | '.join(gaps[-10:]))
@@ -4965,7 +5182,7 @@ def main():
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
                                         'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor',
-                                        'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen'])
+                                        'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen', 'ack', 'deadline', 'group', 'append'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -5022,7 +5239,9 @@ def main():
     p.add_argument('--idea', help='research assign/evaluate: the idea (I-number) a cycle or a run works on')
     p.add_argument('--parent', help='research assign: base, best or att-N: where the cycle starts')
     p.add_argument('--type', help='research assign: explorer (a fresh agent, one new idea) or optimizer (the same agent refines)')
-    p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, ablation, baseline, control or repeat')
+    p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), ablation, baseline, control or repeat')
+    p.add_argument('--round', type=int, help='research init: attempts per round (default 10); research round open/close: this round\'s')
+    p.add_argument('--decision', help='research round close: more (the next round opens) or done (phase 3 may follow)')
     p.add_argument('--of', help='research evaluate: what an ablation or baseline is measured against (att-N)')
     p.add_argument('--seed', help='research evaluate: a seed handed to the evaluator as CHATROOM_SEED')
     p.add_argument('--env', help='research plan add: K=V,K2=V2, the environment a planned ablation switches')
@@ -5044,6 +5263,8 @@ def main():
     p.add_argument('--batch', type=int, help='alerts --until-line: after the first line that needs the lead, gather N s more into the same wake')
     p.add_argument('--until-line', action='store_true', help='alerts --follow: return after the first lines (run it as a background shell: its exit wakes the lead)')
     p.add_argument('--top', type=int, help='spawn ping: only the N models highest in the catalog')
+    p.add_argument('--vision', action='store_true', help='spawn ping: send a small picture instead (who reads images)')
+    p.add_argument('--until-path', dest='until_path', help='wait: also end when this file appears or changes (the material you wait for)')
     p.add_argument('--stream', action='store_true', help='alerts --follow: never return; what needs the lead comes in one block every --batch s (default 20), the rest as a digest with it (run it under Monitor)')
     p.add_argument('--external', action='store_true', help='post --idle: you wait for something outside the room (a run, a download), so "everyone is idle" is no stall')
     p.add_argument('--after', help='research queue: start the run only after this one (att-N) is recorded')
@@ -5118,7 +5339,8 @@ def main():
                     'serve': cmd_serve, 'command': cmd_command, 'alerts': cmd_alerts, 'add': cmd_add, 'remove': cmd_remove,
                     'task': cmd_task, 'board': cmd_board, 'check': cmd_check, 'notebook': cmd_notebook, 'mcp': cmd_mcp, 'recap': cmd_recap, 'cost': cmd_cost, 'heavy': cmd_heavy, 'rotate': cmd_rotate, 'lock': cmd_lock, 'reopen': cmd_reopen, 'vision': cmd_vision, 'claims': cmd_claims,
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
-                    'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn}
+                    'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
+                    'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append}
         if a.command in commands:
             return commands[a.command](room, a)
     except ValueError as exc:
@@ -5160,7 +5382,7 @@ def main():
     if a.command == 'read':
         idle_note(room, a.name)
         return room.read(a.name, a.focus)
-    room.wait(a.name, a.timeout, a.focus)                # wait caps the timeout: 110 s, or 270 s while idle
+    room.wait(a.name, a.timeout, a.focus, until=getattr(a, 'until_path', None))   # wait caps the timeout: 110 s, or 270 s while idle
     idle_note(room, a.name)
 
 
