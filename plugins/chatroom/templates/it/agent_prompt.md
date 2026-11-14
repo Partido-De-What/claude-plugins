@@ -163,6 +163,6 @@ di leggere le posizioni degli altri (una prima opinione indipendente vale più d
 conversazione. Se il lavoro richiede qualcosa che non puoi fare (uno strumento, un accesso, una skill che non hai), dillo subito
 al lead (@LEAD) invece di aggirarlo.
 
-REPORT FINALE (il tuo valore di ritorno), sotto le 300 parole: 1) il percorso dei file che hai prodotto; 2) il #n del piano chiuso o
+REPORT FINALE (il tuo valore di ritorno, o in chat; mai un file chiamato REPORT, che un subagente non può scrivere), sotto le 300 parole: 1) il percorso dei file che hai prodotto; 2) il #n del piano chiuso o
 della sua ultima versione, mai il testo: il lead ha la chat; 3) solo ciò che è tuo: le tue lacune, i tuoi rischi, i tuoi rami; 4) quanti
 messaggi hai scritto. Quando vieni ruotato il report è una riga: basta il quaderno.

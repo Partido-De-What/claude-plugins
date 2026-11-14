@@ -180,7 +180,9 @@ PERCENT = re.compile(r'\d[^\S\n]?%')
 _END = r'[*_]*(?!\s*[^\W\d_])'
 PLAN_RE = re.compile(r'(?:PLAN|PIANO)\s*v(\d+)' + _END, re.IGNORECASE)
 VOTE_RE = re.compile(r'(?:VOTE|VOTO)\s*v?(\d+)\s*[*_]*\s*:\s*[*_]*\s*(yes|s[iì]|no)(?![^\W_])', re.IGNORECASE)
-CLOSED_RE = re.compile(r'(?:CLOSED|CHIUSO)(?:\s*[vV](\d+))?' + _END)   # in capitals: "Closed the first point" is a sentence
+# in capitals: "Closed the first point" is a sentence. With a version anything may follow ("CLOSED v1 PLAN v1 approved",
+# "CLOSED PLAN v2 = ..."); without one, no word may (the room stayed open on both forms, its agents held)
+CLOSED_RE = re.compile(r'(?:CLOSED|CHIUSO)(?:\s*[vV](\d+)\b[*_]*|\s+(?:PLAN|PIANO)\s*[vV](\d+)\b[*_]*|' + _END + ')')
 # a line that quotes somebody: it opens (after a reply mark and tags) with >, a quotation mark, a backtick or a bracket
 QUOTED = re.compile(r'^\s*(?:↪\s*#\d+\s*)?(?:@[\w-]+[\s,:]*)*[>"“”«‘’\'`(]')
 # before the words: a reply mark, tags, a list number, and any symbols (markdown, emoji, brackets)
@@ -226,7 +228,8 @@ def closing(text):
     """(True, N or None) if the message opens with a CLOSED / CHIUSO heading (capitals, optionally vN), else (False, None)"""
     first = heads(text)[:1]
     m = CLOSED_RE.match(first[0]) if first else None
-    return (True, int(m.group(1)) if m and m.group(1) else None) if m else (False, None)
+    v = m and (m.group(1) or m.group(2))
+    return (True, int(v) if v else None) if m else (False, None)
 
 
 CLOSING_CALL = re.compile(r'(?:CLOSING|CHIUSURA)\b')
@@ -360,6 +363,13 @@ def lock_owner_alive(owner):
         return pid_alive(int(owner.read_text().split()[0]))
     except (OSError, ValueError, IndexError):
         return True
+
+
+def voted_latest(room, name, items=None):
+    """`name` voted on the latest version of the plan: its part is done, whatever the room does next"""
+    items = room.messages() if items is None else items
+    v = max((plan_version(m.get('text', '')) or 0 for m in items if not m.get('kind')), default=0)
+    return bool(v) and name in votes_on(room, v, items)[1]
 
 
 def votes_on(room, v, items=None):
@@ -1563,7 +1573,10 @@ def cmd_post(room, a, text=None):
             room.mark_delivered(a.name, missed[-1])
         else:
             room.read(a.name, True)
-        sys.exit(say('chat.err.cmd_post.crossed', ns=', '.join(f'#{x}' for x in missed[:8])))
+        draft = room.dir / 'drafts' / f'{a.name}.txt'
+        draft.parent.mkdir(exist_ok=True)
+        draft.write_text(text, encoding='utf-8')         # a reply never posted ended up only in the CLOSED: the hold reminds it
+        sys.exit(say('chat.err.cmd_post.crossed', ns=', '.join(f'#{x}' for x in missed[:8]), path=draft))
     try:
         images = [room.store_image_file(p, i) for i, p in enumerate(a.image or [])]
     except ValueError as exc:
@@ -1588,6 +1601,9 @@ def cmd_post(room, a, text=None):
                 pass
         sys.exit(say('chat.err.cmd_post.error_you_already_said2', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
     print(say('chat.say.posted', n=n) + (say('chat.say.posted_images', images=len(images)) if images else ''))
+    if not kind:
+        for f in (room.dir / 'drafts').glob(f'{a.name}.*') if (room.dir / 'drafts').is_dir() else ():
+            f.unlink(missing_ok=True)                 # posted: the draft is done
     if missed:
         print(say('chat.say.unread_for_you', ns=', '.join(f'#{x}' for x in missed[:8])))
         for m in [m for m in room.messages() if m['n'] in missed[:5]]:   # their text here: no read just to see them
@@ -2843,7 +2859,7 @@ def failures(room, now=None):
             if minutes >= LEAD_WAIT_MIN:                  # asked again each half hour: the agent stays stopped until the lead answers
                 out.append((f'lead:{k}:{n}:{int(minutes) // 30}', say('chat.check.waits_lead', k=k, n=n, minutes=int(minutes), text=text)))
         for k, n in read_json(room.dir / 'gone.json', {}).items():    # hold.py: it left with no idle and nothing declared
-            if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n:
+            if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n and not voted_latest(room, k, items):
                 out.append((f'gone:{k}:{n}', say('chat.check.gone', k=k, n=n)))
         import cost
         for k, aid in room.roster().items():          # no hook saw it go (a kill, Codex): it holds a task and its transcript stopped

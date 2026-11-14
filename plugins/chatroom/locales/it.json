@@ -1933,7 +1933,7 @@
  "chat.check.gone": "{k} ha chiuso la sua corsa con la stanza aperta, senza idle e senza task presi (ultimo suo messaggio #{n}): se c'era lavoro da fare, riprendilo o mettilo sulla bacheca",
  "chat.check.silent": "{k} ha {ids} ma la sua corsa tace da {minutes} minuti e niente la tiene: probabilmente è finita; riprendilo o riassegna",
  "chat.say.cmd_post.already_idle": "Sei già in attesa da #{n}: non è stato scritto nulla e non si è perso nulla. Chiudi il turno: la stanza ti consegna ciò che arriva.",
- "chat.err.cmd_post.crossed": "error: {ns} ha incrociato il tuo messaggio ed è qui sopra, ora letto. Non è stato scritto nulla: se il tuo testo vale ancora riposta lo stesso, passerà.",
+ "chat.err.cmd_post.crossed": "error: NON PUBBLICATO: {ns} ha incrociato il tuo messaggio ed è qui sopra, ora letto. Il tuo testo è tenuto in {path}: ripostalo se vale ancora (passerà), o di' perché no.",
  "chat.err.cmd_post.no_file": "error: non c'è il file {path}. Non è stato scritto nulla.",
  "chat.say.cmd_post.relay_off": "!!! il tuo relay non gira: niente ti sveglia finché non lo rilanci, come comando di shell in background:\n  {cmd}",
  "chat.check.waits_lead": "{k} ti aspetta da {minutes} minuti (#{n}): {text}",
@@ -1995,5 +1995,6 @@
  "chat.say.append.done": "una riga aggiunta a {path}",
  "chat.word.state.suspended": "sospeso",
  "chat.word.state.dropped": "lasciato",
- "spawn.ping.old_catalog": "Il catalogo ha {days} giorni: alcune rotte possono non esserci più. Aggiornalo dalla vista Spawn (Aggiorna) prima di un giro lungo."
+ "spawn.ping.old_catalog": "Il catalogo ha {days} giorni: alcune rotte possono non esserci più. Aggiornalo dalla vista Spawn (Aggiorna) prima di un giro lungo.",
+ "chat.say.hold.draft": "Il tuo messaggio NON è stato pubblicato, {name}: un tag l'ha incrociato. Eccolo; ripostalo se vale ancora, o di' perché no:\n{text}"
 }

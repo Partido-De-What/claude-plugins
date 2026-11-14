@@ -22,6 +22,8 @@ POLL = 2
 ROOM_IDLE = 6 * 3600           # a room whose chat has not moved for six hours holds nobody
 REASON_MAX = 6000              # characters of messages in a reason; past it the agent reads the rest
 REPORT_MIN = 200               # last words shorter than this are not a report ("waiting for CLOSED")
+HANDBACK_MAX = 2               # reports put off at most this often: the third goes through (a room never closed kept them forever)
+EMPTY_MAX = 3                  # turns in a row with nothing new: then it reports and goes (an idle woken every 9 minutes for hours)
 
 
 def candidates():
@@ -101,10 +103,12 @@ def handback(ev):
     import chat
     room = chat.Room(key)
     why = waits(room, name)
-    if closed(room) or done_closing(room, name):
+    if closed(room) or done_closing(room, name) or chat.voted_latest(room, name):
         return None
     if not why:
         left(room, name)
+        return None
+    if bump(room, f'handback_{name}') > HANDBACK_MAX:
         return None
     chat.use(room.config().get('lang'))
     return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
@@ -124,6 +128,32 @@ def left(room, name):
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
     except OSError:
         pass
+
+
+def bump(room, key, reset=False):
+    """a counter of this agent in the room folder: +1 (or back to 0) and its value"""
+    p = room.dir / f'{key}.txt'
+    try:
+        n = 0 if reset else int(p.read_text() or 0) + 1
+    except (OSError, ValueError):
+        n = 0 if reset else 1
+    try:
+        p.write_text(str(n))
+    except OSError:
+        pass
+    return n
+
+
+def draft_note(room, name):
+    """a message of the agent stopped as crossed and never posted again: said once, with its text"""
+    import chat
+    d = room.dir / 'drafts' / f'{name}.txt'
+    if not d.is_file():
+        return None
+    text = d.read_text(encoding='utf-8', errors='replace')
+    d.replace(d.with_suffix('.seen'))
+    chat.use(room.config().get('lang'))
+    return {'decision': 'block', 'reason': chat.say('chat.say.hold.draft', name=name, text=text[:1500])}
 
 
 def last_words(room, name):
@@ -216,10 +246,14 @@ def _hold(room, aid, key, name, end, wait, poll):
             return report(room, name)
         chat.Locks(room).tick()
         new = news(room, name)
+        note = None if new else draft_note(room, name)
+        if note:
+            return note
         if not new and (not waits(room, name) or done_closing(room, name)):   # nothing it waits for: its work is done, it goes
             left(room, name)
             return report(room, name)
         if new:
+            bump(room, f'empty_{name}', reset=True)
             try:
                 import inbox
                 inbox.mark_delivered(room.dir, name, new[-1]['n'])
@@ -227,6 +261,9 @@ def _hold(room, aid, key, name, end, wait, poll):
                 pass
             return {'decision': 'block', 'reason': reason(room, name, new)}
         if time.time() >= end:
+            if waits(room, name) != 'run' and bump(room, f'empty_{name}') > EMPTY_MAX:   # a queued run of the kernel wakes it, the rest goes
+                left(room, name)
+                return report(room, name)
             chat.use(room.config().get('lang'))
             return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing', name=name, minutes=max(1, wait // 60))}
         time.sleep(poll)
@@ -271,6 +308,13 @@ def _prova():
     assert int((room / 'delivered_A.txt').read_text()) >= 1 and r.cursor('A') >= 2   # read for it: no extra read
     got = decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2)
     assert got and 'nothing' in got['reason'].lower(), got                        # nothing in the window: one quiet turn
+    for _ in range(EMPTY_MAX - 1):
+        assert decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2)
+    assert decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2) is None             # then it goes: no endless empty turns
+    (room / 'empty_A.txt').write_text('0')
+    (room / 'handback_A.txt').write_text('0')
+    assert all(handback({'agent_id': 'aaaa1111'}) for _ in range(HANDBACK_MAX))
+    assert handback({'agent_id': 'aaaa1111'}) is None                             # the third report goes through
     (room / 'waiting_A.txt').write_text(f'{time.time() + 500:.0f} 999999')
     assert not r.in_wait('A')                                                     # a dead holder's mark does not count
     r.append('LEAD', 'CLOSED v1: done')

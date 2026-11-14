@@ -1933,7 +1933,7 @@
  "chat.check.gone": "{k} ended its run with the room open, with no idle and nothing taken (its last message is #{n}): if work was left, resume it or put that work on the board",
  "chat.check.silent": "{k} holds {ids} but its run has been silent for {minutes} minutes and nothing holds it: it has probably ended; resume it or reassign",
  "chat.say.cmd_post.already_idle": "Already idle since #{n}: nothing posted, nothing lost. End your turn: the room hands you what comes next.",
- "chat.err.cmd_post.crossed": "error: {ns} crossed your message and is shown above, now read. Nothing was posted: if your text still stands post it again, it will go through.",
+ "chat.err.cmd_post.crossed": "error: NOT POSTED: {ns} crossed your message and is shown above, now read. Your text is kept in {path}: post it again if it still stands (it will go through), or say why not.",
  "chat.err.cmd_post.no_file": "error: no file {path}. Nothing was posted.",
  "chat.say.cmd_post.relay_off": "!!! your relay is not running: nothing wakes you until you start it again, as a background shell command:\n  {cmd}",
  "chat.check.waits_lead": "{k} waits for you since {minutes} minutes (#{n}): {text}",
@@ -1995,5 +1995,6 @@
  "chat.say.append.done": "one line added to {path}",
  "chat.word.state.suspended": "suspended",
  "chat.word.state.dropped": "dropped",
- "spawn.ping.old_catalog": "The catalog is {days} days old: routes may be gone. Update it from the Spawn view (Aggiorna) before a long round."
+ "spawn.ping.old_catalog": "The catalog is {days} days old: routes may be gone. Update it from the Spawn view (Aggiorna) before a long round.",
+ "chat.say.hold.draft": "Your message was NOT posted, {name}: a tag crossed it. Here it is; post it again if it still stands, or say why not:\n{text}"
 }
