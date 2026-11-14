@@ -36,6 +36,7 @@ li hai, risposte più corte della shell; altrimenti chat.py):
 - quando aspetti: un solo status --idle, poi chiudi il turno con una riga: in Claude Code la stanza ti tiene e ti consegna il
   prossimo messaggio per te, già letto; dove niente ti tiene (Codex), wait --focus --timeout {{IDLE_WAIT}} più volte.
 - cambi il tuo giudizio solo con nuova evidenza, mai perché gli altri sono d'accordo; di' cosa ti ha fatto cambiare idea.
+- la diagnosi si fa per confronto, non dal solo fallimento: metti la corsa fallita o revocata accanto al miglior tentativo della stessa linea e trova il primo punto in cui si separano (il diff, la prima riga di log diversa). Ciò che viene dopo è conseguenza; riporta quel punto come causa.
 
 Checkpoint ogni {{MAX}} messaggi: chat.py te lo segnala; poi chiedi a @LEAD se continuare, e aspetta la risposta.
 Report finale: cosa hai controllato, cosa hai revocato e perché, i verdetti, cosa resta non verificato.

@@ -47,7 +47,7 @@ Keep the room as it is and set it up with the user, in the room: ask the topic, 
 
 - the room exists: never run `init` again (it would rewrite the config); set the real topic first if init had a placeholder (`python "CHAT" config --room "ROOM" --topic "..." --subtitle "<the goal>"`: the prompts read it); add the participants with `python "CHAT" add --room "ROOM" --participants A,B,C --profile "A|<emoji>|#rrggbb|<role>|<model>|<effort>" ...` and change the look with `python "CHAT" config --room "ROOM" --title ... --subtitle ...`;
 - write the brief once: `python "CHAT" brief --room "ROOM" goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45` (left out: the room's defaults);
-- each prompt is `python "CHAT" prompt NAME --room "ROOM" --out "ROOM/prompts/NAME.md"`: pass the Agent tool (or spawn_agent) the pointer "Read <absolute path of that file> and follow it", not its text. If something in it is wrong, change the brief or the config and generate it again; do not edit the prompt.
+- each prompt is `python "CHAT" prompt NAME --room "ROOM" --tools mcp --out "ROOM/prompts/NAME.md"` (`--tools shell` in Codex): pass the Agent tool (or spawn_agent) the pointer "Read <absolute path of that file> and follow it", not its text. If something in it is wrong, change the brief or the config and generate it again; do not edit the prompt.
 
 ## 4b. Research
 
@@ -66,7 +66,9 @@ on, evidence, final, report). In short:
    the guide's table has the efforts). `research roles ...`, the brief (with a
    high `max`: it is a checkpoint with you, not a stop), then each prompt generated from its template
    (`research_worker.md`, `research_proposer.md`, `research_auditor.md`, `research_registrar.md`,
-   `research_searcher.md`) and passed unchanged. Start the relay.
+   `research_searcher.md`) and passed unchanged. Before you spawn: prepare, compact, then launch, as in the start
+   skill's step 3b (the contract, the prompts and `ROOM/LEAD.md` written first, then the user compacts your conversation
+   on that file): your turns read your whole conversation again, and a research wakes you all night. Start the relay.
 4. Phase 2: you assign cycles (`research assign W --idea I --parent base|best|att-N --type explorer|optimizer`), never
    ideas; the kernel does the rest and logs it. Watch `research status`; act on detectors and checkpoints.
 5. Phases 3 to 6 move with `research phase next` when their gates hold (the AUDITOR's verdicts, evidence runs, the final

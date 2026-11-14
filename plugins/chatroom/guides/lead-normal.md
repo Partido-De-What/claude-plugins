@@ -27,7 +27,7 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    usefully (an expert, a builder, a skeptic). Names in capitals.
 4. Material the agents need (they do not inherit your conversation): write it to `ROOM/DOSSIER.md`.
 5. Brief, once: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
-6. Prompts, generated: `prompt NAME --out ROOM/prompts/NAME.md` for each. Pass the pointer, not the text: "Read
+6. Prompts, generated: `prompt NAME --tools mcp --out ROOM/prompts/NAME.md` for each (`--tools mcp` for Claude Code agents, which have the chatroom MCP tools: a third shorter; `--tools shell` for Codex). Pass the pointer, not the text: "Read
    <absolute path of ROOM/prompts/NAME.md> and follow it", to the Agent tool (or `spawn_agent` in Codex): 25k characters each
    stay out of your context. All agents in one message, as `chatroom:room-agent` with the user's model and effort,
    (the room reads each agent's type from its spawn: no setting needed). Pictures reach the agents at 1000 px with a line
@@ -41,7 +41,7 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    agent (a style, a rule) go in the brief, or right after the spawn, before they first go idle.
 8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
-   In Claude Code run it as a background shell command with `--until-line --batch 60` / `--until-tag`: no 30-minute cap;
+   In Claude Code run it as a background shell command with `--until-line` (no `--batch`: the room's pace, 3 minutes at the start and 15 after 20 minutes, `config lead_pace=...`; the user, a closing, a crash and URGENT never wait; each wake ends with a WAKE line to answer from) / `--until-tag`: no 30-minute cap;
    the relay exits only for what needs you, and you start it again after handling the lines. A post of yours says when the
    relay is down and prints the exact command. `--stream` under Monitor is only a fallback: Monitor ends every 30 minutes.
    `status` shows `waiting_lead` (only real questions), each agent's `turn` (working, waiting, closed), `read_by` for your
@@ -136,3 +136,5 @@ After a CLOSED: `reopen --as LEAD --reason "..."` opens the room again and voids
 The board: `board` is short (open and taken tasks, done ones as ids), `board T12` is one task in full, `board --all` everything. Two rooms with one lead: `alerts --room A --room B --follow --messages --until-line --batch 60` is one relay, each line with its room in front; `cost` keeps you out of the room's total.
 Lines that only inform (a task closed with gaps, a proof that names no file, compactions, the protocol's share, a bare "received") do not wake you: they come in the digest with the next wake, and `recap` lists the gaps.
 Replacing an agent: `python CHAT retire NAME --room ROOM --as LEAD`, then generate its prompt again (it acts as `NAME~1`), spawn the new agent and `roster` it. The retired agent's calls are refused, so a stopped agent woken by a message cannot post again; its call count starts over.
+
+What the room does by itself near the end of a budget, and what it learns: a participant is told once to stop exploring and deliver (the last 10 minutes before `deadline`, or at 85% of its messages to the checkpoint); with `brief ground=1` (rooms that write code) the first `task done` of each task is held once, to check the change against the tests and callers that exist. To change a rule while the room runs, write it with `task decide "..."`: it is appended to the log everyone reads again after a compaction; never generate the prompts again for it, the agents would not read them and their cache would be lost. At the end, `python CHAT cost scorecard --room ROOM` gives the room in five lines (tasks closed, tokens per closed task, compactions, which controls fired) and `python CHAT lessons --room ROOM` groups by cause what went wrong in the last rooms. A cause seen in two rooms is a candidate lesson: propose it to the user in one line with when it applies, and add it only on their yes (`lessons add "rule" --scope "when it applies, when not" --note "where seen"`). It enters on trial (rooms with `brief lessons=trial`), becomes active with `lessons accept L3` after two rooms, leaves with `lessons retire L3`; eight live lessons at most, because each one is read at every request of every agent.

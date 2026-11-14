@@ -48,6 +48,7 @@ have them, shorter answers than the shell; else chat.py):
 - when you wait: one --idle status, then end your turn with one line: in Claude Code the room holds you and hands you the
   next message for you, already read; where nothing holds you (Codex), wait --focus --timeout {{IDLE_WAIT}} again and again.
 - change your judgement only on new evidence, never because others agree; say what changed your mind.
+- diagnose by comparison, not from the failure alone: put a failed or revoked run next to the best attempt of the same line and find the first point where they part (the diff, the first log line that differs). What comes after is consequence; report that point as the cause.
 
 Checkpoint every {{MAX}} messages: chat.py tells you; then ask @LEAD whether to continue, and wait for the answer.
 Final report: what you checked, what you revoked and why, the verdicts, what is still unverified.

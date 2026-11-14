@@ -1334,7 +1334,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
             + (f' ({spread})' if spread else '') + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
             + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' else ''))
     room.append(name, line, 'board')
-    tail = '\n'.join(text.strip().splitlines()[-30:]) if status == 'crash' else ''
+    tail = '\n'.join(text.strip().splitlines()[-30:])[-3000:] if status == 'crash' else ''   # the end of the log, bounded: everyone who reads the line pays it
     warn = say('kernel._evaluate.warning_some_files_could', held=held[:300]) if held else ''
     nudge = ''
     if kind == 'attempt' and s3['workers'][key].get('paused'):
@@ -2401,6 +2401,13 @@ def view(room, name):
         for i in st['ideas'][-12:]:
             res = [a for a in att if a.get('idea') == i['id']]
             out.append(f"{i['id']} [{i['mode']}/{i['changes']}] {i['title'][:80]} → " + (', '.join(f"att-{a['n']} {a['status']}" for a in res) or i['status']))
+        worked = [a for a in att if a['status'] == 'keep' and a.get('state') != 'revoked'][-4:]
+        if worked:                                    # successes next to failures: fed only failures, a proposer over-corrects
+            out.append(say('kernel.view.what_worked') + tried(worked))
+        runs_of = lambda i: [a for a in att if a.get('idea') == i['id']]
+        stuck = [i['id'] for i in st['ideas'] if len(runs_of(i)) >= 2 and not any(a['status'] == 'keep' for a in runs_of(i))]
+        if stuck:                                     # what never worked is the next round's target, or a line to drop with its reason
+            out.append(say('kernel.view.never_worked', ids=', '.join(stuck[-8:])))
         if st['gaps']:
             out.append(say('kernel.view.open_gaps') + '; '.join(g['text'][:120] for g in st['gaps'][-4:]))
         if st['direction'].get('no_positive'):
@@ -2418,6 +2425,11 @@ def view(room, name):
     elif role in ('AUDITOR', 'LEAD'):
         keeps = [a for a in att if a['status'] == 'keep' and a['state'] != 'revoked'][-6:]
         out.append(say('kernel.view.keeps_to_check_git') + ('; '.join(f"att-{a['n']} {c['branch']}/att-{a['n']} {a['desc'][:60]}" for a in keeps) or say('kernel.word.none')))
+        kids = {}
+        for x in st.get('assigns', []):
+            kids[x.get('parent')] = kids.get(x.get('parent'), 0) + 1
+        if len(kids) > 1 or max(kids.values(), default=0) > 3:   # always the best as parent is a line search: older keeps are stepping stones
+            out.append(say('kernel.view.children', kids=', '.join(f'{k} {v}' for k, v in sorted(kids.items(), key=lambda kv: -kv[1])[:8])))
         flags = detectors(c, st)
         if flags:
             out.append(say('kernel.word.detectors') + ' | '.join(flags))

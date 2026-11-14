@@ -160,7 +160,7 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
-             'heartbeat': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
+             'heartbeat': int, 'lead_pace': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
              'cache_ttl': str, 'thumbs': int, 'vision': int}
 CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
@@ -403,6 +403,16 @@ def is_shut(room, items):
     return False
 
 
+def note_event(room, kind, key, name=''):
+    """ROOM/events.jsonl: one line per refusal, check, valve or guard that fired: the scorecard counts them and the
+    lessons group them across rooms (a control that never fires is a control to remove)"""
+    try:
+        with open(room.dir / 'events.jsonl', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({'ts': int(time.time()), 'kind': kind, 'key': key, 'name': name}, ensure_ascii=False) + '\n')
+    except OSError:
+        pass
+
+
 def closing_refusal(room, name, text):
     """why a participant may not post this CLOSED yet (None: it may). A closing needs every active participant's yes on
     that version, each with what they checked (an artifact: file:line, an output, #n...); the lead and the user close
@@ -500,7 +510,23 @@ def deadline_line(room):
 def relay_command(room, name):
     """the relay to start again, as a background shell command (no 30-minute cap, its exit wakes the lead)"""
     return (f'python "{Path(__file__).resolve().as_posix()}" alerts --room "{Path(room.dir).resolve().as_posix()}" --as {name} '
-            '--follow --messages --until-line --batch 60')
+            '--follow --messages --until-line')
+
+
+URGENT = re.compile(r'\bURGENT[EI]?\b')              # in capitals, in a message for the lead: it does not wait for the pace
+
+
+def wake_summary(room):
+    """one line with a wake: the board, who waits for the lead, who is idle, the next wake. A lead ran two or three
+    commands after each wake to learn this, each one reading its whole context again"""
+    items, b = room.messages(), Board(room).load()
+    c = room.config()
+    people = [k for k in c.get('participants', []) if k not in c.get('left', [])]
+    idle = [k for k in people if room.idle_entry(k, items)]
+    waits = [f'{k} #{n} ({int(mins)} min)' for k, n, mins, _ in waits_for_lead(room, items)]
+    count = lambda s: sum(t['state'] == s for t in b['tasks'])
+    return say('chat.say.cmd_alerts.wake_summary', open=count('open'), taken=count('taken'), done=count('done'),
+               waits=', '.join(waits) or '-', idle=', '.join(idle) or '-', working=len(people) - len(idle))
 
 
 def relay_down(room):
@@ -1267,6 +1293,7 @@ class Room:
         items = self.messages()
         self.timer_warning(name, items)
         print(deadline_line(self), end='')
+        print(valve_line(self, name), end='')
         start = self.cursor(name)
         if name in self.config().get('self_names', []):     # a lead has from its relay what was delivered: not news again
             start = max(start, self.delivered(name))
@@ -1385,7 +1412,7 @@ def cmd_init(room, a):
     room.dir.mkdir(parents=True, exist_ok=True)
     participants = [p.strip() for p in (a.participants or '').split(',') if p.strip()]
     config = {'topic': a.topic or 'Chat room', 'title': a.topic or 'Chat room', 'subtitle': '', 'icon': '💬',
-              'accent': '#00a884', 'theme': 'auto', 'wallpaper': 'dots', 'lang': 'en', 'heartbeat': 240,
+              'accent': '#00a884', 'theme': 'auto', 'wallpaper': 'dots', 'lang': 'en', 'heartbeat': 900,
               'user_name': 'USER', 'self_names': ['LEAD', 'COORDINATOR', 'COORDINATORE'],
               'participants': participants, 'created': time.strftime('%Y-%m-%d %H:%M:%S'),
               'profiles': {name: {'emoji': name[:1], 'color': PALETTE[i % len(PALETTE)], 'role': ''}
@@ -1553,6 +1580,7 @@ def cmd_post(room, a, text=None):
     if not kind:
         refusal = closing_refusal(room, a.name, text)
         if refusal:
+            note_event(room, 'refusal', 'closing', a.name)
             sys.exit(say('chat.err.cmd_post.error_nothing_was_posted', refusal=refusal))
         pv = plan_version(text)
         if pv and pv > PLAN_MAX and a.name not in room.user_names():
@@ -1638,6 +1666,7 @@ def cmd_post(room, a, text=None):
         mine = sum(1 for m in room.messages() if m['from'] == a.name and not m.get('kind'))
         if mine % every == 0:
             print(say('chat.say.cmd_post.checkpoint_this_is_your', mine=mine, every=every))
+        print(valve_line(room, a.name, mine), end='')
     if loose_heading(text):
         print(say('chat.say.cmd_post.note_plan_vn_closed'))
     if late_vote(text):
@@ -1715,6 +1744,7 @@ def state_line(st):
 DRIFT_MESSAGES = 25       # real messages in a row without a change of the board: the chat may be drifting
 BUDGET_CALLS = 300        # chat calls (post, read, wait) of one agent before the lead hears about it, and again at each multiple
 BUDGET_PER_HOUR = 60      # ... or this many for each hour of the room, when more: a 10-hour room of working agents is not 300 calls
+LEASE_MAX = 1800              # ... and never more than half an hour, whatever the heartbeat (15 minutes by default)
 LEASE_HEARTBEATS = 5          # a taken task whose owner is silent (not idle) this many heartbeats may be taken by another
 PROOF_MAX = 2000
 VERIFY_TIMEOUT = 110          # a verify command's default limit: under the 120 s a Bash tool call gets by default
@@ -2041,11 +2071,12 @@ class Board:
             return False
         age, spent = self.room.silence(who, items), None if since is None else time.time() - since
         age = spent if age is None else age if spent is None else min(age, spent)
-        if age is None or age <= LEASE_HEARTBEATS * self.room.heartbeat():
+        lease = min(LEASE_HEARTBEATS * self.room.heartbeat(), LEASE_MAX)
+        if age is None or age <= lease:
             return False
         p = agent_file(self.room.roster().get(who))   # it works with its tools and does not post: it still holds its task
         try:
-            return not (p and time.time() - p.stat().st_mtime < LEASE_HEARTBEATS * self.room.heartbeat())
+            return not (p and time.time() - p.stat().st_mtime < lease)
         except OSError:
             return True
 
@@ -2120,7 +2151,14 @@ class Board:
             extra = [f for f in changed_files(t['merge_into'], cwd)
                      if not any(files_overlap(f, g) for g in t['files'])]
         if not checks and not has_artifact(proof or '') and not (force and name in self.room.user_names()):
+            note_event(self.room, 'refusal', 'noproof', name)
             raise ValueError(say('chat.err.done.a_proof_must_name'))
+        if str(brief(self.room).get('ground') or '0') not in ('0', '') and not t.get('grounded') and not force \
+                and name not in self.room.user_names():
+            # held once per task: the commonest wrong delivery applies cleanly and implements a guessed contract
+            self.change(lambda b: self.find(b, tid).update(grounded=True) or '')
+            note_event(self.room, 'guard', 'ground', name)
+            raise ValueError(say('chat.err.done.ground', id=t['id']))
         proof = '; '.join([*checks, proof] if proof else checks)
 
         def fn(b):
@@ -2503,6 +2541,8 @@ def cmd_task(room, a):
         want = rest[1].lstrip('@')                    # the name as the room writes it, in any case; a stranger in capitals
         known = [*room.config().get('participants', []), *room.roster()]
         to = next((n for n in known if n.lower() == want.lower()), want.upper())
+        if act == 'handoff' and len((a.note or '').split()) < 6:
+            print(say('chat.say.handoff.three'))   # a thin handover is where a team loses what one of them knew
         line = (b.handoff(a.name, rest[0], to, a.note or '') if act == 'handoff'
                 else b.assign(a.name, rest[0], to, a.note or '') if act == 'assign'
                 else b.offer(a.name, rest[0], to, a.note or '') if act == 'offer'
@@ -2625,6 +2665,11 @@ def cmd_notebook(room, a):
     path = room.dir / 'notes' / f'{a.name}.md'
     rules = path.with_suffix('.rules.md')           # --rule: kept word for word, never trimmed, printed first (a summary keeps half the rules after one compaction)
     text = ' '.join(a.pairs).strip()                 # the text to add comes as arguments: no stdin, so reading never waits
+    state = path.with_suffix('.state.md')           # --state: where it is now, in fixed parts; one state, the newest (a handover it writes for itself)
+    if text and getattr(a, 'state', False):
+        state.parent.mkdir(exist_ok=True)
+        state.write_text(f"{time.strftime('%H:%M')} " + '\n'.join(x.strip() for x in text.split('|') if x.strip()) + '\n', encoding='utf-8')
+        return print(say('chat.say.cmd_notebook.noted_in', path=state))
     if text and getattr(a, 'rule', False):
         rules.parent.mkdir(exist_ok=True)
         with rules.open('a', encoding='utf-8') as f:
@@ -2641,6 +2686,8 @@ def cmd_notebook(room, a):
     import compress
     if rules.exists():
         print(say('chat.say.cmd_notebook.rules') + '\n' + rules.read_text(encoding='utf-8'))
+    if state.exists():
+        print(say('chat.say.cmd_notebook.state') + ' ' + state.read_text(encoding='utf-8'))
     print(compress.texts(room, [path.read_text(encoding='utf-8')])[0] if path.exists() else '' if rules.exists() else say('chat.say.cmd_notebook.your_notebook_is_empty'))
 
 
@@ -2988,8 +3035,8 @@ MCP_TOOLS = [
          'phase': {'type': 'integer'}, 'outcome': {'type': 'string'}, 'next_intent': {'type': 'string'}, 'minutes': {'type': 'number'},
          'after': {'type': 'string'}, 'draft': {'type': 'boolean'},
          'json': {'description': 'propose-idea, direction, verdict: the object'}}}},
-    {'name': 'notebook', 'description': 'Your own notes, which survive a compacted context: with text adds a line (rule=true: a rule kept word for word and shown first), without reads them; read it first after a compaction.',
-     'inputSchema': {'type': 'object', 'properties': {'text': {'type': 'string'}, 'rule': {'type': 'boolean'}}}},
+    {'name': 'notebook', 'description': 'Your own notes, which survive a compacted context: with text adds a line (rule=true: a rule kept word for word and shown first; state=true: where you are now, as goal | done | files | pending | next, replacing the previous state), without reads them; read it first after a compaction.',
+     'inputSchema': {'type': 'object', 'properties': {'text': {'type': 'string'}, 'rule': {'type': 'boolean'}, 'state': {'type': 'boolean'}}}},
     {'name': 'check', 'description': 'What is going wrong in the room: tasks closed without proof or with gaps, one file in two '
                                      'statuses, tags left unanswered, a status repeated or stalled, a vote flipped without evidence, '
                                      'an agent over its call budget.', 'inputSchema': {'type': 'object', 'properties': {}}},
@@ -3125,7 +3172,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 cmd_research(room, ns)
             elif tool == 'notebook':
                 ns.pairs = [str(args['text'])] if args.get('text') else []
-                ns.rule = bool(args.get('rule'))
+                ns.rule, ns.state = bool(args.get('rule')), bool(args.get('state'))
                 cmd_notebook(room, ns)
             elif tool == 'check':
                 cmd_check(room, ns)
@@ -3501,7 +3548,35 @@ def cmd_add(room, a):
 
 # what the lead writes once about the room for the agents' prompts (chat.py brief); chat.py prompt fills the template
 # from it and from the config, so a prompt is never rewritten by hand and every agent gets the same rules
-BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max')
+BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons')
+
+
+def valve_line(room, name, mine=None):
+    """the budget valve, said once: in the last 10 minutes before the deadline, or at 85% of the messages of a
+    checkpoint, stop exploring and deliver the best you have with its gaps named. An agent that runs out with nothing
+    delivered is the failure this prevents (the first check of the evolved harness in arXiv 2610.22791)"""
+    if name in room.user_names() or name not in room.config().get('participants', []):
+        return ''
+    try:
+        when = float(room.config().get('deadline') or 0)
+    except (ValueError, TypeError):
+        when = 0
+    left, every = when - time.time(), checkpoint_every(room)
+    key = f'd{int(when)}' if 0 < left <= 600 else ''
+    if not key and mine and every >= 10 and mine % every == int(every * 0.85):
+        key = f'm{mine}'
+    p = room.dir / 'valve' / f'{name}.txt'
+    try:
+        if not key or (p.is_file() and p.read_text(encoding='utf-8') == key):
+            return ''
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(key, encoding='utf-8')
+    except OSError:
+        return ''
+    note_event(room, 'valve', 'deadline' if key[0] == 'd' else 'messages', name)
+    if key[0] == 'd':
+        return say('chat.say.valve.deadline', minutes=max(1, int(left // 60))) + '\n'
+    return say('chat.say.valve.messages', left=every - mine % every) + '\n'
 
 
 def checkpoint_every(room):
@@ -3541,7 +3616,22 @@ def room_agents_md(room):
     return path.read_text(encoding='utf-8')
 
 
-def fill_prompt(room, name, template='agent_prompt.md'):
+HOSTS = ('both', 'mcp', 'shell')
+HELP_TOPICS = ('shell', 'lock', 'lend', 'pictures', 'files', 'common', 'powershell')
+
+
+def host_blocks(text, host='both'):
+    """keep the blocks of one host: [[mcp]]...[[/mcp]] for an agent with the chatroom MCP tools, [[shell]]...[[/shell]]
+    for one that drives chat.py from its shell. 'both' keeps the shell block, which names the tools too: an agent reads
+    one set of commands at every request, not two"""
+    keep = 'mcp' if host == 'mcp' else 'shell'
+    for tag in ('mcp', 'shell'):
+        pattern = rf'\[\[{tag}\]\]\n(.*?)\[\[/{tag}\]\]\n'
+        text = re.sub(pattern, (lambda m: m.group(1)) if tag == keep else '', text, flags=re.DOTALL)
+    return text
+
+
+def fill_prompt(room, name, template='agent_prompt.md', host='both'):
     """the prompt of one participant, filled from the template, the config and the brief: the lead passes it unchanged
     to the Agent tool (or spawn_agent), so no prompt is rewritten by hand"""
     config, data = room.config(), brief(room)
@@ -3570,6 +3660,12 @@ def fill_prompt(room, name, template='agent_prompt.md'):
                                                str(room.dir / 'research' / 'task.md').replace('\\', '/')
                                                if (room.dir / 'research' / 'task.md').is_file() else '-'),
         **{k.upper(): data.get(k) or tr(lang, f'brief.default.{k}') for k in ('style', 'constraints', 'closing', 'max')}}
+    if data.get('lessons') != 'off':                  # what earlier rooms taught and the user kept (brief lessons=trial: the ones on trial too)
+        import lessons
+        kept = lessons.for_prompt(data.get('lessons') == 'trial')
+        if kept:
+            values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.lessons') + '\n' + '\n'.join(kept)
+            lessons.used(room.dir, data.get('lessons') == 'trial')
     contract = room.dir / 'research' / 'contract.json'
     if contract.is_file():                      # a research room: the worker templates name the contract's terms
         c = json.loads(contract.read_text(encoding='utf-8'))
@@ -3591,7 +3687,10 @@ def fill_prompt(room, name, template='agent_prompt.md'):
                                     else tr(lang, 'prompt.evalLong', s=longest)),
                        'METRIC_SOURCE': (tr(lang, 'prompt.metricFile') if c.get('metric_source') == 'file'
                                          else tr(lang, 'prompt.metricOutput', metric=c['metric']))})
-    text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), path.read_text(encoding='utf-8'))
+    source = path.read_text(encoding='utf-8')
+    if host == 'shellblock':                         # help shell: the commands alone
+        source = ''.join(re.findall(r'\[\[shell\]\]\n(.*?)\[\[/shell\]\]\n', source, flags=re.DOTALL))
+    text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), host_blocks(source, host))
     py = Path(sys.executable).as_posix()
     if sys.version_info >= (3, 14) and ' ' not in py:     # the environment's own Python: no relaunch per call (bash and PowerShell alike)
         text = text.replace(f'python "{values["CHAT"]}"', f'{py} "{values["CHAT"]}"')
@@ -3728,11 +3827,39 @@ def cmd_research(room, a):
         print(guide_hint('research'))
 
 
+def cmd_help(room, a):
+    """chat.py help TOPIC: the page of a rare case (a lock, a lent piece, pictures, shared files, the common room,
+    PowerShell) or the shell commands, with this room and this name in its commands. The prompt names the cases; the
+    page is read when the case is met, so nobody carries it at every request"""
+    topic = (a.pairs[0] if a.pairs else '').lower()
+    if topic not in HELP_TOPICS:
+        return print(say('chat.say.cmd_help.topics', topics=', '.join(HELP_TOPICS)))
+    name = a.name or 'NAME'
+    if topic == 'shell':
+        if name not in room.config().get('participants', []):
+            name = next(iter(room.config().get('participants', [])), None)
+            if not name:
+                raise ValueError(say('chat.err.main.as_name_required'))
+        return sys.stdout.write(fill_prompt(room, name, host='shellblock'))
+    lang = lang_of(room.config())
+    path = HERE.parent / 'templates' / f'help_{topic}.md'
+    if lang != 'en' and (HERE.parent / 'templates' / lang / f'help_{topic}.md').is_file():
+        path = HERE.parent / 'templates' / lang / f'help_{topic}.md'
+    values = {'CHAT': str(chat_for_agents()).replace('\\', '/'), 'ROOM': str(room.dir.resolve()).replace('\\', '/'), 'AS': name}
+    sys.stdout.write(re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), path.read_text(encoding='utf-8')))
+
+
+def cmd_lessons(room, a):
+    """chat.py lessons [add "rule" --scope "when" | accept L3 | retire L3]: see lessons.py"""
+    import lessons
+    lessons.command(room, a)
+
+
 def cmd_prompt(room, a):
     """chat.py prompt NAME [--template FILE] [--out FILE]: the filled prompt of one participant"""
     if len(a.pairs) != 1:
         sys.exit(say('chat.err.cmd_prompt.prompt_give_one_participant'))
-    text = fill_prompt(room, a.pairs[0], a.template or 'agent_prompt.md')
+    text = fill_prompt(room, a.pairs[0], a.template or 'agent_prompt.md', getattr(a, 'tools', None) or 'both')
     stale = stale_install()
     if stale:                                         # the agents get the installed copy: say when the source is ahead of it
         print(say('chat.say.cmd_prompt.stale_install', path=chat_for_agents(), files=', '.join(stale[:6])), file=sys.stderr)
@@ -3823,10 +3950,25 @@ def cmd_alerts(room, a):
     quiet, said = {}, time.time()                     # the statuses since the last WATCH line, by author
     spoke, info = [], []                              # spoke: when lines that need the lead came; info: the others, held back
     stream = getattr(a, 'stream', False)
-    until, batch = getattr(a, 'until_line', False) or stream, int(getattr(a, 'batch', 0) or (20 if stream else 0))
-    held, leads = [], room.config().get('self_names', [])
+    until, fixed = getattr(a, 'until_line', False) or stream, getattr(a, 'batch', None)
+    held, leads, rush = [], room.config().get('self_names', []), []
 
-    def out(*x, act=True, **k):
+    def batch():
+        """how long lines for the lead are gathered into one wake. --batch N: N seconds. Without it the pace of the room:
+        close at the start (lead_pace_start, 180 s, for the first lead_warmup minutes, 20), then wide (lead_pace, 900 s):
+        each wake of a lead reads its whole context again. The user, a closing, a crash and URGENT never wait"""
+        if rush:
+            return 5
+        if fixed is not None:
+            return int(fixed)
+        if stream:
+            return 20
+        c = room.config()
+        first = next((float(m.get('ts') or 0) for m in room.messages()), time.time())
+        young = time.time() - first < 60 * int(c.get('lead_warmup', 20))
+        return int(c.get('lead_pace_start', 180)) if young else int(c.get('lead_pace', 900))
+
+    def out(*x, act=True, urgent=False, **k):
         """--until-line and --stream wake the lead only for what needs it (the user, a tag to it, a plan, a vote, a
         closing, a CHECK); the rest comes with it as a short digest, never as a wake of its own"""
         if until and not act:
@@ -3838,16 +3980,20 @@ def cmd_alerts(room, a):
             print(*x, **k)
         if act:
             spoke.append(time.time())
+        if urgent:
+            rush.append(1)
 
     def due():
         """a batch is ready: its digest goes out and --until-line ends (its exit is the wake); --stream writes the lot at
         once (one wake under Monitor) and goes on"""
-        if not spoke or time.time() - spoke[0] < batch:
+        if not spoke or time.time() - spoke[0] < batch():
             return False
         tail = [say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:200] for l in info[-20:]))] if info else []
         if held or tail:
             print('\n'.join(held + tail), flush=True)
-        held.clear(), info.clear(), spoke.clear()
+        if not stream and fixed is None:               # what the lead needs with the wake, so it runs no status of its own
+            print(wake_summary(room), flush=True)
+        held.clear(), info.clear(), spoke.clear(), rush.clear()
         return not stream
 
     def needs_lead(m, line):
@@ -3889,7 +4035,7 @@ def cmd_alerts(room, a):
         if new:
             users = room.user_names()
             for line in alert_lines(room, [*new], users):
-                out(line, flush=True)
+                out(line, urgent=True, flush=True)
             if a.messages:
                 research_room = (room.dir / 'research' / 'contract.json').is_file()
                 for m in new:
@@ -3898,7 +4044,8 @@ def cmd_alerts(room, a):
                     tagged = any(tags(m.get('text', ''), n) for n in leads)   # a status or a finding that tags the lead wakes it too
                     if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
                         line = watch_line(m, users)
-                        out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True)
+                        out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True,
+                            urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0])
                         said = time.time()
                     elif m['kind'] in ('status', 'idle'):
                         quiet[m['from']] = (m['kind'], m.get('text', '').split(':', 1)[0][:12])
@@ -3923,7 +4070,7 @@ def cmd_alerts(room, a):
                 except (OSError, ValueError, KeyError):
                     dead = ''
                 if dead:
-                    out(f'CHECK {dead}', flush=True)
+                    out(f'CHECK {dead}', urgent=True, flush=True)
             for key, text in failures(room):
                 if key not in seen_checks:
                     seen_checks.add(key)
@@ -3931,6 +4078,7 @@ def cmd_alerts(room, a):
                         write_atomic(seen_path, json.dumps(sorted(seen_checks)))
                     except OSError:
                         pass
+                    note_event(room, 'check', ':'.join(key.split(':')[:2 if key.startswith('cost:') else 1]))
                     out(f'CHECK {text}', act=not key.startswith(INFO_CHECKS), flush=True)
         # --until-line: its exit wakes the lead (a background shell, no 30-minute cap); --batch N: what comes within N s joins it
         if not a.follow:
@@ -4181,6 +4329,13 @@ def cmd_cost(room, a):
         for f in room.dir.glob('checks_seen*.json'):
             write_atomic(f, json.dumps([k for k in read_json(f, []) if not str(k).startswith('cost:')]))
         return print(say('chat.say.cmd_cost.reset', stamp=stamp))
+    if a.pairs[:1] == ['scorecard']:                  # the room in five lines, to compare two versions of the harness on the same work
+        import lessons
+        try:
+            version = json.loads((PLUGIN_DIR / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8'))['version']
+        except (OSError, ValueError, KeyError):
+            version = '?'
+        return print('\n'.join(lessons.scorecard(room, cost.room_costs(room), version)))
     print('\n'.join(cost.table(cost.room_costs(room), room.config().get('self_names', []))))
 
 
@@ -5198,7 +5353,8 @@ def main():
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
                                         'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor',
-                                        'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen', 'ack', 'deadline', 'group', 'append'])
+                                        'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen', 'ack', 'deadline', 'group', 'append',
+                                        'help', 'lessons'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -5304,6 +5460,9 @@ def main():
     p.add_argument('--no-result-file', dest='result_file', action='store_const', const=False,
                    help='research amend: read the metric from the output again')
     p.add_argument('--template', help='prompt: a template of the plugin (default agent_prompt.md)')
+    p.add_argument('--tools', choices=HOSTS, help='prompt: mcp for an agent with the chatroom MCP tools (Claude Code), shell for one '
+                   'without (Codex); both by default')
+    p.add_argument('--state', action='store_true', help='notebook: where you are now (goal, done, files, pending, next); it replaces the previous state')
     p.add_argument('--deps', help='task add: the tasks it waits for, comma separated (T1,T2)')
     p.add_argument('--files', help='task add: the files it changes, comma separated; two taken tasks cannot share one')
     p.add_argument('--proof', help='task done: what shows it works (a test, a command, a photo)')
@@ -5356,7 +5515,8 @@ def main():
                     'task': cmd_task, 'board': cmd_board, 'check': cmd_check, 'notebook': cmd_notebook, 'mcp': cmd_mcp, 'recap': cmd_recap, 'cost': cmd_cost, 'heavy': cmd_heavy, 'rotate': cmd_rotate, 'lock': cmd_lock, 'reopen': cmd_reopen, 'vision': cmd_vision, 'claims': cmd_claims,
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
-                    'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append}
+                    'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
+                    'lessons': cmd_lessons}
         if a.command in commands:
             return commands[a.command](room, a)
     except ValueError as exc:

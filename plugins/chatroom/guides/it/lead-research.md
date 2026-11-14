@@ -9,7 +9,7 @@ unisci mai il risultato: lo fa l'utente.
 Il tuo contesto è quello costoso: segui la stanza tramite il relay, `research status` e `research view`, non leggendo
 i log né tutta la chat. Apri un messaggio (`read --range n-n`) solo quando ti tagga o cambia una decisione; il lavoro lungo
 nella stessa sessione (pubblicare, navigare) lascialo a un'altra sessione. Dopo una compattazione, `recap` ricostruisce la
-stanza in una quindicina di righe. Il relay con `--until-line --batch 60` ti sveglia solo per ciò che chiede te (tra le
+stanza in una quindicina di righe. Il relay con `--until-line` (il passo della stanza: 3 minuti all'inizio, 15 dopo 20 minuti) ti sveglia solo per ciò che chiede te (tra le
 righe del kernel un nuovo migliore globale o un crash); log e diff grandi li legge un subagente che restituisce dieci righe.
 
 CHAT, qui sotto, è lo script `scripts/chat.py` del plugin, ROOM è la cartella della stanza (percorso assoluto).

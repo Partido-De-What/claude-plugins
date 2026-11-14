@@ -1,0 +1,3 @@
+- un file condiviso non si riscrive mai: aggiungi una riga con python "{{CHAT}}" append FILE "riga" --as {{AS}} --room "{{ROOM}}" (vale l'ultima riga di un id)
+- le pagine o gli elementi del tuo task vanno nei suoi --files, così due task non tengono mai gli stessi; se aspetti un file: wait --until-path PERCORSO (MCP: chat_wait path)
+- quando altri controllano un file: post --file PERCORSO aggiunge nome e sha256, la versione di cui parli. Se aspetti una corsa o un download, non una persona: post --idle --external

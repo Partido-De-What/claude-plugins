@@ -8,7 +8,7 @@ cycles, decide the splits, and report. You never edit the program and never merg
 Your context is the expensive one: follow the room through the relay, `research status` and `research view`, not by
 reading logs or the whole chat. Open a message (`read --range n-n`) only when it tags you or changes a decision; leave
 long work in the same session (publishing, browsing) to another session. After a compaction, `recap` rebuilds the room
-in about fifteen lines. The relay with `--until-line --batch 60` wakes you only for what needs you (a new global best or a
+in about fifteen lines. The relay with `--until-line` (the room's pace: 3 minutes at the start, 15 after 20 minutes) wakes you only for what needs you (a new global best or a
 crash among the kernel's lines); big logs and diffs go to a subagent that returns ten lines.
 
 CHAT below is the plugin's `scripts/chat.py`, ROOM the room folder (an absolute path).
