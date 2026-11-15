@@ -57,28 +57,15 @@
 "guides/lead-research.md": "82c51cb6adc83e463b71a9f11cea2f02182ee11385ef6a26f87040abca0819c6",
 "hooks/hooks.json": "d083fe3564196b863f9e039e2f5813d27f50181971c02542c88fb078bf5c85f6",
 "hooks/register.ts": "38e243f6e46160607f7b63eb8c9c0ce949bbd7df6755183c72dbf2fb6a85cfd3",
-"locales/en.json": [
-"d5bc1f364191c3bbb7e1257814163983068544cac397c5329eab1f31bd3980fd",
-"6ea8de1ceb1ec1a8563d87cec9e957ef4653d5b61f0dc6b1c11a77a5c5304f71",
-"4f7b6954c7273242dfad400c00a251320259086c979a2a6c8912f31b8f18324e",
-"643b4333216cf4ea968461cc6b9caf2c5d361414c4b761d0553586efd97b315b"
-],
-"locales/it.json": [
-"464c6b1567871bb9c3cd36e7b6097e38e9e797c75dd320340c7ef33c5ba0ed68",
-"627a4d20a8c50c76adee546b3f0b93baab486c51fa7fff1be17311193bd08b56",
-"76c1a6481806b4be11b8d5f1a0b5a21256a93da5e21db25ecbeb6413728cfaab",
-"efdeebc82f8b7fc5d3ed7b50dcf95b4bf6621d133ac1a69d704e5edea64cd779"
-],
+"locales/en.json": "643b4333216cf4ea968461cc6b9caf2c5d361414c4b761d0553586efd97b315b",
+"locales/it.json": "efdeebc82f8b7fc5d3ed7b50dcf95b4bf6621d133ac1a69d704e5edea64cd779",
 "monitors/monitors.json": "9d73ea3dd1aa67877abd67665468f1334f2a7e105c334abf8e4bc7f62c7b94b9",
 "pyproject.toml": "b751e5e17b0e2aa94799aa7eb799ae3faa3ac6f8e180bb261b746e1e344de686",
 "scripts/activity.py": "e7a4da9d8726ff0b08176869e858086cec6f454559b6407694373c5694986979",
 "scripts/bench_glossary.json": "ec003c86f14ffd7a2f7ac6555e01f82c8b3b8b9cd80aa545fc1385610596b2f6",
 "scripts/cards.js": "4d303b22757c82c8165503486c834da6123a84a4b9681b65c7bda84a83314c4d",
 "scripts/cards.py": "d559e0a82604131409bf28e2480961d759cfab364e4c33fc2b2bae7e5a037d75",
-"scripts/chat.py": [
-"bb346e835cfb21441a6969c5224546f2b45ecc292e21a740b4a249f08bcc7efd",
-"dd88557ca36b6698385a08bbb967ebd99968bb7915eec1851e3c71191d7ba25b"
-],
+"scripts/chat.py": "dd88557ca36b6698385a08bbb967ebd99968bb7915eec1851e3c71191d7ba25b",
 "scripts/compress.py": "4af18d85862a0ae5e3a737b20a5aa9debad339457e1c7226d59f08afec0d809f",
 "scripts/cost.py": "b1e720ea688107ab2acccd446e9098ecfab2d201d9c8cecc615d0f5bd90da38d",
 "scripts/doctor.py": "2e1fa828cacd669dc71abd4719ef52dde8e1a8ddd70cd223a8675b6e205dd8a0",
@@ -105,43 +92,22 @@
 "scripts/office-guns.js": "cf5ae68bf399977fe23f64308495b76a7efc8e894a2f59993c9830d45fee6065",
 "scripts/office-hangar.js": "657ed01f041b885ef5658a9ce166020b76a9a1153b528179c70d903d88fa8b1e",
 "scripts/office-lab.js": "eb59d109598e876bc75a229fa73d8c3f9a369353abadd64808ee997a9975ff02",
-"scripts/office-layout.js": [
-"39afa27226a663f159bc45d66cf28b54cdd34c2cef6cc7d07350771e469e4a45",
-"02e85f6c65ebf53cabbc1de486cc80ad599ad8ef92fe5b3daefea1cbb1ba9190"
-],
+"scripts/office-layout.js": "02e85f6c65ebf53cabbc1de486cc80ad599ad8ef92fe5b3daefea1cbb1ba9190",
 "scripts/office-merge.js": "b40c9e3c8e301b9035c971fd97cc7dc2f0046d80480d2ce4f2bb22efce93462e",
 "scripts/office-paintball.js": "ba2140031018e5a343d6044b6fca7daa75941a883a5b89894116d6d80e08a69a",
 "scripts/office-rack.js": "0056481c90efc80e1e9b450e2be0bfa4120199168c95df528dee547def006a99",
 "scripts/office-research.js": "a5f193eb3c0415c981b55cd76a25f560f0e548778f282580b934d46840d16707",
 "scripts/office-signs.js": "1c0192e9dd75c986468d9596726e4762cf95dcf87c97a946219e6690ab3f6626",
-"scripts/office-skills.js": [
-"66256590cd5fb0645066afefe2a92347630064f60be1ff15aecac48d286dafa9",
-"72e3abf67de92e69fbf16d5e00f348181f9454298a97bbf10019dede7afb4d6f"
-],
 "scripts/office-timeline.js": "0272d55f720cf6db19f393f3f89d43ba57bf2cc05622458d2bd36724d9654747",
 "scripts/office-tv.js": "b7c6f709b91dc12c71b0e5a3900f873d8c75c961ebc1d80263754e82383a47ad",
 "scripts/office-ui.js": "54d4d3df04d9a29cfe9a8171ec868ad1f749a506d39297fbd15ca10f0fb68f89",
 "scripts/office-viz.js": "c4a3f3129464cee09c65e04e39d3e25c8a4d17b128896ec8eef65ded94536f7b",
-"scripts/office-voxel.js": [
-"ab4b3be3214ee115c1a70a50ed5db33edaf03987821607e3f59c6d0d2f3b8d52",
-"56d633b498bb861a781bf980f3b56ee4e05b0a8c4fb41138ca20e0e71c59fb4b"
-],
+"scripts/office-voxel.js": "56d633b498bb861a781bf980f3b56ee4e05b0a8c4fb41138ca20e0e71c59fb4b",
 "scripts/office-zombies.js": "679ddccc373fd8b78a7d1806015ca29b6ffa3ea8f79e9e85956a64ec0d15a4b1",
-"scripts/office.js": [
-"d56f81c8772252ad55b695a0c8f528459de37100b2734396924bf294c8864757",
-"8b8e05582e385d3894f94730e47699be4dd80fc2ab058a27b01eb350fdb13684"
-],
+"scripts/office.js": "8b8e05582e385d3894f94730e47699be4dd80fc2ab058a27b01eb350fdb13684",
 "scripts/packs.py": "d2a71d35a89a23f72213858d996500bca39aca2638d1eb7bd162088015ade4fe",
 "scripts/research.py": "9ce4e887cb92491073a7caa4222f704cdf7715d8f4197c745bed6d4ccf1ee439",
 "scripts/share.py": "34f1e2b857cf9296d22349e09a96bc256f899a65e6636d5390933499fad396e2",
-"scripts/skills-view.js": [
-"5a7293145fd2685cc7385a4a0c9fd12241198889f1f17244de06721523ca8b2b",
-"d5ace236b6676bf11c07378c5af29aa7f5c8e8feaf4beb2b903116f64b76e5cd"
-],
-"scripts/skills.py": [
-"7e2df133e806ac6c3b5ceec8d093a100ac4c82522469c53e28f0bc49693d83a8",
-"39d7c4d7f95796bd070225437f279270e1663a04d8015bb2f9f1adb27c6cb4a5"
-],
 "scripts/spawn-view.js": "cf8263eb1ae4d0571d730e98e69dda7cb868b61e155937d171b4c6a5d1cc64a1",
 "scripts/spawn/__init__.py": "55b23db7316f5fe1566c80c8cdea5b8cf0163da17afa9ced44fe6f85948b1efa",
 "scripts/spawn/bench/researcher.py": "1c5a90082ad98fc350dec1a2283bb7f6781247e272baffe387ce41e145f340ef",
@@ -168,20 +134,10 @@
 "scripts/tools/i18n_check.py": "d77dc5d722b92c90528abaecdb8410e967cd3dc7d07a4334ce6bea37b5255ed6",
 "scripts/tools/idle_spots.mjs": "9d8cb9c7a92a6b02d6747c6bd086dd3884b8b906c5e0755054629ba8567f837f",
 "scripts/tools/lab_check.mjs": "b5c2d9202b79f5c200ff40b36c6092e9d7b470f10b94c661b2fa3e781a7255eb",
-"scripts/tools/smoke_019_core.py": [
-"cccc9d2804394b254a30a1ddc47bcffc36200e8d72e0ab64f6bdc40b0b014aa9",
-"5ec7e1654621ab2974cdb83a97275f8d35a1dd3e9c1bd09264ecce9801a7656b",
-"64c3990e7c5dd465970e3db462aa2c22d4fd4bba894102853ef6f4049368d3fa"
-],
 "scripts/tools/test_hangar.mjs": "44e58530353aae1cbfe9efabc943e6632be90aae2624b6a685a9d426b39a243d",
 "scripts/tools/test_idle_spots.mjs": "7e897bcd16acc85c555c66a950015753eee9dbcca5fa1f13d0250fa2d9580b00",
 "scripts/tools/test_mute.mjs": "39ac86b70dc1ccd56980ac3984cc63279c54eba3c4f60bfd45b0a1c4ec2a9808",
 "scripts/tools/test_office_fase1.mjs": "6515308298205f2ee0e5516d9c15189d46e9356d636d1eb6dd5d251408eee856",
-"scripts/tools/test_skills.mjs": [
-"a0fb666da87287a38ac401815ae8a7931c3e425af5f0a3f0b1d27690da3b876a",
-"32dbcde27005ed8909b3d5bb6b6b975d7df730eeea83bff7633bd5f64e7be802"
-],
-"scripts/tools/test_skills_view.mjs": "1d83d4848f090bb8506f7cbc254fbf1bf9f757c45b8a964864e11411ceb9f6cf",
 "scripts/tools/vox_bundle.py": "2127c2b6b7eec84651d7e99856cc73c19e17af55a60dc23e06d15a6a1a5eda0f",
 "scripts/vendor/jsnes/LICENSE-jsnes.txt": "7bc56748b1c5df32c5b0da5ae7c467e88d44a446bb8a5581f5137b1e13a581eb",
 "scripts/vendor/jsnes/jsnes.min.js": "dd9c29dc18bb5901b8a0cb0eb4efaebcd476bf4c7a1ca4eb48d3fbc1082d769d",
@@ -202,10 +158,7 @@
 "scripts/vendor/three/addons/shaders/OutputShader.js": "353479f77a8d7e2629d49ccac9fc2f5dbfdda5442e0adf867b00377a2fcb0cb2",
 "scripts/vendor/three/three.core.js": "3b346151f65ffdfca3e4c002bd58966b78c423087fb48a873f83200de1bffc48",
 "scripts/vendor/three/three.module.js": "3bc833fceb6577bd1a380388f832ae61cd6e2f78ad02b0bf0d5adf5a4a9334fe",
-"scripts/viewer.html": [
-"f7e7c0a8df07edab30775d42de3c4d2b61f5f51254828baa41e050ad409f705a",
-"90b9d1eda505ededdbb2697aaa8525c5744978b67e98cff8c1537a2933ac7345"
-],
+"scripts/viewer.html": "90b9d1eda505ededdbb2697aaa8525c5744978b67e98cff8c1537a2933ac7345",
 "skills/close/SKILL.md": "c123331a12b525e60a013d1131ec948ff06c173cc986dbd869ec024f0633c696",
 "skills/init/SKILL.md": "251690f2e1d6687af48195d98fe99e00edeb1d2d87e9278e286cce79d8fa69cd",
 "skills/say/SKILL.md": "e37809d9df6816df9af7e49c2eb01f72a5812eb12e96c8959ebe2bb65e30de3f",

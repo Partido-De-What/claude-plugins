@@ -333,6 +333,8 @@ claude plugin marketplace update artyomita-plugins && claude plugin update chatr
 
 Then restart Claude Code: the new version starts with the next session. That is all you type. What you changed is kept, and nothing is lost in silence.
 
+Or ask the session: `/chatroom:update` (or "update the chatroom plugin"). It says what of yours will be kept, runs the update, merges right away, and goes through every point that needs a merge with you, one at a time; nothing is merged without your yes.
+
 `<claude dir>` below is `~/.claude`, or the folder in `CLAUDE_CONFIG_DIR` if you set it. The plugin is in `<claude dir>/plugins/cache/artyomita-plugins/chatroom/<version>/` and `chat.py` in its `scripts/` folder: every message of the plugin that asks you to run something prints the whole command, ready to copy, and `python chat.py doctor` (there) repeats whatever is still open.
 
 **Where to make your changes.** Templates, guides and locale keys: in `<claude dir>/chatroom/user/`, under the same relative path as in the plugin (`locales/it.json` holds only your keys). That folder is yours: an update replaces the plugin folder and never touches it. Do not edit the files inside `plugins/cache/`; if you did, they are kept as described below.
