@@ -3,13 +3,14 @@ Reads the hook event on stdin; exit 2 with the reason on stderr denies, anything
 The agent is found by its agent id in the registry of served rooms, as the mod does; the lead and the main thread are never stopped.
 Standard library only."""
 import json
-import os
 import re
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layers
+
 TOOLS = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 
 
@@ -29,7 +30,7 @@ def decide(ev):
     target = inp.get('file_path') or inp.get('notebook_path')
     if tool not in TOOLS or not aid or not target:
         return ''
-    registry = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'rooms.json'
+    registry = layers.chatroom_dir() / 'rooms.json'
     try:                                              # cheap first: most sessions have no room, and they must not pay for importing chat.py
         rooms = {k: v for k, v in json.loads(registry.read_text(encoding='utf-8')).items() if time.time() - float(v.get('ts', 0)) < 60}
     except (OSError, ValueError):

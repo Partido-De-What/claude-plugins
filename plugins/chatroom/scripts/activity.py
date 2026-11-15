@@ -26,7 +26,9 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+import layers
+
+CLAUDE_DIR = layers.claude_dir()
 CODEX_DIR = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
 REGISTRY = CLAUDE_DIR / 'chatroom' / 'rooms.json'
 AGENT_ID = re.compile(r'(a[0-9a-f]{8,40}|/root/[\w-]+)\Z')        # a Claude Code agent id, or a Codex agent path

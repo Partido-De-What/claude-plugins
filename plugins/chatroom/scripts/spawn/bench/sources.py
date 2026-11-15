@@ -5,6 +5,7 @@ La forma della risposta (GET /api/v2/data/llms/models, header x-api-key) è scri
 ricordo: non verificata con una chiave vera. Per questo il parser è tollerante: una chiave di valutazione sconosciuta
 entra lo stesso col suo nome (aa-<chiave>), le percentuali scritte come frazioni (0.71) si riconoscono per colonna."""
 import math
+import os
 import re
 import time
 
@@ -214,7 +215,7 @@ def _prova():
     assert parse_openrouter(orb, 'a/b:free')[0]['source'] == 'https://openrouter.ai/a/b' and parse_openrouter(None, 'x') == []
     import json
     from pathlib import Path
-    real = Path(r'E:\claudecode pesante\claude-plugins-dev-tools\cantiere013\prove\payload')   # risposte vere salvate dal LEAD (#548)
+    real = Path(os.environ.get('CHATROOM_PROVA_PAYLOAD', os.devnull))   # risposte vere di una prova dal vivo; senza la variabile non gira
     if real.is_dir():
         pl = {s: json.loads((real / f"or_benchmarks_{s.replace('artificial-analysis', 'aa').replace('-', '_')}.json").read_text(encoding='utf-8'))
               for s in OR_BENCH_SOURCES}

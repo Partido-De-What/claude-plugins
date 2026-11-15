@@ -14,10 +14,11 @@ import os
 import time
 from pathlib import Path
 
+import layers
 from i18n import lang_of, say
 
 HERE = Path(__file__).resolve().parent
-USER_SPOTS = Path.home() / '.claude' / 'chatroom' / 'idle_spots.json'     # the user's own office, published by the viewer
+USER_SPOTS = layers.chatroom_dir() / 'idle_spots.json'     # the user's own office, published by the viewer
 SLOT = 1200                                           # a place is kept 20 minutes
 CHOICE = 2400                                         # an agent's own choice holds 40 minutes
 DIARY_MIN = 600                                       # a break shorter than this has nothing to tell

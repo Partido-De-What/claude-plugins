@@ -9,7 +9,7 @@ import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import * as V from './office-voxel.js';
-import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, findWorkstation, LEAD3_ITEMS, idleSpots} from './office-layout.js';
+import {DEFAULT_LAYOUT, CATALOG, resolve, floorPlan, workstation, findWorkstation, LEAD3_ITEMS, SKILL_SHELF_ITEM, idleSpots} from './office-layout.js';
 import {createEditor} from './office-edit.js';
 import {createTV, createRadio, createLofi, createMixer, mixLevel, hush} from './office-tv.js';
 import {createArcade, ARCADE_AT} from './office-arcade.js';
@@ -17,6 +17,8 @@ import {createGithubWall} from './office-github.js';
 import {buildSigns} from './office-signs.js';
 import {createViz} from './office-viz.js';
 import {createRacks} from './office-rack.js';
+import {pace, lookFilter} from './office-pace.js';
+import {createSkills} from './office-skills.js';
 import {buildFloor} from './office-floor.js';
 import {createGames} from './office-games.js';
 import {createPaintball} from './office-paintball.js';
@@ -154,8 +156,10 @@ let visit = visitJson, myLook = settingsJson?.avatar || null;
 const tidy = items => items.map(it => it.type === 'console' && it.x === -12.2 && it.y === 0.45 && it.z === 0.45 ? {...it, x: -11.25, y: 0, z: 0.5} : it);
 // an office saved before the third lead's table existed gets it (three live rooms: three leads)
 const conLead3 = items => items.some(it => it.tag === 'lead3') ? items : [...items, ...LEAD3_ITEMS];
+// the skills bookcase (office-skills.js) comes to an office saved before it existed
+const conSkillShelf = items => items.some(it => it.type === 'skillShelf') ? items : [...items, SKILL_SHELF_ITEM];
 const LAYOUT0 = visit ? {...DEFAULT_LAYOUT, items: tidy(visit.items || DEFAULT_LAYOUT.items)}
-  : Array.isArray(saved?.items) ? {...DEFAULT_LAYOUT, items: conLead3(tidy(saved.items))} : DEFAULT_LAYOUT;
+  : Array.isArray(saved?.items) ? {...DEFAULT_LAYOUT, items: conSkillShelf(conLead3(tidy(saved.items)))} : DEFAULT_LAYOUT;
 const LAYOUT = LAB ? {...LAYOUT0, items: LAB.withLab(LAYOUT0.items)} : LAYOUT0;           // the laboratory adds its own pieces (a fume hood) to the plan, as a copy: DEFAULT_LAYOUT stays as it is
 const PLACED = resolve(LAYOUT, {packSize: V.packSize});
 const ARC_ON = !visit && LAYOUT.floor.zones.some(z => z.kind === 'common');                // the arcade cabinet stands in the common room, whatever the furniture of a saved office
@@ -457,6 +461,7 @@ const raycastables = [];
 let viz = null;                                                            // what the harness knows, made visible (office-viz.js)
 let research = null;                                                       // the research walls of the laboratory (office-research.js)
 let hangar = null;                                                         // the live pieces of the hangar (office-hangar.js start())
+let skills = null;                                                         // the skills bookcase (office-skills.js), made once the clickable things exist
 let racks = null;                                                          // the rack by each desk (office-rack.js), made once the clickable things exist
 // every cubicle desk is furnished from the start, so an office with few agents still looks lived in; an agent takes
 // the first free desk in the layout's order: its colour goes on the chair cushion and the mug, its screen comes alive
@@ -1536,19 +1541,46 @@ const SENS = [0.0015, 0.0024, 0.0036, 0.0052];                              // m
 let sensIdx = Math.max(0, Math.min(SENS.length - 1, +pref('sens', 1) || 0));
 const locked = () => document.pointerLockElement === renderer.domElement;
 const zoomMul = () => paintball?.zoomFactor?.() ?? 1;                              // a zoomed view turns slower
-let lockSkip = 0;                                                             // the first events after the capture can carry a jump of the cursor: dropped
+// a record of what could turn the view by itself (console: window.__viewLog): a jump of the mouse, the capture won or lost, a turn of the view with no mouse
+// with ?viewlog=1 every entry also goes to the server (ROOM/viewlog.jsonl) with the state of the view at that moment, and every big write of the rotation with where it came from
+const VIEWLOG_ON = /[?&]viewlog\b/.test(location.search), VQ = [];
+const VIEWLOG = window.__viewLog = [], vlog = (k, v, stack) => {
+  VIEWLOG.push([Math.round(performance.now()), k, v]); if (VIEWLOG.length > 300) VIEWLOG.shift();
+  if (VIEWLOG_ON && VQ.length < 400) VQ.push({t: Math.round(performance.now()), k, v, stack, yaw: me.yaw, pitch: me.pitch, rot: boss?.rot, lock: locked(), mode, pov, povLocked, w: innerWidth, h: innerHeight, ow: outerWidth, dpr: devicePixelRatio, q: quality, dyn: dynScale});
+};
+let mouseAt = 0, lastYaw = null;
+const lookF = lookFilter();                                                    // drops the jumps of the cursor Chrome on Windows sends with a captured pointer
 renderer.domElement.addEventListener('pointermove', e => {                    // first person: the mouse looks (captured pointer), or a drag looks around
   if (!pov || !(locked() || (e.buttons & 1))) return;
-  if (locked() && lockSkip > 0) { lockSkip--; return; }
   let dx = e.movementX || 0, dy = e.movementY || 0;
-  if (!Number.isFinite(dx + dy) || Math.abs(dx) > 1500 || Math.abs(dy) > 1500) return;       // a glitch of the driver, not a hand
-  watching = null;
+  if (!Number.isFinite(dx + dy) || !lookF.ok(dx, dy, performance.now())) { vlog('drop', [dx, dy]); return; }   // a glitch of the driver or of the cursor, not a hand
+  if (Math.abs(dx) > 300 || Math.abs(dy) > 300) vlog('spike', [dx, dy]);
+  mouseAt = performance.now(); watching = null;
   const sens = locked() ? SENS[sensIdx] * zoomMul() : 0.005;
   if (locked() && povLocked && boss && !seated(boss) && !vault && !boss.path.length) { boss.rot = boss.faceRot = wrapAng(boss.rot - dx * sens); povRot = boss.rot; }   // the body turns with the view
   else me.yaw = wrapAng(me.yaw - dx * sens);
   me.pitch = Math.max(-1.3, Math.min(1.2, me.pitch - dy * (locked() ? sens : 0.004)));
 });
-document.addEventListener('pointerlockchange', () => { lockSkip = 2; if (!locked()) keys.clear(); });
+document.addEventListener('pointerlockchange', () => { lookF.reset(performance.now()); vlog('lock', locked()); if (!locked()) keys.clear(); });
+if (VIEWLOG_ON) {
+  let off = false;
+  const spy = (o, key, label) => {                                            // a write of more than 0.5 rad, with no mouse in the last 100 ms, is logged with its stack
+    let v = o[key]; Object.defineProperty(o, key, {configurable: true, enumerable: true, get: () => v, set: n => {
+      if (Number.isFinite(v) && Math.abs(wrapAng(n - v)) > 0.5 && performance.now() - mouseAt > 100) vlog('write', [label, +v.toFixed(3), +n.toFixed(3)], (new Error().stack || '').split('\n').slice(2, 6).map(l => l.trim()).join(' < ').slice(0, 400));
+      v = n; }});
+  };
+  spy(me, 'yaw', 'me.yaw'); const spied = new WeakSet(); window.__viewSpyBoss = b => { if (b && !spied.has(b)) { spied.add(b); spy(b, 'rot', 'boss.rot'); } };
+  const ev = (t, k) => window.addEventListener(t, () => vlog(k, [innerWidth, innerHeight, devicePixelRatio]));
+  ev('resize', 'resize'); ev('blur', 'blur'); ev('focus', 'focus'); document.addEventListener('visibilitychange', () => vlog('visible', document.visibilityState));
+  document.addEventListener('pointerlockerror', () => vlog('lockerror', 1));
+  setInterval(async () => {
+    if (off || !VQ.length) return;
+    let n = 0, bytes = 0; while (n < Math.min(VQ.length, 200) && (bytes += JSON.stringify(VQ[n]).length + 1) < 48000) n++;   // a batch under the server's 64 KB
+    const events = VQ.splice(0, Math.max(1, n)), r = await post('viewlog', {events});
+    if (!r || [403, 404, 413].includes(r.status)) off = true;                 // no such route, refused, too big, or the socket was reset: stop asking
+  }, 2000);
+  vlog('start', [navigator.userAgent.slice(0, 120)]);
+}
 const mixer = createMixer({root, t: () => ui.t()});                             // the volumes: general, TV, radio, lofi
 const ui = createUI(root, {
   onExtra: k => { if (k === 'pingPong' || k === 'foosball' || k === 'poolTable') openGame(k); },
@@ -1773,8 +1805,10 @@ renderer.domElement.addEventListener('pointermove', e => {
   hoverRoom = room;
 });
 renderer.domElement.addEventListener('pointerleave', () => { hoverRoom = null; });
+// raw input (no acceleration, no moving of the cursor to the centre), where the browser has it; else the normal capture
+const lockMouse = () => { const el = renderer.domElement, r = el.requestPointerLock?.({unadjustedMovement: true}); r?.catch?.(() => el.requestPointerLock()); };
 renderer.domElement.addEventListener('click', e => {
-  if (pov && povLocked && !editor.active() && !locked() && !games.active() && !loungeTv.open()) renderer.domElement.requestPointerLock?.();
+  if (pov && povLocked && !editor.active() && !locked() && !games.active() && !loungeTv.open()) lockMouse();
   if (editor.active()) return;
   if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
   const r = renderer.domElement.getBoundingClientRect();
@@ -1786,6 +1820,7 @@ renderer.domElement.addEventListener('click', e => {
   if (hit?.object.userData.radio) return radio.menu();                           // the radio: its stations
   if (hit?.object.userData.lift) return liftMenu();                                  // the lift: up to the arena
   if (hit?.object.userData.rack) return racks?.open(hit.object.userData.rack);                // the rack by a desk: its processes
+  if (hit?.object.userData.skills) return skills?.open();                          // the skills bookcase: its panel
   if (hit?.object.userData.github) return github?.open();                          // the GitHub window on the wall: its panel
   if (hit?.object.userData.viz) return viz.click(hit.object.userData.viz, hit);                 // the CHECK panel (a row opens its message), the language flag
   if (hit?.object.userData.arcade) return arcade?.open();                          // the arcade cabinet: play
@@ -1808,7 +1843,9 @@ function resize() {
   renderer.setSize(w, h, false); composer.setSize(w, h); composer.setPixelRatio(renderer.getPixelRatio());
   camera.aspect = w / h; camera.updateProjectionMatrix();
 }
-new ResizeObserver(resize).observe(root);
+let framed = false;                                                         // a frame has been drawn: the canvas has something to redraw
+const drawScene = dt => { if (quality === 'bassa') renderer.render(scene, camera); else composer.render(dt); };
+new ResizeObserver(() => { resize(); if (framed) drawScene(0); }).observe(root);   // the observer runs after the frame callback and before the paint: the cleared canvas is drawn again at once, no blank flash
 
 // ------------------------------------------------------------------ tags over the heads
 const _v = new THREE.Vector3();
@@ -1863,6 +1900,7 @@ function placeTags() {
       if (d.tagged && !d.idle) flags.push(['tag', L.tagged]);
       if (d.late) flags.push(['late', '⏰ ' + L.late]);
       if (racks && racks.count(p.name)) flags.push(['proc', '⚙ ' + racks.count(p.name)]);
+      if (skills?.count(p.name)) flags.push(['skill', '📚 ' + skills.count(p.name)]);
       const lent = boardData?.tasks?.find(t => t.lender && t.state === 'taken' && t.owner === p.name && t.lender !== p.name);
       if (lent) flags.push(['help', '🤝 ' + lent.lender]);           // a piece lent by a teammate (task help)
       if (d.idle) flags.push(['idle', '💤 ' + L.idle]);
@@ -1948,28 +1986,28 @@ function steerResolution(now) {
 
 // ------------------------------------------------------------------ loop
 const FORCE = /[?&]force\b/.test(location.search);              // keep drawing in a hidden tab (screenshots, tests)
-let last = performance.now(), acc = 0, drewAt = 0, hourDrawn = -1, secDrawn = -1, screenAcc = 0, uiAcc = 0, lastInput = 0, shadowAt = 0, speed = 'idle';
+const PACE = {last: performance.now(), acc: 0, drewAt: 0};
+let hourDrawn = -1, secDrawn = -1, screenAcc = 0, uiAcc = 0, lastInput = 0, shadowAt = 0, speed = 'idle';
 for (const ev of ['pointerdown', 'pointermove', 'wheel']) root.addEventListener(ev, () => { lastInput = performance.now(); }, {passive: true, capture: true});
 const _fr = new THREE.Frustum(), _pm = new THREE.Matrix4(), _sp = new THREE.Vector3();
 function frame(now) {
   requestAnimationFrame(frame);
   const startAt = performance.now();
-  if (mode === 'chat' || (document.hidden && !FORCE)) { last = now; return; }
+  if (mode === 'chat' || (document.hidden && !FORCE)) { PACE.last = now; return; }
   if (boardsStale && DATA.loaded) drawBoards();                             // the boards skipped while nobody could see them
   // how fast to draw: full speed while you use the office (mouse, keys, your figure walking), calmer while agents work, slow when all is idle
   if (editor.active() !== bakedEditing) { bakedEditing = editor.active(); baked.setEditing(bakedEditing); climb = null; }
   const using = now - lastInput < 4000 || tween || flyHome || (pov && !povLocked) || keys.size || boss?.path.length || me.act === 'brew';
   const working = D.names.some(n => D.per[n] && !D.per[n].idle) || P.length > ambient || planes.length || pov;      // the steam never stops: it alone keeps nothing awake
-  const covered = games.active() || arcade?.active() || github?.active() || racks?.active();       // a game, the arcade or a panel covers the office (dimmed): it only needs the calm rate, the game gets the GPU
+  const covered = games.active() || arcade?.active() || github?.active() || racks?.active() || skills?.active();       // a game, the arcade or a panel covers the office (dimmed): it only needs the calm rate, the game gets the GPU
   speed = covered ? 'idle' : using ? 'use' : working ? 'work' : 'idle';
   // smooth first: 60 while you use it or agents work (a 144 Hz screen would only burn the GPU), 30 when nothing moves
-  const fps = {use: 60, work: quality === 'bassa' ? 30 : 60, idle: quality === 'bassa' ? 15 : 30}[speed];
-  acc += now - last; last = now;
-  if (acc < 1000 / fps - 2) return;                                             // 2 ms slack: a 60 cap on a 60 Hz screen must not drop to 30
-  // the time left over goes to the next frame (at most one frame's worth): with acc = 0 a 75-165 Hz screen gave 37-55 frames a second, and the
-  // resolution steering read those slow frames as a slow GPU
-  const dt = Math.min(0.1, (now - (drewAt || now - 1000 / fps)) / 1000); drewAt = now;           // the real time since the last frame drawn
-  acc = Math.max(0, Math.min(acc - 1000 / fps, 1000 / fps)); frameT = now / 1000;
+  // looking round with the captured mouse: a frame for every tick of the screen up to 144 (a 60 cap on a 75 or 144 Hz screen draws frames 13 and 21 ms apart, and the turn judders)
+  const look = pov && povLocked && locked() && speed === 'use';
+  const fps = look ? 144 : {use: 60, work: quality === 'bassa' ? 30 : 60, idle: quality === 'bassa' ? 15 : 30}[speed];
+  const dt = pace(PACE, now, fps);
+  if (!dt) return;
+  frameT = now / 1000;
   const t = now / 1000, d = new Date(), hour = d.getHours() + d.getMinutes() / 60;
   if (Math.floor(hour * 4) !== hourDrawn) { hourDrawn = Math.floor(hour * 4); drawSky(hour); }
   if (d.getSeconds() !== secDrawn) { secDrawn = d.getSeconds(); drawClock(); }
@@ -2025,10 +2063,11 @@ function frame(now) {
   watchCinema();
   nearestLights(t);
   camera.updateMatrixWorld(); loungeTv.update(t); radio?.update(t); lofi?.update(t); arcade?.update(t, boss?.pos); github?.update(); racks?.update(); viz?.update(dt, t); research?.update(t); hangar?.update(dt, t); lift?.update(dt, level === 'office' ? boss?.pos : null); paintball.update(dt);
+  steerResolution(now);                                                     // before the drawing: a resize clears the canvas, and a frame drawn first would never be seen (a blank flash at every step)
+  skills?.update(t);
   const drawAt = performance.now();
-  if (quality === 'bassa') renderer.render(scene, camera); else composer.render(dt);
+  drawScene(dt); framed = true;
   if (FORCE) window.__officeTimes = {logic: drawAt - startAt, draw: performance.now() - drawAt, scale: dynScale};   // measuring: where a frame's time goes
-  steerResolution(now);
 }
 
 // the dollhouse view: an outer wall drops to its stub when the camera is outside it; in first person (camera below
@@ -2058,6 +2097,7 @@ function flyCamera(dt) {
     pos = boss.parts.head.localToWorld(_eye.set(0, 0.26, 0)); pos.x = boss.pos.x; pos.z = boss.pos.z;   // the eye is on the axis the body turns about: the view turns round the eye (an eye ahead of it swung on an arc, and a wall close by seemed to turn up to twice as fast)
     const dr = wrapAng(boss.rot - povRot); povRot = boss.rot;                    // the body turned by itself (walking to a seat, sitting): the view keeps pointing where it was
     if (dr) me.yaw = wrapAng(me.yaw - dr);
+    window.__viewSpyBoss?.(boss);
     const yaw = boss.rot + me.yaw, c = Math.cos(me.pitch);
     look = _look.set(Math.sin(yaw) * c, Math.sin(me.pitch), Math.cos(yaw) * c).add(pos);
     fov = 68 * (paintball?.zoomFactor?.() ?? 1);                                   // the sniper's zoom
@@ -2068,6 +2108,11 @@ function flyCamera(dt) {
   if (watching) watchEnd = performance.now();
   const gliding = !povLocked || watching || performance.now() - watchEnd < 700, k = povLocked ? 1 : Math.min(1, dt * 3), kl = gliding ? (povLocked ? Math.min(1, dt * 7) : k) : 1;
   camera.position.lerp(pos, k); povLook.lerp(look, kl); camera.lookAt(povLook);
+  if (pov && povLocked && !watching) {
+    const y = Math.atan2(povLook.x - camera.position.x, povLook.z - camera.position.z);
+    if (lastYaw !== null && Math.abs(wrapAng(y - lastYaw)) > 0.5 && performance.now() - mouseAt > 100) { vlog('jump', [+lastYaw.toFixed(2), +y.toFixed(2)], 'pitch ' + me.pitch.toFixed(2)); console.warn('[office] the view turned by itself', lastYaw.toFixed(2), '->', y.toFixed(2)); }
+    lastYaw = y;
+  } else lastYaw = null;
   camera.fov = lerp(camera.fov, fov, povLocked ? Math.min(1, dt * 12) : k); camera.updateProjectionMatrix();
   if (pov && boss && camera.position.distanceTo(pos) < 0.03) povLocked = true;
   if (boss) boss.parts.head.visible = !pov || camera.position.distanceTo(pos) > 0.8;
@@ -2091,7 +2136,7 @@ if (FORCE) Object.assign(window, {                                        // tes
   __officeBrew: () => brew(),
   __officePoll: () => pollCommon(),
   __officeReport: r => reportResult(r),
-  __officeViz: () => viz, __officeArcade: () => arcade, __officeGithub: () => github, __officeRacks: () => racks,
+  __officeSkills: () => skills, __officeViz: () => viz, __officeArcade: () => arcade, __officeGithub: () => github, __officeRacks: () => racks,
   __officeLevel: () => ({level, y: boss.pos.y, lvl: boss.lvl || 0, arena: !!arena, lift: !!lift}), __officeArena: () => arena,
   __officeAgents: () => [...people].map(([name, q]) => ({name, x: +q.pos.x.toFixed(2), z: +q.pos.z.toFixed(2), pose: q.pose, act: q.act, walking: q.path.length, visit: q.visit ? {until: q.visit.until, act: q.visit.act} : null})),
   __officeView: () => { const d = camera.getWorldDirection(new THREE.Vector3()); return {pov, locked: povLocked, rot: boss.rot, yaw: me.yaw, pitch: me.pitch, faceRot: boss.faceRot, pose: boss.pose, path: boss.path.length, seated: seated(boss), camYaw: Math.atan2(d.x, d.z), camPitch: Math.asin(d.y)}; },
@@ -2197,6 +2242,8 @@ hangar = HANGAR ? HANGAR.start({camera, raycastables, emit, say: t => ui.placeNa
                                 names: () => D.names.filter(n => !D.per[n]?.neighbor), lang: () => DATA.config.lang, active: () => !officeUnseen(),
                                 route: (a, b) => route(new THREE.Vector3(a.x, 0, a.z), new THREE.Vector3(b.x, 0, b.z))}) : null;
 research = RES ? RES.createResearch({THREE, V, scene, renderer, camera, dom: renderer.domElement, raycastables, lang: () => DATA.config.lang, paused: officeUnseen, pov: () => pov && povLocked, lab: LAB}) : null;
+const skillMesh = visit ? null : ITEM_MESHES.find(m => itemOf(m)?.type === 'skillShelf');
+if (!visit) skills = createSkills({THREE, V, camera, shelf: skillMesh, raycastables, root, lang: () => DATA.config.lang, paused: officeUnseen, onEnabled: () => ui.addExtra('skills', '📚', 'Skills', () => skills.open())});
 if (!visit) github = createGithubWall({board: ghBoard, frame: ghFrame, raycastables, root, lang: () => DATA.config.lang, paused: officeUnseen, onEnabled: () => ui.addExtra('github', '🐙', 'GitHub', () => github.open())});
 const GAME_TABLES = ITEM_MESHES.filter(m => CATALOG[itemOf(m)?.type]?.game).map(m => {
   const type = itemOf(m).type, [w, d] = CATALOG[type].foot, c = Math.cos(m.rotation.y), s = Math.sin(m.rotation.y);
@@ -2340,7 +2387,7 @@ function poolFromFriends() {
 // fewer draw calls: the furniture, the desks' fixed pieces and the city are baked into a few big meshes while you look at them
 // (the editor sees the originals and bakes again when it closes)
 const baked = mergeStatic({THREE, scene, items: ITEM_MESHES, extra: () => [...DESKS.map(d => d.g), city, ...(signs ? [signs.group] : [])],
-                           skip: o => !!o.userData.person || !!(o.parent?.userData.kit && !o.parent.userData.kit.has(o))});
+                           skip: o => !!o.userData.person || !!o.userData.skills || !!(o.parent?.userData.kit && !o.parent.userData.kit.has(o))});
 let bakedEditing = false;
 // ------------------------------------------------------------------ the arena (office-arena.js): the floor above, where the paintball and zombie modes are played
 const arena = createArena({THREE, scene, lamps}), lift = LIFT_ON ? createElevator({THREE, scene, raycastables}) : null;

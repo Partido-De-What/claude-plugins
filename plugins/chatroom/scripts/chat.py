@@ -25,9 +25,10 @@ Commands (the room is --room DIR or the CHATROOM_DIR environment variable):
   chat.py config --room DIR key=value ... [--profile ...]   (change the look or the settings of an existing room)
   chat.py roster --room DIR A=<agent> B=<agent> ...         (the lead writes it right after spawning the agents:
                                                             Claude Code agent IDs, or Codex paths like /root/a)
-  chat.py post --as NAME [--status|--idle] [--image PATH ...]
-                                                            (text on stdin: use a quoted heredoc <<'EOF' ... EOF;
-                                                            --image attaches a picture, once per picture)
+  chat.py post --as NAME ["text"] [--status|--idle] [--image PATH ...]
+                                                            (the text as an argument, or on stdin with a quoted heredoc
+                                                            <<'EOF' ... EOF for long or quoted text; --image attaches a
+                                                            picture, once per picture)
   chat.py read --as NAME                                    (new messages since your last read)
   chat.py read --all                                        (the whole chat)
   chat.py wait --as NAME [--timeout 100]                    (blocks until someone else writes or your timer expires,
@@ -38,6 +39,7 @@ Commands (the room is --room DIR or the CHATROOM_DIR environment variable):
   chat.py transcript [--out FILE]                           (the whole chat as Markdown)
   chat.py command [NAME] [--as AUTHOR]                      (a quick command, see COMMANDS; no NAME lists them)
   chat.py alerts [--follow]                                 (the lead's relay: a ping line per user message)
+  chat.py procs [stop --room R | --all | PID]               (what the plugin left running on this machine: list, end)
   chat.py helpers [OTHER_ROOM ...]                          (for the lead: who is free and for how long, who works on
                                                             what, the pieces already lent, and pairs to consider)
   chat.py serve [--port 8765]                               (the live viewer, with a box to write as the user)
@@ -70,10 +72,11 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from github_data import GitHub
+import layers
 
 HERE = Path(__file__).resolve().parent
 PLUGIN_DIR = HERE.parent                                                # pyproject.toml and uv.lock: the room's one environment
-ENV_DIR = Path(os.environ.get('UV_PROJECT_ENVIRONMENT') or Path.home() / '.claude' / 'chatroom' / 'env')
+ENV_DIR = Path(os.environ.get('UV_PROJECT_ENVIRONMENT') or layers.chatroom_dir() / 'env')
 
 
 def chat_for_agents():
@@ -87,13 +90,13 @@ def chat_for_agents():
         ver = json.loads((PLUGIN_DIR / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8'))['version']
     except (OSError, ValueError, KeyError):
         return me
-    cache = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'plugins' / 'cache'
+    cache = layers.claude_dir() / 'plugins' / 'cache'
     return next((c.resolve() for c in sorted(cache.glob(f'*/chatroom/{ver}/scripts/chat.py'))), me)
 
 
 def plugin_source():
     """the plugin's source folder when it was installed from a local directory (known_marketplaces.json), else None"""
-    path = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'plugins' / 'known_marketplaces.json'
+    path = layers.claude_dir() / 'plugins' / 'known_marketplaces.json'
     try:
         marks = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
@@ -129,7 +132,7 @@ def known_room(d, ids=()):
     """the room folders that had a roster lately, with their agents' ids (~/.claude/chatroom/known_rooms.json, the newest
     50): the SubagentStop hold finds an agent's room there even when the viewer is down, and its shell wrapper skips
     Python for any agent whose id is not in the file"""
-    path = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'known_rooms.json'
+    path = layers.chatroom_dir() / 'known_rooms.json'
     try:
         rooms = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
@@ -149,11 +152,12 @@ def known_room(d, ids=()):
 
 sys.path.insert(0, str(HERE))
 from i18n import LANGS, lang_of, say, tr, use  # noqa: E402
+import i18n  # noqa: E402
 import idle_life  # noqa: E402
-TV_DIR = Path.home() / '.claude' / 'chatroom' / 'tv'                    # the lounge TV: <channel>/*.mp4|webm, youtube.json
+TV_DIR = layers.chatroom_dir() / 'tv'                    # the lounge TV: <channel>/*.mp4|webm, youtube.json
 TV_YOUTUBE = {'YouTube · Minecraft parkour': ['0c4KWfPhgWA'], 'YouTube · Subway Surfers': ['L_fcrOyoWZ8']}
-SETTINGS_FILE = Path.home() / '.claude' / 'chatroom' / 'settings.json'   # the user's lasting choices, for every room
-OFFICE_FILE = Path.home() / '.claude' / 'chatroom' / 'office.json'   # the user's own office layout, never in a repo
+SETTINGS_FILE = layers.chatroom_dir() / 'settings.json'   # the user's lasting choices, for every room
+OFFICE_FILE = layers.chatroom_dir() / 'office.json'   # the user's own office layout, never in a repo
 OFFICE_RESET = OFFICE_FILE.with_name('office.reset-1')                  # done once: see reset_office_once()
 sys.stdout.reconfigure(encoding='utf-8')
 sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to stderr: cp1252 turned è into �
@@ -161,8 +165,8 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
              'heartbeat': int, 'lead_pace': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
-             'cache_ttl': str, 'thumbs': int, 'vision': int}
-CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h')}
+             'cache_ttl': str, 'thumbs': int, 'vision': int, 'idlefree': str}
+CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h'), 'idlefree': ('on', 'off')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
 IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
                '.gif': 'image/gif'}
@@ -267,7 +271,7 @@ def broadcast(text):
     return plan_version(text) is not None or closing(text)[0] or bool(votes_in(text))
 PLAN_MAX = 3              # after PLAN v3 only the lead (or the user) posts a new version: the lead reviews and decides
 EVERYONE = ('all', 'tutti', 'everyone')   # @all, @tutti, @everyone tag every participant
-from limits import WAIT_MAX, IDLE_WAIT as IDLE_WAIT_MAX, IDLE_WAIT_LONG, MONITOR_MAX   # every wait under a limit of the harness (limits.py)
+from limits import WAIT_MAX, IDLE_WAIT as IDLE_WAIT_MAX, IDLE_WAIT_LONG, MONITOR_MAX, HOLD_WAIT   # every wait under a limit of the harness (limits.py)
 DIGEST_EVERY = 20         # a focused wait returns anyway when this many messages for nobody in particular wait, or after 3 heartbeats
 
 # Quick commands: the user sends them from the viewer (type / in the box) or the lead with `chat.py command NAME`.
@@ -403,14 +407,30 @@ def is_shut(room, items):
     return False
 
 
-def note_event(room, kind, key, name=''):
+def note_event(room, kind, key, name='', task='', detail=''):
     """ROOM/events.jsonl: one line per refusal, check, valve or guard that fired: the scorecard counts them and the
-    lessons group them across rooms (a control that never fires is a control to remove)"""
+    lessons group them across rooms (a control that never fires is a control to remove). Each line says who (name) and
+    on which task (the one given, else the ones the agent holds on the board), and the detail the cause needs (0.19.9: a
+    line with only ts, kind, key could not be attributed)"""
     try:
+        if name and not task:
+            task = ','.join(t['id'] for t in read_json(room.dir / 'board.json', {}).get('tasks', [])
+                            if t.get('owner') == name and t.get('state') == 'taken')
+        row = {'ts': int(time.time()), 'kind': kind, 'key': key, 'name': name, **({'task': task} if task else {}),
+               **({'detail': str(detail)[:200]} if detail else {})}
         with open(room.dir / 'events.jsonl', 'a', encoding='utf-8') as f:
-            f.write(json.dumps({'ts': int(time.time()), 'kind': kind, 'key': key, 'name': name}, ensure_ascii=False) + '\n')
+            f.write(json.dumps(row, ensure_ascii=False) + '\n')
     except OSError:
         pass
+
+
+def check_event(room, key):
+    """a CHECK that fired, as an event: its type (cost: has two parts), the agent and the task its key names, and the whole key.
+    A key without an agent (gone, silent) gets the agent's taken tasks from note_event"""
+    toks = re.split(r'[:,]', key)[1:]
+    people = set(room.config().get('participants', []))
+    note_event(room, 'check', ':'.join(key.split(':')[:2 if key.startswith('cost:') else 1]),
+               next((t for t in toks if t in people), ''), next((t for t in toks if re.fullmatch(r'T\d+', t)), ''), key)
 
 
 def closing_refusal(room, name, text):
@@ -446,6 +466,8 @@ def closing_refusal(room, name, text):
 
 
 LEAD_WAIT_MIN = 5         # minutes an agent waits for the lead before the relay says so
+TASK_IDLE_TURNS = 3       # turns a task holder is held with nothing new before the relay tells the lead (settings task_idle_turns; hold.py leaves at TASK_EMPTY_MAX)
+FELL_MIN = 60             # seconds after an API error ended an agent's run before the relay says so (the hold resumes it at once, when it runs)
 
 
 def waits_for_lead(room, items=None, only=None, now=None):
@@ -462,6 +484,8 @@ def waits_for_lead(room, items=None, only=None, now=None):
         text = m.get('text', '')
         if not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
             continue                                  # a report to the lead is no question: 49 of 55 such CHECKs were noise
+        if any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
+            continue                                  # written to another agent, the lead only named in it
         said = [x.get('text', '') for x in items if x['n'] > m['n'] and x['from'] in users and not x.get('kind')]
         if not any(tags(t, k) or tags_everyone(t) or not re.search(r'(?<![\w.])@\w', t) for t in said):
             out.append((k, m['n'], (now - float(m.get('ts') or now)) / 60, ' '.join(text.split())[:120]))
@@ -484,6 +508,22 @@ def file_sha(path):
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
     except OSError:
         return ''
+
+
+TESTS_SUFFIX = ('.py', '.mjs', '.js', '.ts', '.sh')
+
+
+def tests_snapshot(room):
+    """{path: sha} of the test files in the folders of brief tests=DIR[,DIR] (outside git, so no diff sees them): the sha of each
+    file when a task is taken, to say at its delivery which existing test the agent changed. Direct children only; {} when unset"""
+    out = {}
+    for d in (brief(room).get('tests') or '').split(','):
+        d = Path(d.strip())
+        if d.name and d.is_dir():                 # an empty entry is Path('.'): the folder of whoever runs the command
+            for p in sorted(d.iterdir())[:1000]:
+                if p.suffix in TESTS_SUFFIX and p.is_file():
+                    out[str(p)] = file_sha(p)
+    return out
 
 
 def free_tasks(room, name, board=None, items=None):
@@ -658,7 +698,7 @@ def mod_active(room):
     """the chatroom mod runs in a Claude Code session with this room: its viewer's registry entry is fresh and lists the
     agents' ids (the mod sends them at each spawn). Then the room delivers every message by itself: an agent in wait sees
     the chat, an agent at work gets it from the mod, a stopped agent from the SubagentStop hold"""
-    path = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'rooms.json'
+    path = layers.chatroom_dir() / 'rooms.json'
     try:
         info = json.loads(path.read_text(encoding='utf-8')).get(str(room.dir.resolve())) or {}
     except (OSError, ValueError, AttributeError):
@@ -1492,7 +1532,7 @@ def resolve_name(room, raw):
     return base
 
 
-def cmd_retire(room, a):
+def cmd_retire(room, a, quiet=False):
     """chat.py retire NAME --as LEAD: the agent behind NAME is replaced; its calls are refused from now on, its call count
     starts again, and the next prompt of NAME carries the new identity (NAME~G)"""
     if a.name not in room.user_names():
@@ -1515,12 +1555,21 @@ def cmd_retire(room, a):
         path = room.dir / 'roster.retired.json'
         write_atomic(path, json.dumps(read_json(path, []) + [{'name': name, 'agent': gone[0], 'generation': g - 1}], indent=2))
     room.append(a.name, say('chat.say.cmd_retire.retired_by_the_agent', name=name, name_=a.name, g=g), 'board')
-    print(say('chat.say.cmd_retire.retired_calls_as_or', name=name, g=g))
+    if not quiet:                             # rotate says its own line: it makes the prompt and the name itself
+        print(say('chat.say.cmd_retire.retired_calls_as_or', name=name, g=g))
+
+
+def post_text(a):
+    """the text of a post: the words after `post` (post --as ME "text"), else stdin (a heredoc); a tty with neither is ''"""
+    words = ' '.join(getattr(a, 'pairs', None) or []).strip()
+    if words or sys.stdin.isatty():
+        return words
+    return sys.stdin.buffer.read().decode('utf-8', errors='replace').strip()
 
 
 def cmd_post(room, a, text=None):
     if text is None:
-        text = '' if sys.stdin.isatty() else sys.stdin.buffer.read().decode('utf-8', errors='replace').strip()
+        text = post_text(a)
     if a.idle and a.status:                           # an idle is a status with a wait: nothing to refuse, its text stays
         a.status = False
     if sum(map(bool, (a.status, a.idle, a.finding))) > 1:
@@ -1580,7 +1629,7 @@ def cmd_post(room, a, text=None):
     if not kind:
         refusal = closing_refusal(room, a.name, text)
         if refusal:
-            note_event(room, 'refusal', 'closing', a.name)
+            note_event(room, 'refusal', 'closing', a.name, detail=refusal)
             sys.exit(say('chat.err.cmd_post.error_nothing_was_posted', refusal=refusal))
         pv = plan_version(text)
         if pv and pv > PLAN_MAX and a.name not in room.user_names():
@@ -1747,6 +1796,7 @@ BUDGET_PER_HOUR = 60      # ... or this many for each hour of the room, when mor
 LEASE_MAX = 1800              # ... and never more than half an hour, whatever the heartbeat (15 minutes by default)
 LEASE_HEARTBEATS = 5          # a taken task whose owner is silent (not idle) this many heartbeats may be taken by another
 PROOF_MAX = 2000
+NOTE_MAX = 4000               # characters kept of a task note (it was 300: a hand-over lost its second half), like PROOF_MAX cut at write time
 VERIFY_TIMEOUT = 110          # a verify command's default limit: under the 120 s a Bash tool call gets by default
 ACCEPT_MIN = 10               # a lent piece not accepted (task accept) within these minutes goes back to its lender
 CODE_EXT = ('py|js|mjs|ts|tsx|jsx|go|rs|c|h|cc|cpp|hpp|java|kt|rb|php|cs|swift|m|sh|ps1|bat|sql|html|css|scss|vue|svelte|'
@@ -1765,6 +1815,11 @@ ARTIFACT = re.compile(r'\bexit(?:\s*code)?\s*[:=]?\s*-?\d{1,5}\b|\b\d{1,6}\s+(?:
 def has_artifact(text):
     """the text names something checkable (see ARTIFACT); only its first 4000 characters are read"""
     return ARTIFACT.search((text or '')[:4000]) is not None
+
+
+def artifacts(text):
+    """what the proof names, as a set (a rewording of the same proof names the same things)"""
+    return {m.group(0).casefold() for m in ARTIFACT.finditer((text or '')[:4000])}
 
 
 def norm_file(x):
@@ -1889,6 +1944,7 @@ class Locks:
     from anyone. A hold ends by itself at its expiry, or when the process it names (--pid) dies. 29 of a room's 101
     messages went on turns and locks kept by hand. File: ROOM/locks.json, {name: {owner, since, until, ttl, pid, queue}}"""
     TTL = 30                                          # minutes of a hold, unless --ttl says otherwise
+    TTLS = {'browser': 10}                            # the browser panel is one for all: a hold of 30 minutes would starve the others
 
     def __init__(self, room):
         self.room, self.path = room, room.dir / 'locks.json'
@@ -1935,7 +1991,7 @@ class Locks:
 
     def acquire(self, key, name, ttl=None, pid=None):
         """(True, hold) when it is name's now, (False, hold) when name is in its queue"""
-        ttl = ttl or self.TTL
+        ttl = ttl or self.TTLS.get(key, self.TTL)
 
         def fn(locks):
             l = locks.setdefault(key, {'owner': None, 'queue': []})
@@ -1966,6 +2022,11 @@ class Locks:
     def lines(self):
         return [say('chat.say.lock.line', lock=k, owner=l['owner'], minutes=max(0, int((l['until'] - time.time()) // 60)),
                     queue=', '.join(q['name'] for q in l['queue']) or '-') for k, l in self.load().items()]
+
+
+def live_decisions(b):
+    """the decisions of a board that stand: the retired ones stay in its history and out of every list"""
+    return [d for d in b['decisions'] if not d.get('retired')]
 
 
 class Board:
@@ -2101,6 +2162,8 @@ class Board:
         return []
 
     def take(self, name, tid, force=False):
+        tests = tests_snapshot(self.room)
+
         def fn(b):
             items = self.room.messages()
             t = self.find(b, tid)
@@ -2111,20 +2174,22 @@ class Board:
                 raise ValueError(why[0])
             was = t['owner'] if t['owner'] not in (None, name) else None
             lapsed = was and self.lapsed(t, items, name)
-            t.update(owner=name, state='taken', ts=time.time())
+            t.update(owner=name, state='taken', ts=time.time(), tests=tests)
             return (say('chat.say.fn.taken_by', id=t['id'], name=name, title=t['title'][:120])
                     + (say('chat.say.fn.was_silent_for_over', was=was, LEASE_HEARTBEATS=LEASE_HEARTBEATS) if lapsed else ''))
         return self.change(fn)
 
     def next(self, name):
         """take the first task `name` can take now: open, its dependencies done, its files free (a lapsed task too)"""
+        tests = tests_snapshot(self.room)
+
         def fn(b):
             items = self.room.messages()
             for t in sorted(b['tasks'], key=lambda t: int(t['id'][1:]) if t['id'][1:].isdigit() else 0):
                 if t['state'] == 'open' or (t['state'] == 'taken' and t['owner'] != name and self.lapsed(t, items, name)):
                     if not self.blockers(b, t, name, items):
                         was = t['owner']
-                        t.update(owner=name, state='taken', ts=time.time())
+                        t.update(owner=name, state='taken', ts=time.time(), tests=tests)
                         return (say('chat.say.fn.taken_by_task_next', id=t['id'], name=name, title=t['title'][:120])
                                 + (say('chat.say.fn.was_silent_for_over', was=was, LEASE_HEARTBEATS=LEASE_HEARTBEATS) if was else ''))
             raise ValueError(say('chat.err.fn.no_task_you_can'))
@@ -2153,12 +2218,25 @@ class Board:
         if not checks and not has_artifact(proof or '') and not (force and name in self.room.user_names()):
             note_event(self.room, 'refusal', 'noproof', name)
             raise ValueError(say('chat.err.done.a_proof_must_name'))
-        if str(brief(self.room).get('ground') or '0') not in ('0', '') and not t.get('grounded') and not force \
-                and name not in self.room.user_names():
-            # held once per task: the commonest wrong delivery applies cleanly and implements a guessed contract
-            self.change(lambda b: self.find(b, tid).update(grounded=True) or '')
-            note_event(self.room, 'guard', 'ground', name)
-            raise ValueError(say('chat.err.done.ground', id=t['id']))
+        if not force and name not in self.room.user_names():
+            said = f"{proof or ''} {gaps or ''}"
+            hit = [Path(f).name for f, sha in (t.get('tests') or {}).items() if file_sha(f) != sha and Path(f).name not in said]      # deleted: '' is not its sha
+            if hit:                                   # an existing test changed outside the worktree, where no diff shows it: named, with why
+                note_event(self.room, 'refusal', 'tests_changed', name, tid, ', '.join(hit))
+                raise ValueError(say('chat.err.done.tests_changed', id=t['id'], files=', '.join(hit)))
+        if str(brief(self.room).get('ground') or '0') not in ('0', '') and not force and name not in self.room.user_names():
+            held = t.get('grounded')
+            if not held:
+                # held once per task: the commonest wrong delivery applies cleanly and implements a guessed contract
+                seen = sorted(artifacts(proof))
+                self.change(lambda b: self.find(b, tid).update(grounded={'ts': int(time.time()), 'seen': seen}) or '')
+                note_event(self.room, 'guard', 'ground', name, tid, proof)
+                raise ValueError(say('chat.err.done.ground', id=t['id']))
+            # 0.19.9: the second done must show the check was made: a verify that ran again, or a proof that names something the
+            # held one did not (12 of 12 held dones came back unchanged in 5-52 s and were accepted). held True: a board of 0.19.0
+            if isinstance(held, dict) and not checks and not artifacts(proof) - set(held.get('seen', [])):
+                note_event(self.room, 'guard', 'ground_same', name, tid, proof)
+                raise ValueError(say('chat.err.done.ground_same', id=t['id']))
         proof = '; '.join([*checks, proof] if proof else checks)
 
         def fn(b):
@@ -2185,15 +2263,24 @@ class Board:
                     + (say('chat.say.fn.missing_files', files=', '.join(missing[:5])) if missing else ''))
         return self.change(fn)
 
-    def amend(self, name, tid, files, force=False):
+    def amend(self, name, tid, files, force=False, preview=None):
         """widen the files of a task: its owner, when nobody else holds or plans them; the lead (or the user) on any task,
-        and over another task's files with --force, which is how the lead decides who changes them"""
+        and over another task's files with --force, which is how the lead decides who changes them. --preview corrects
+        the task whose result is approved first (a costly task): it replaces the one given at `add`"""
         def fn(b):
             items = self.room.messages()
             t = self.find(b, tid)
             lead = name in self.room.user_names()
             if t['state'] == 'done' or (not lead and (t['owner'] != name or t['state'] != 'taken')):
                 raise ValueError(say('chat.err.fn.is_not_yours_in', id=t['id']))
+            if preview:
+                pv = self.find(b, preview)
+                if not t.get('costly') or pv is t:
+                    raise ValueError(say('chat.err.fn.preview_needs_costly', id=t['id'], preview=pv['id']))
+                was, t['preview'] = t.get('preview'), pv['id']
+                said = say('chat.say.fn.preview_amended', id=t['id'], preview=pv['id'], was=was or '-', name=name)
+                if not files:
+                    return said
             if not files:
                 raise ValueError(say('chat.err.fn.task_amend_needs_files'))
             clash = [(o['id'], o['owner'] or 'open', f) for o in b['tasks'] if o is not t and o['state'] != 'done'
@@ -2205,7 +2292,7 @@ class Board:
                                     else say('chat.say.fn.ask_the_lead_lead')))
             new = [f for f in files if f not in t['files']]
             t['files'] += new
-            return say('chat.say.fn.now_also_changes', id=t['id'], v2=', '.join(new) or say('chat.word.nothing_new'), name=name)
+            return say('chat.say.fn.now_also_changes', id=t['id'], v2=', '.join(new) or say('chat.word.nothing_new'), name=name) + (f' · {said}' if preview else '')
         return self.change(fn)
 
     def drop(self, name, tid):
@@ -2220,7 +2307,7 @@ class Board:
     def note(self, name, tid, text):
         def fn(b):
             t = self.find(b, tid)
-            t['notes'] = (t['notes'] + [f'{name}: {text[:300]}'])[-10:]
+            t['notes'] = (t['notes'] + [f'{name}: {text[:NOTE_MAX]}'])[-10:]
             return say('chat.say.fn.note_by', id=t['id'], name=name, text=text[:140])
         return self.change(fn)
 
@@ -2231,7 +2318,7 @@ class Board:
             if t['owner'] not in (None, name):
                 raise ValueError(say('chat.err.fn.belongs_to_only_they2', id=t['id'], owner=t['owner']))
             t.update(owner=to, state='taken', ts=time.time())
-            t['notes'] = (t['notes'] + [say('chat.word.handoff_note', name=name, to=to, note=note[:300])])[-10:]
+            t['notes'] = (t['notes'] + [say('chat.word.handoff_note', name=name, to=to, note=note[:NOTE_MAX])])[-10:]
             return say('chat.say.fn.handed_from_to', id=t['id'], name=name, to=to, title=t['title'][:90]) + (f' · {note[:200]}' if note else '')
         return self.change(fn)
 
@@ -2258,8 +2345,8 @@ class Board:
                                'files': list(files), 'proof': '', 'parent': t['id'], 'lender': name, 'accepted': False,
                                'lent_ts': time.time(),
                                'done_when': done_when.strip()[:300],
-                               'packet': say('chat.word.packet_from', name=name, note=note[:300]) if note else None,
-                               'notes': [say('chat.word.packet_from', name=name, note=note[:300])] if note else [],
+                               'packet': say('chat.word.packet_from', name=name, note=note[:NOTE_MAX]) if note else None,
+                               'notes': [say('chat.word.packet_from', name=name, note=note[:NOTE_MAX])] if note else [],
                                'ts': time.time()})
             t['notes'] = (t['notes'] + [say('chat.say.fn.lent_to_as', helper=helper, hid=hid) + (f": {', '.join(files)}" if files else '')])[-10:]
             return (say('chat.say.fn.lent_by_to_a', hid=hid, name=name, helper=helper, id=t['id'], strip=scope.strip()[:140])
@@ -2270,13 +2357,15 @@ class Board:
     def accept(self, name, tid):
         """an assignment (the task becomes mine), an offer (the task passes from its owner to me), or a lent piece (the helper
         confirms it; until then, after ACCEPT_MIN minutes, it goes back to its lender)"""
+        tests = tests_snapshot(self.room)
+
         def fn(b):
             t = self.find(b, tid)
             if t.get('assigned_to') == name and t['state'] == 'open':
                 why = self.blockers(b, t, name, self.room.messages())
                 if why:
                     raise ValueError(why[0])
-                t.update(owner=name, state='taken', ts=time.time())
+                t.update(owner=name, state='taken', ts=time.time(), tests=tests)
                 return say('chat.say.fn.accepted_by', id=t['id'], name=name, title=t['title'][:120])
             if t.get('offer_to') == name and t['state'] == 'taken':
                 was = t['owner']
@@ -2313,7 +2402,7 @@ class Board:
                 raise ValueError(say('chat.err.fn.assign_not_yours', id=t['id']))
             t.update(assigned_to=to, assigned_by=name, assigned_ts=time.time())
             if note:
-                t['notes'] = (t['notes'] + [f'{name}: {note[:300]}'])[-10:]
+                t['notes'] = (t['notes'] + [f'{name}: {note[:NOTE_MAX]}'])[-10:]
             return say('chat.say.fn.assigned_to', id=t['id'], name=name, to=to, title=t['title'][:100]) + (f' · {note[:200]}' if note else '')
         return self.change(fn)
 
@@ -2327,7 +2416,7 @@ class Board:
                 raise ValueError(say('chat.err.fn.you_cannot_lend_a'))
             t['offer_to'] = to
             if note:
-                t['notes'] = (t['notes'] + [f'{name}: {note[:300]}'])[-10:]
+                t['notes'] = (t['notes'] + [f'{name}: {note[:NOTE_MAX]}'])[-10:]
             return say('chat.say.fn.offered_to', id=t['id'], name=name, to=to, title=t['title'][:100]) + (f' · {note[:200]}' if note else '')
         return self.change(fn)
 
@@ -2344,7 +2433,7 @@ class Board:
             if t['state'] == 'done':
                 raise ValueError(say('chat.err.fn.is_already_done', id=t['id']))
             t.update(owner=t['lender'], ts=time.time())
-            t['notes'] = (t['notes'] + [say('chat.say.fn.given_back_by', name=name, note=note[:300])])[-10:]
+            t['notes'] = (t['notes'] + [say('chat.say.fn.given_back_by', name=name, note=note[:NOTE_MAX])])[-10:]
             return say('chat.say.fn.given_back_by_to', id=t['id'], name=name, lender=t['lender'], title=t['title'][:90]) + (f' · {note[:200]}' if note else '')
         return self.change(fn)
 
@@ -2383,6 +2472,24 @@ class Board:
             return say('chat.say.fn.decision_by', name=name, text=f'D{k} ' + cut(text, 180))
         return self.change(fn)
 
+    def retire_decision(self, name, ref, why=''):
+        """take a decision off the board (the lead, the user, or whoever made it): it stays in the history marked retired, the
+        lists skip it, and CONVENZIONI.md gets a line that cancels it (the last line of an id wins)"""
+        def fn(b):
+            k = re.fullmatch(r'[Dd]?(\d+)', ref or '')
+            d = next((d for d in b['decisions'] if k and d.get('k') == int(k.group(1))), None)
+            if not d:
+                raise ValueError(say('chat.err.fn.no_such_decision', ref=ref))
+            if d.get('retired'):
+                raise ValueError(say('chat.err.fn.decision_already_retired', k=d['k']))
+            if name not in self.room.user_names() and d['by'] != name:
+                raise ValueError(say('chat.err.fn.decision_not_yours', k=d['k'], by=d['by']))
+            d['retired'] = {'by': name, 'ts': time.time(), 'why': why[:300]}
+            with open(self.room.dir / 'CONVENZIONI.md', 'a', encoding='utf-8') as f:
+                f.write(f"- D{d['k']} {time.strftime('%Y-%m-%d %H:%M')} {name}: RETIRED, {why or '-'}\n")
+            return say('chat.say.fn.decision_retired', k=d['k'], name=name, text=cut(d['text'], 120), why=why[:200] or '-')
+        return self.change(fn)
+
     def fact(self, name, text):
         def fn(b):
             b['facts'] = (b['facts'] + [{'text': text[:300], 'by': name}])[-30:]
@@ -2394,8 +2501,8 @@ class Board:
         full board cost 6-9k tokens a call on a 25-task room, 16-24% of what its agents read"""
         b, items = self.load(), self.room.messages()
         lines = ([say('chat.word.facts')] + [f"- {f['text'][:160]} ({f['by']})" for f in b['facts'][-8:]]) if b['facts'] else []
-        if b['decisions']:
-            lines += [say('chat.say.show.decisions_latest')] + [f"- D{d.get('k', '?')} {cut(d['text'], 200)} ({d['by']})" for d in b['decisions'][-12:]]
+        if live_decisions(b):
+            lines += [say('chat.say.show.decisions_latest')] + [f"- D{d.get('k', '?')} {cut(d['text'], 200)} ({d['by']})" for d in live_decisions(b)[-12:]]
         lines.append(say('chat.word.tasks') if b['tasks'] else say('chat.say.show.tasks_none_yet_chat'))
         for t in sorted((t for t in b['tasks'] if t['state'] not in ('done', 'dropped')), key=lambda t: (t['state'] != 'taken', t['ts'])):
             state = say('chat.say.show.in_progress', owner=t['owner']) if t['state'] == 'taken' else say(f"chat.word.state.{t['state']}")
@@ -2412,8 +2519,8 @@ class Board:
     def show(self, only=None):
         b, items = self.load(), self.room.messages()
         lines = ([say('chat.word.facts')] + [f"- {f['text']} ({f['by']})" for f in b['facts']]) if b['facts'] and not only else []
-        if b['decisions'] and not only:
-            lines += [say('chat.say.show.decisions_latest')] + [f"- {d['text']} ({d['by']})" for d in b['decisions'][-6:]]
+        if live_decisions(b) and not only:
+            lines += [say('chat.say.show.decisions_latest')] + [f"- {d['text']} ({d['by']})" for d in live_decisions(b)[-6:]]
         order = {'taken': 0, 'open': 1, 'done': 2}
         if not only:
             lines.append(say('chat.word.tasks') if b['tasks'] else say('chat.say.show.tasks_none_yet_chat'))
@@ -2431,11 +2538,11 @@ class Board:
                      + (say('chat.say.show.lease_lapsed') if self.lapsed(t, items) else '')
                      + (f" · v{t['v']}" if t.get('v', 1) > 1 and t['state'] != 'done' else ''))
             lines.append(f"{t['id']} [{state}] {t['title']}{extra}")
-            shown = t['notes'][-2:]
+            shown = t['notes'] if only else t['notes'][-2:]   # one task: every note whole; the long views keep to the last two, cut
             packet = t.get('packet') or (t['notes'][0] if t['notes'] and t['notes'][0].startswith('packet from') else None)
             if t.get('lender') and packet and packet not in shown:
                 shown = [packet] + shown                      # the packet's context stays in sight while the piece is out
-            lines += [f'    {n}' for n in shown]
+            lines += [f'    {n if only else cut(n, 300)}' for n in shown]
         return '\n'.join(lines)
 
 
@@ -2447,7 +2554,7 @@ def cmd_task(room, a):
         sys.exit(say('chat.err.cmd_task.task_add_title_deps'))
     act, rest, b = a.pairs[0], a.pairs[1:], Board(room)
     b.by = a.name
-    if getattr(a, 'expect_version', None) is not None and rest and act not in ('add', 'fact', 'decide'):
+    if getattr(a, 'expect_version', None) is not None and rest and act not in ('add', 'fact', 'decide', 'retire'):
         b.expect = (rest[0], a.expect_version)
     split = lambda v: [x.strip() for x in (v or '').split(',') if x.strip()]
     if act == 'add' and rest:
@@ -2473,7 +2580,7 @@ def cmd_task(room, a):
     elif act == 'next':
         line = b.next(a.name)
     elif act == 'amend' and rest:
-        line = b.amend(a.name, rest[0], split(a.files), a.force)
+        line = b.amend(a.name, rest[0], split(a.files), a.force, getattr(a, 'preview', None))
     elif act in ('accept', 'decline') and rest:
         t = Board.find(b.load(), rest[0])      # who is waiting for the answer to an assignment or an offer: tagged and woken
         who = t.get('assigned_by') if t.get('assigned_to') == a.name else t['owner'] if t.get('offer_to') == a.name else None
@@ -2508,6 +2615,8 @@ def cmd_task(room, a):
         line = b.fact(a.name, ' '.join(rest))
     elif act == 'decide' and rest:
         line = b.decide(a.name, ' '.join(rest), getattr(a, 'note', None))
+    elif act == 'retire' and rest:                    # a decision that no longer stands: task retire D3 --note "why"
+        line = b.retire_decision(a.name, rest[0], ' '.join(rest[1:]) or a.note or '')
     elif act == 'suspend' and rest:                   # set aside on purpose: no lease, no hold, anyone takes it up again later
         def susp(bd):
             t = Board.find(bd, rest[0])
@@ -2701,8 +2810,13 @@ def cmd_spawn(room, a):
         sys.exit(say('chat.err.main.error', exc=exc))
     if a.pairs[:1] == ['ping']:                       # spawn ping [canonical...] [--top N]: who answers now, with its tools, before a round
         from spawn.catalog import catalog
+        if catalog.stale():                           # a catalog a day old offered routes that were gone: brought up to date first
+            try:
+                catalog.update(room.dir)
+            except Exception:                         # no network, a file: the ping goes on and says the catalog is old
+                pass
         old = catalog.age_days()
-        if old is not None and old > 1:
+        if catalog.stale():
             print(say('spawn.ping.old_catalog', days=f'{old:.0f}'))
         rows = catalog.ping(a.pairs[1:] or None, getattr(a, 'top', None), vision=bool(getattr(a, 'vision', False)))
         for r in rows:
@@ -2711,7 +2825,10 @@ def cmd_spawn(room, a):
         write_atomic(room.dir / 'spawn' / 'ping.json', json.dumps(rows, indent=1, ensure_ascii=False))
         return print(f"{sum(r['result'].startswith('ok') for r in rows)}/{len(rows)} ok, {room.dir / 'spawn' / 'ping.json'}")
     use(lang_of(room.config()), here=True)
-    print(say('chat.say.posted', n=room.append(a.name or 'SPAWN', say('spawnv.chatline'), 'board')))
+    line = say('spawnv.chatline')
+    if a.pairs[:1] == ['status'] or any(m.get('text') == line for m in room.messages()):      # said once in the chat; the view has the rest
+        return print(line)
+    print(say('chat.say.posted', n=room.append(a.name or 'SPAWN', line, 'board')))
 
 
 def cmd_expand(room, a):
@@ -2730,8 +2847,9 @@ def cmd_expand(room, a):
     print(compress.expand(room, k))
 
 
-INFO_CHECKS = ('gaps:', 'coverage:', 'cost:compactions:', 'cost:protocol:', 'changed:', 'idlefree:')   # a fact, not a fault: in the relay's digest and in recap, no wake
+INFO_CHECKS = ('gaps:', 'coverage:', 'cost:compactions:', 'cost:protocol:', 'changed:', 'idlefree:', 'procs:')   # a fact, not a fault: in the relay's digest and in recap, no wake
 PROOF_RUN = re.compile(r'\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b|\b(?:commit|tests?|pytest|suite)\b', re.IGNORECASE)
+ROTATE_STATE_MAX = 4000   # characters of the state a rotated prompt carries (states measured in a real room: 0.7k to 3.8k)
 CTX_ROTATE = 150_000      # tokens of one agent's context: each turn reads it all again; past this the lead rotates it
 _AGENT_FILES = {}
 
@@ -2742,7 +2860,7 @@ def agent_file(agent_id):
         return None
     path, seen = _AGENT_FILES.get(agent_id, (None, 0))
     if not path and time.time() - seen > 300:          # a miss is looked for again every 5 minutes, not at every check
-        base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'projects'
+        base = layers.claude_dir() / 'projects'
         path = next(iter(base.glob(f'*/*/subagents/agent-{agent_id}.jsonl')), None)
         _AGENT_FILES[agent_id] = (path, time.time())
     return path
@@ -2767,6 +2885,37 @@ def agent_context(agent_id):
             continue
         if isinstance(u, dict) and 'input_tokens' in u:
             return int(u.get('input_tokens', 0)) + int(u.get('cache_read_input_tokens', 0)) + int(u.get('cache_creation_input_tokens', 0))
+    return None
+
+
+def fell(room, name):
+    """(error, epoch seconds) when the agent's last record in its transcript is an API error (connection_failed, a network
+    down: the run ended by a fault and nothing was said), else None. An agent that waits has an idle or a hold behind it; this
+    one has neither, and 0.19.0 saw it only as silent, an hour later (three agents in one room)"""
+    path = agent_file(room.roster().get(name))
+    if not path:
+        return None
+    try:
+        with open(path, 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - 262144))
+            tail = f.read().decode('utf-8', errors='replace').splitlines()
+    except OSError:
+        return None
+    for line in reversed(tail):
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get('type') not in ('assistant', 'user'):
+            continue
+        if not rec.get('isApiErrorMessage'):
+            return None
+        try:
+            import datetime
+            at = datetime.datetime.fromisoformat(str(rec.get('timestamp')).replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            at = path.stat().st_mtime
+        return str(rec.get('apiError') or rec.get('error') or 'error'), at
     return None
 
 
@@ -2898,17 +3047,38 @@ def failures(room, now=None):
         for k in config.get('self_names', []):        # the lead too: 913k tokens read again at each of its turns, unseen
             ctx = (costs.get(k) or {}).get('context') or 0
             if ctx >= LEAD_CTX:
-                out.append((f'ctx:{k}:{ctx // 100_000}', say('chat.check.lead_context', k=k, ctx=ctx // 1000)))
+                state = (Path(room.dir).resolve() / 'LEAD.md').as_posix()
+                out.append((f'ctx:{k}:{ctx // 100_000}', say('chat.check.lead_context', k=k, ctx=ctx // 1000, state=state)))
     except Exception:
         pass
     if not is_shut(room, items) and not winding(room, items):
         for k, n, minutes, text in waits_for_lead(room, items, now=now):
             if minutes >= LEAD_WAIT_MIN:                  # asked again each half hour: the agent stays stopped until the lead answers
                 out.append((f'lead:{k}:{n}:{int(minutes) // 30}', say('chat.check.waits_lead', k=k, n=n, minutes=int(minutes), text=text)))
-        for k, n in read_json(room.dir / 'gone.json', {}).items():    # hold.py: it left with no idle and nothing declared
+        for k, got in read_json(room.dir / 'gone.json', {}).items():    # hold.py: it left with the room open, and says what it still held
+            n, why, held, procs = (got.get('n', 0), got.get('why', ''), got.get('tasks', []), got.get('procs', [])) if isinstance(got, dict) else (got, '', [], [])   # 0.19.0 wrote the number only
             if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n and not voted_latest(room, k, items):
-                out.append((f'gone:{k}:{n}', say('chat.check.gone', k=k, n=n)))
+                text = (say('chat.check.gone_task', k=k, n=n, ids=', '.join(held)) if held else say('chat.check.gone_idle', k=k, n=n, why=why) if why
+                        else say('chat.check.gone', k=k, n=n))
+                out.append((f'gone:{k}:{n}', text + (say('chat.check.gone_procs', procs='; '.join(procs)) if procs else '')))
+        stays, gone = settings()['task_idle_turns'] or TASK_IDLE_TURNS, read_json(room.dir / 'gone.json', {})
+        for k in active:                              # hold.py counts the turns a task holder was held with nothing new: it holds work and does none
+            mine = [t['id'] for t in board['tasks'] if t['owner'] == k and t['state'] == 'taken']
+            last = max((m['n'] for m in items if m['from'] == k), default=0)
+            try:
+                empty = int((room.dir / f'empty_{k}.txt').read_text() or 0)
+            except (OSError, ValueError):
+                continue
+            left = k in gone and (gone[k].get('n', 0) if isinstance(gone[k], dict) else gone[k]) >= last      # it ended its run: the gone check says it
+            if mine and empty >= stays and not left and not room.idle_entry(k, items):
+                out.append((f'taskidle:{k}:{last}', say('chat.check.task_idle', k=k, ids=', '.join(mine), minutes=empty * HOLD_WAIT // 60)))
         import cost
+        for k, aid in room.roster().items():          # a run that ended on an API error (a network down): no idle, no hold saw it, and it holds work
+            err = fell(room, k) if k in active else None
+            if err and now - err[1] >= FELL_MIN and not room.in_wait(k):
+                mine = [t['id'] for t in board['tasks'] if t['owner'] == k and t['state'] == 'taken']
+                out.append((f'fell:{k}:{int(err[1])}', say('chat.check.fell', k=k, err=err[0], at=time.strftime('%H:%M', time.localtime(err[1])), aid=aid,
+                                                              ids=', '.join(mine) or '-')))
         for k, aid in room.roster().items():          # no hook saw it go (a kill, Codex): it holds a task and its transcript stopped
             mine = [t['id'] for t in board['tasks'] if t['owner'] == k and t['state'] == 'taken']
             p = cost.transcript_of(agent_id=aid) if mine and re.fullmatch(r'[0-9a-z]{8,40}', str(aid)) else None
@@ -2924,7 +3094,16 @@ def failures(room, now=None):
     for k, aid in room.roster().items():
         ctx = agent_context(aid)
         if ctx and ctx >= (350_000 if room.long_cache(k) else CTX_ROTATE):   # room agents compact by themselves at 200k/300k
-            out.append((f"ctx:{k}:{ctx // 100_000}", say('chat.check.context_high', k=k, ctx=ctx // 1000)))
+            mine = [t['id'] for t in board['tasks'] if t['owner'] == k and t['state'] == 'taken']
+            last = next((t['id'] for t in sorted(board['tasks'], key=lambda t: -t.get('ts', 0)) if t['owner'] == k and t['state'] == 'done'), '')
+            lead = (config.get('self_names') or ['LEAD'])[0]
+            cmd = f'python "{str(chat_for_agents()).replace(chr(92), "/")}" rotate {k} --room "{str(Path(room.dir).resolve()).replace(chr(92), "/")}" --as {lead}'   # slashes, as the other commands the room prints
+            if mine:                                  # not in the middle of a task: at its delivery (0.19.9: the line came mid-task and was sent back by hand)
+                out.append((f"ctx:{k}:{ctx // 100_000}", say('chat.check.context_high_task', k=k, ctx=ctx // 1000, ids=', '.join(mine))))
+            elif last:                                # it delivered: now, with the commands ready
+                out.append((f"ctx:{k}:{ctx // 100_000}:{last}", say('chat.check.rotate_now', k=k, ctx=ctx // 1000, done=last, cmd=cmd)))
+            else:
+                out.append((f"ctx:{k}:{ctx // 100_000}", say('chat.check.context_high', k=k, ctx=ctx // 1000)))
     budget = call_budget(room, config)
     for k, v in room.counters().items():
         used = sum(v.values())
@@ -2962,6 +3141,10 @@ def failures(room, now=None):
         own = [x for x in items if x['from'] == k and x.get('kind') in ('status', 'stato')][-3:]
         if len(own) == 3 and len({x['text'].strip() for x in own}) == 1:
             out.append((f"loop:{k}:{own[-1]['n']}", say('chat.check.posted_the_same_status', k=k, n=own[0]['n'], n_=own[1]['n'], n__=own[2]['n'])))
+    import procs
+    for e in procs.running():                         # the user's viewer of this room that nobody has looked at for hours: said once
+        if e['kind'] == 'serve' and e.get('purpose') == 'utente' and e['room'] and Path(e['room']).resolve() == room.dir.resolve()                 and not e.get('clients') and now - float(e.get('last_hit') or now) > 3 * 3600:
+            out.append((f"procs:{e['pid']}", say('procs.check', port=e['port'], pid=e['pid'], hours=int((now - float(e['last_hit'])) // 3600))))
     return out
 
 
@@ -3005,18 +3188,19 @@ MCP_TOOLS = [
     {'name': 'board', 'description': 'The task board in short: open and taken tasks, who does what, the done ones as ids. id: one task in full, with its proof and gaps. all=true: everything, heavy on a long room.',
      'inputSchema': {'type': 'object', 'properties': {'id': {'type': 'string'}, 'all': {'type': 'boolean'}}}},
     {'name': 'task', 'description': 'Change the task board: add (text, files, deps), take (id, force), next (take the first free one), '
-                                    'amend (id, files: widen yours), accept (id: a piece lent to you), done (id, proof naming an artifact, gaps, touched), drop (id), '
+                                    'amend (id, files: widen yours; preview: the task approved first), retire (id=D3, note: a decision that no longer stands), accept (id: a piece lent to you), done (id, proof naming an artifact, gaps, touched), drop (id), '
                                     'note (id, text), handoff (id, to, note), help (id, to, scope, files, done_when, note: '
                                     'lend a piece of your task to who waits), giveback (id, note), decide (text), fact (text), assign (id, to, note: an open task, '
                                     'held for them until accept or decline), offer (id, to, note: a task you hold, yours until they accept), '
                                     'decline (id, note: an assignment or an offer to you); accept (id) also takes an assignment or an offer; '
                                     'any action on a task takes expected_version.',
      'inputSchema': {'type': 'object', 'required': ['action'], 'properties': {
-         'action': {'type': 'string', 'enum': ['add', 'take', 'next', 'amend', 'accept', 'done', 'drop', 'note', 'handoff', 'help', 'giveback', 'decide', 'fact', 'assign', 'offer', 'decline']},
+         'action': {'type': 'string', 'enum': ['add', 'take', 'next', 'amend', 'accept', 'done', 'drop', 'note', 'handoff', 'help', 'giveback', 'decide', 'retire', 'fact', 'assign', 'offer', 'decline']},
          'gaps': {'type': 'string', 'description': 'done: what you did not do'}, 'touched': {'type': 'string', 'description': 'done: interfaces you changed that others use'},
          'id': {'type': 'string'}, 'text': {'type': 'string'}, 'files': {'type': 'array', 'items': {'type': 'string'}},
          'deps': {'type': 'array', 'items': {'type': 'string'}}, 'proof': {'type': 'string'}, 'to': {'type': 'string'},
          'note': {'type': 'string'}, 'force': {'type': 'boolean'}, 'scope': {'type': 'string'}, 'done_when': {'type': 'string'},
+         'preview': {'type': 'string', 'description': 'amend: the task whose result is approved first (a costly task)'},
          'expected_version': {'type': 'integer', 'description': 'the v<N> of the task on the board: refused if someone changed it since'}}}},
     {'name': 'research', 'description': 'The research kernel, by role: view (what your role needs), expand (one record), evaluate '
                                         '(desc; kind, idea, of, seed), propose-idea (json), propose-evidence (text, source), curate, '
@@ -3145,6 +3329,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 ns.files, ns.deps = ','.join(args.get('files') or []) or None, ','.join(args.get('deps') or []) or None
                 ns.proof, ns.force, ns.note = args.get('proof'), bool(args.get('force')), args.get('note')
                 ns.scope, ns.done_when, ns.expect_version = args.get('scope'), args.get('done_when'), args.get('expected_version')
+                ns.preview = args.get('preview')
                 ns.gaps, ns.touched, ns.verify, ns.cwd, ns.merge_into, ns.mcp = args.get('gaps'), args.get('touched'), None, None, None, True
                 cmd_task(room, ns)
             elif tool == 'research':
@@ -3286,7 +3471,7 @@ def cmd_common_post(room, a):
             return print(say('chat.say.cmd_common_post.posted_in_the_common', add_doc=add_doc(common, a.name, p.name, p.read_bytes())))
         except ValueError as exc:
             sys.exit(say('chat.err.cmd_common_post.error', exc=exc))
-    text = '' if sys.stdin.isatty() else sys.stdin.buffer.read().decode('utf-8', errors='replace').strip()
+    text = post_text(a)
     if not text:
         sys.exit(say('chat.err.cmd_common_post.empty_message'))
     if guest_link(common.dir):                # joined a friend's room: the bridge carries the line over
@@ -3458,7 +3643,22 @@ def settings():
         s = {}
     from share import clean_avatar
     return {'lend_mode': 'safe' if s.get('lend_mode') == 'safe' else 'full', 'avatar': clean_avatar(s.get('avatar')),
-            'lend_auto': clean_lend_auto(s.get('lend_auto')), 'idle_life': s.get('idle_life') is True}
+            'lend_auto': clean_lend_auto(s.get('lend_auto')), 'idle_life': s.get('idle_life') is True,
+            'viewer_idle_min': idle_min(s.get('viewer_idle_min'), 30), 'prova_idle_min': idle_min(s.get('prova_idle_min'), 10),
+            'task_idle_turns': turns(s.get('task_idle_turns')), 'task_empty_max': turns(s.get('task_empty_max'))}
+
+
+def turns(v):
+    """a count of hold turns from the user's settings (1 to 1000), None when it is not one: the default stays"""
+    return v if isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 1000 else None
+
+
+def idle_min(v, default):
+    """minutes a viewer may go unwatched before it ends by itself (procs.py); 0 = never"""
+    try:
+        return max(0.0, min(10080.0, float(v)))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 EFFORTS = ('minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
@@ -3548,7 +3748,7 @@ def cmd_add(room, a):
 
 # what the lead writes once about the room for the agents' prompts (chat.py brief); chat.py prompt fills the template
 # from it and from the config, so a prompt is never rewritten by hand and every agent gets the same rules
-BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons')
+BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests')
 
 
 def valve_line(room, name, mine=None):
@@ -3573,7 +3773,7 @@ def valve_line(room, name, mine=None):
         p.write_text(key, encoding='utf-8')
     except OSError:
         return ''
-    note_event(room, 'valve', 'deadline' if key[0] == 'd' else 'messages', name)
+    note_event(room, 'valve', 'deadline' if key[0] == 'd' else 'messages', name, detail=f'{key} left {int(left)} s, {mine} messages')
     if key[0] == 'd':
         return say('chat.say.valve.deadline', minutes=max(1, int(left // 60))) + '\n'
     return say('chat.say.valve.messages', left=every - mine % every) + '\n'
@@ -3609,15 +3809,11 @@ def cmd_brief(room, a):
 
 def room_agents_md(room):
     """the AGENTS.md text of a room, in its language when there is a translation"""
-    lang = lang_of(room.config())
-    path = HERE.parent / 'templates' / lang / 'room_agents.md'
-    if lang == 'en' or not path.is_file():
-        path = HERE.parent / 'templates' / 'room_agents.md'
-    return path.read_text(encoding='utf-8')
+    return layers.find('templates', 'room_agents.md', lang_of(room.config()))[0].read_text(encoding='utf-8-sig')
 
 
 HOSTS = ('both', 'mcp', 'shell')
-HELP_TOPICS = ('shell', 'lock', 'lend', 'pictures', 'files', 'common', 'powershell')
+HELP_TOPICS = ('shell', 'lock', 'lend', 'pictures', 'files', 'common', 'powershell', 'preview')
 
 
 def host_blocks(text, host='both'):
@@ -3638,13 +3834,8 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
     lang = lang_of(config)
     if name not in config.get('participants', []):
         raise ValueError(say('chat.err.fill_prompt.is_not_a_participant', name=name))
-    path = (HERE.parent / 'templates' / template).resolve()
-    if (HERE.parent / 'templates').resolve() not in path.parents or not path.is_file():
-        raise ValueError(say('chat.err.fill_prompt.no_template_in_the', v1=repr(template)))
-    translated = HERE.parent / 'templates' / lang / path.name     # the room's language, when a translation exists
-    if lang != 'en' and translated.is_file():
-        path = translated
-    if not path.is_file():
+    path = layers.find('templates', template, lang)[0]            # the user's file, else the core's; the room's language when there is one
+    if not path:
         raise ValueError(say('chat.err.fill_prompt.no_template_in_the', v1=repr(template)))
     dossier = room.dir / 'DOSSIER.md'
     values = {
@@ -3660,6 +3851,8 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
                                                str(room.dir / 'research' / 'task.md').replace('\\', '/')
                                                if (room.dir / 'research' / 'task.md').is_file() else '-'),
         **{k.upper(): data.get(k) or tr(lang, f'brief.default.{k}') for k in ('style', 'constraints', 'closing', 'max')}}
+    if data.get('tests'):
+        values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.tests', dirs=data['tests'])
     if data.get('lessons') != 'off':                  # what earlier rooms taught and the user kept (brief lessons=trial: the ones on trial too)
         import lessons
         kept = lessons.for_prompt(data.get('lessons') == 'trial')
@@ -3687,7 +3880,7 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
                                     else tr(lang, 'prompt.evalLong', s=longest)),
                        'METRIC_SOURCE': (tr(lang, 'prompt.metricFile') if c.get('metric_source') == 'file'
                                          else tr(lang, 'prompt.metricOutput', metric=c['metric']))})
-    source = path.read_text(encoding='utf-8')
+    source = path.read_text(encoding='utf-8-sig')
     if host == 'shellblock':                         # help shell: the commands alone
         source = ''.join(re.findall(r'\[\[shell\]\]\n(.*?)\[\[/shell\]\]\n', source, flags=re.DOTALL))
     text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), host_blocks(source, host))
@@ -3712,12 +3905,10 @@ def cmd_guide(room, a):
     mode = (a.pairs[0] if a.pairs else 'normal').lower()
     lang = lang_of({'lang': getattr(a, 'lang', None) or (room.config().get('lang') if room and room.config_path.is_file() else None)})
     use(lang)
-    path = HERE.parent / 'guides' / f'lead-{mode}.md'
-    if lang != 'en' and (HERE.parent / 'guides' / lang / f'lead-{mode}.md').is_file():
-        path = HERE.parent / 'guides' / lang / f'lead-{mode}.md'
-    if mode not in ('normal', 'research') or not path.is_file():
+    path = layers.find('guides', f'lead-{mode}.md', lang)[0]
+    if mode not in ('normal', 'research') or not path:
         sys.exit(say('chat.err.cmd_guide.guide_normal_or_research'))
-    sys.stdout.write(path.read_text(encoding='utf-8').replace('python CHAT ', f'python "{Path(__file__).resolve().as_posix()}" '))
+    sys.stdout.write(path.read_text(encoding='utf-8-sig').replace('python CHAT ', f'python "{Path(__file__).resolve().as_posix()}" '))
 
 
 def research_json(room):
@@ -3842,15 +4033,31 @@ def cmd_help(room, a):
                 raise ValueError(say('chat.err.main.as_name_required'))
         return sys.stdout.write(fill_prompt(room, name, host='shellblock'))
     lang = lang_of(room.config())
-    path = HERE.parent / 'templates' / f'help_{topic}.md'
-    if lang != 'en' and (HERE.parent / 'templates' / lang / f'help_{topic}.md').is_file():
-        path = HERE.parent / 'templates' / lang / f'help_{topic}.md'
+    path = layers.find('templates', f'help_{topic}.md', lang)[0]
     values = {'CHAT': str(chat_for_agents()).replace('\\', '/'), 'ROOM': str(room.dir.resolve()).replace('\\', '/'), 'AS': name}
-    sys.stdout.write(re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), path.read_text(encoding='utf-8')))
+    sys.stdout.write(re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), path.read_text(encoding='utf-8-sig')))
+
+
+def cmd_preview(room, a):
+    """chat.py preview PATH_OR_URL --as NAME [--title T]: show what you build (html, image, video, a folder, your local server) in
+    the viewer's Previews panel, once; the server watches the disk, nothing is sent again. --off takes it away, `preview list` lists"""
+    import preview
+    if a.pairs[:1] == ['list'] or (not a.pairs and not a.off):
+        return print(chr(10).join(say('preview.core.line', agent=p['agent'], kind=p['kind'], title=p['title']) for p in preview.listing(room)['previews'])
+                     or say('preview.core.none'))
+    if not a.name:
+        sys.exit(say('chat.err.main.as_name_required'))
+    if a.off:
+        return print(say('preview.core.off') if preview.off(room, a.name) else say('preview.core.none_yours'))
+    try:
+        e = preview.declare(room, a.name, a.pairs[0] if a.pairs else '', a.title or '')
+    except ValueError as exc:
+        sys.exit(str(exc))
+    print(say('preview.core.declared', kind=e['kind'], title=e['title']))
 
 
 def cmd_lessons(room, a):
-    """chat.py lessons [add "rule" --scope "when" | accept L3 | retire L3]: see lessons.py"""
+    """chat.py lessons [add "rule" --scope "when" | propose "rule" --score N --reach local|general | close | accept L3 | retire L3]: see lessons.py"""
     import lessons
     lessons.command(room, a)
 
@@ -3859,7 +4066,12 @@ def cmd_prompt(room, a):
     """chat.py prompt NAME [--template FILE] [--out FILE]: the filled prompt of one participant"""
     if len(a.pairs) != 1:
         sys.exit(say('chat.err.cmd_prompt.prompt_give_one_participant'))
-    text = fill_prompt(room, a.pairs[0], a.template or 'agent_prompt.md', getattr(a, 'tools', None) or 'both')
+    template, tools = a.template or 'agent_prompt.md', getattr(a, 'tools', None) or 'both'
+    text = fill_prompt(room, a.pairs[0], template, tools)
+    if a.out:                                         # `rotate` writes the fresh prompt the same way (B7: it used `both`, 23k instead of 14k)
+        how = room.dir / 'prompts' / f'{a.pairs[0]}.how.json'
+        how.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(how, json.dumps({'template': template, 'tools': tools}))
     stale = stale_install()
     if stale:                                         # the agents get the installed copy: say when the source is ahead of it
         print(say('chat.say.cmd_prompt.stale_install', path=chat_for_agents(), files=', '.join(stale[:6])), file=sys.stderr)
@@ -3942,11 +4154,52 @@ def watch_line(m, users):
     return f"WATCH #{m['n']} {kind} {m['from']}: {text[:220]}" + (' [...]' if len(text) > 220 else '')
 
 
+IDLEFREE_AFTER = 120      # seconds an agent sleeps next to a free task before the harness gives it the task
+
+
+def dissolve_idlefree(room, now=None):
+    """the harness acts on what the CHECK idlefree only said (seven times in one night, each dissolved by hand by the lead): an
+    agent that sleeps for IDLEFREE_AFTER seconds, waits for nobody and holds no task, gets a free task assigned (`task assign`:
+    it accepts or declines, and an assignment its agent never answers lapses by itself). Each agent gets one task for each
+    idle it wrote: one that declines it is not given another until it writes again. Not in a research room (the kernel holds its plan). Returns the lines to tell the lead"""
+    c, now = room.config(), now or time.time()
+    leads, items = c.get('self_names', []), room.messages()
+    if not leads or str(c.get('idlefree', 'on')) == 'off' or (room.dir / 'research' / 'contract.json').is_file() or is_shut(room, items) or winding(room, items):
+        return []                                     # `config idlefree=off`: the lead gives the tasks itself
+    board, gone, tried_path, out = Board(room), read_json(room.dir / 'gone.json', {}), room.dir / 'idlefree.json', []
+    tried = read_json(tried_path, {})
+    for k in c.get('participants', []):
+        i = room.idle_entry(k, items)
+        if not i or k in c.get('left', []) or k in gone or i.get('external') or now - float(i.get('ts') or now) < IDLEFREE_AFTER:
+            continue
+        others = [x for x in (*c.get('participants', []), *room.user_names()) if x != k]
+        if any(names(i.get('text', ''), x) for x in others) or re.search(r"(?:the user|l'utente|utente)", i.get('text', ''), re.IGNORECASE):
+            continue                                  # it waits for somebody: not for a task
+        data = board.load()
+        if f"{k}:{i['n']}" in tried or any(t['owner'] == k and t['state'] == 'taken' for t in data['tasks']):
+            continue                                  # it was given one for this idle, or it has work
+        tid = next(iter(free_tasks(room, k, data, items)), None)
+        if not tid:
+            continue
+        tried[f"{k}:{i['n']}"] = int(now)
+        minutes = int((now - float(i.get('ts') or now)) // 60)
+        try:
+            line = board.assign(leads[0], tid, k, say('chat.say.idlefree.note', minutes=minutes))
+        except ValueError:
+            continue
+        room.append(leads[0], f'@{k} {line}')         # tagged: only it wakes
+        note_event(room, 'guard', 'idlefree', k, tid, f"idle since #{i['n']}, {minutes} min")
+        out.append(say('chat.say.idlefree.done', id=tid, k=k, n=i['n'], minutes=minutes))
+    if out:
+        write_atomic(tried_path, json.dumps(tried))
+    return out
+
+
 def cmd_alerts(room, a):
     """the lead's relay: print a ping line for each new message of the user (--follow keeps watching);
     with --messages also one WATCH line per real message, so the lead follows the room without reading it all. Each lead
     (--as) keeps its own place; the first time, what is older than ten minutes is not replayed"""
-    name, checked, last = '_alerts' + (f'_{a.name}' if a.name else ''), 0, None
+    name, checked, last, shut_checked = '_alerts' + (f'_{a.name}' if a.name else ''), 0, None, 0
     quiet, said = {}, time.time()                     # the statuses since the last WATCH line, by author
     spoke, info = [], []                              # spoke: when lines that need the lead came; info: the others, held back
     stream = getattr(a, 'stream', False)
@@ -4012,6 +4265,8 @@ def cmd_alerts(room, a):
     owner, me = room.dir / f'relay{name}.owner', f'{os.getpid()} {time.time()}'
     if a.follow:
         write_atomic(owner, me)                       # the newest relay owns the place in the chat
+        import procs
+        procs.add('alerts', TOP_PID, room.dir.resolve(), label=name, starter=STARTER)
     while True:
         if a.follow:
             try:
@@ -4023,10 +4278,15 @@ def cmd_alerts(room, a):
                 return
         # the chat and the lend log are read again only when one of them changed: a long chat parsed every second
         # kept a CPU core 20% busy for each room watched
-        sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl', room.dir / 'spawn' / 'study.jsonl'))
+        sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl', room.dir / 'spawn' / 'study.jsonl', room.dir / 'skills.json'))
         if sig == last and a.follow and (not a.messages or time.time() - checked <= 60):   # the checks still run each 60 s
             if until and due():                       # a batch waiting on a quiet chat
                 return
+            if a.follow and not os.environ.get('CHATROOM_NO_CLOSE_EXIT') and time.time() - shut_checked > 30:
+                shut_checked = time.time()
+                if is_shut(room, room.messages()):    # a closed room needs no relay: it would run for days
+                    print(say('chat.say.cmd_alerts.relay_closed'), flush=True)
+                    return
             time.sleep(1)
             continue
         last = sig
@@ -4058,11 +4318,13 @@ def cmd_alerts(room, a):
                 for lead in room.config().get('self_names', [])[:1]:
                     mark_delivered(room.dir, lead, new[-1]['n'])
             room.set_cursor(name, new[-1]['n'])
-        for line in lend_lines(room) + study_lines(room):
+        for line in lend_lines(room) + study_lines(room) + skill_lines(room):
             out(line, flush=True)
         if a.messages and time.time() - checked > 60:   # the lead also hears about what is going wrong, once each
             checked = time.time()
             Locks(room).tick()
+            for line in dissolve_idlefree(room):      # an agent idle next to a free task is given it, and the lead is told
+                out(line, act=False, flush=True)
             if (room.dir / 'research' / 'state.json').is_file():
                 import research
                 try:
@@ -4078,7 +4340,7 @@ def cmd_alerts(room, a):
                         write_atomic(seen_path, json.dumps(sorted(seen_checks)))
                     except OSError:
                         pass
-                    note_event(room, 'check', ':'.join(key.split(':')[:2 if key.startswith('cost:') else 1]))
+                    check_event(room, key)
                     out(f'CHECK {text}', act=not key.startswith(INFO_CHECKS), flush=True)
         # --until-line: its exit wakes the lead (a background shell, no 30-minute cap); --batch N: what comes within N s joins it
         if not a.follow:
@@ -4104,7 +4366,8 @@ def multi_alerts(rooms, rest):
         over.set()
     pumps = []
     for r in rooms:
-        procs.append(subprocess.Popen([sys.executable, '-X', 'utf8', __file__, 'alerts', '--room', r, *rest], stdout=subprocess.PIPE, encoding='utf-8', errors='replace'))
+        procs.append(subprocess.Popen([sys.executable, '-X', 'utf8', __file__, 'alerts', '--room', r, *rest], stdout=subprocess.PIPE, encoding='utf-8', errors='replace',
+                                      env={**os.environ, 'CHATROOM_NO_CLOSE_EXIT': '1'}))     # the first child that ends ends them all: a closed room must not end the others
         pumps.append(threading.Thread(target=pump, args=(procs[-1], Path(r).name), daemon=True))
         pumps[-1].start()
     over.wait()
@@ -4160,6 +4423,49 @@ def lend_lines(room):
     return [say('chat.say.lend_lines.lend_the_user_lends', id=r['id'], helper=r['helper'], guest=r['guest'], minutes=r['minutes'], model=r['model'], effort=r['effort'], how=how(r)) for r in lines[done:]]
 
 
+def skill_lines(room):
+    """the skill panel's "derive from the conversation" requests that the lead has not seen: one line each, then marked as announced
+    (the lead's session does the work, so only its relay can tell it)"""
+    if not (room.dir / 'skills.json').is_file():
+        return []
+    import skills
+    import skills_d6
+    if not any(r.get('src') == 'chat' and not r.get('announced') for r in skills.state_of(room)['requests']):
+        return []
+
+    def mark(s):
+        got = [r for r in s['requests'] if r.get('src') == 'chat' and not r.get('announced')]
+        for r in got:
+            r['announced'] = True
+        return got
+    return [say('skills.d7.relay_line', label=skills_d6.LABEL[r['kind']], req=r['req'], kind=r['kind'], q=r.get('q') or '-', brief=f"{room.dir}/skills-jobs/{r['req']}.brief.md".replace('\\', '/'),
+                cands=f'{room.dir}/skills-candidates'.replace('\\', '/')) for r in skills.change(room, mark)]
+
+
+def agent_ended(aid):
+    """the agent's own transcript ends on a finished turn (a stopped assistant message, or the hand-back of its report): it
+    left. An agent at work ends on a tool call or on its result, so a long run of a command is not mistaken for it"""
+    import cost
+    path = cost.transcript_of(agent_id=aid) if re.fullmatch(r'[0-9a-z]{8,40}', str(aid or '')) else None
+    try:
+        with open(path, 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - 262144))
+            lines = f.read().decode('utf-8', errors='replace').splitlines()
+    except (OSError, TypeError):
+        return False
+    for line in reversed(lines):
+        try:
+            msg = json.loads(line).get('message') or {}
+        except ValueError:
+            continue
+        if msg.get('role') == 'assistant':
+            parts = msg.get('content') if isinstance(msg.get('content'), list) else []
+            return msg.get('stop_reason') == 'end_turn' or any(isinstance(c, dict) and c.get('name') == 'SubagentHandback' for c in parts)
+        if msg.get('role') == 'user':
+            return False
+    return False
+
+
 def cmd_status(room, a):
     items = room.messages()
     counts = {}
@@ -4176,8 +4482,10 @@ def cmd_status(room, a):
                    'seconds': int(time.time() - m['ts']) if 'ts' in m else None,
                    'waits_for': (m.get('text') or '').split('\n')[0][:160], 'external': bool(m.get('external'))} if m else False
     calls = {k: sum(v.values()) for k, v in room.counters().items()}
-    gone = read_json(room.dir / 'gone.json', {})
-    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) else 'waiting' if room.in_wait(k) else 'working' for k in idle}
+    gone = {k: g.get('n', 0) if isinstance(g, dict) else g for k, g in read_json(room.dir / 'gone.json', {}).items()}   # 0.19.0 wrote the number alone
+    roster = room.roster()
+    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) else 'waiting' if room.in_wait(k)
+            else 'stopped' if agent_ended(roster.get(k)) else 'working' for k in idle}      # stopped: its run ended and no hold keeps it (it is not working)
     lead = [{'name': k, 'message': n, 'minutes': int(minutes), 'text': text} for k, n, minutes, text in waits_for_lead(room, items)]
     w = winding(room, items)
     closing_ = {'voted': [k for k in idle if any(m['from'] == k and m['n'] > w and not m.get('kind') for m in items)],
@@ -4211,7 +4519,7 @@ def cmd_recap(room, a):
     taken = [f"{t['id']} {t['owner']}" for t in b['tasks'] if t['state'] == 'taken']
     out.append(f"board: {sum(t['state'] == 'open' for t in b['tasks'])} open, {len(taken)} taken ({', '.join(taken[:8])}), "
                f"{sum(t['state'] == 'done' for t in b['tasks'])} done")
-    out += [f"  decided: {d['text'][:140]} ({d['by']})" for d in b['decisions'][-4:]]
+    out += [f"  decided: {d['text'][:140]} ({d['by']})" for d in live_decisions(b)[-4:]]
     for k in c.get('participants', []):
         if k in c.get('left', []):
             continue
@@ -4288,22 +4596,41 @@ def cmd_rotate(room, a):
     if a.name not in room.user_names() or len(a.pairs) != 1:
         sys.exit(say('chat.err.cmd_rotate.usage'))
     name = a.pairs[0]
+    notes = room.dir / 'notes'
+    asked = notes / f'{name}.asked.txt'
     if not getattr(a, 'now', False):
         n = room.append(a.name, say('chat.say.rotate.ask', name=name))
+        notes.mkdir(parents=True, exist_ok=True)
+        asked.write_text(str(time.time()), encoding='utf-8')          # when: --now says if the state is older than the ask
         return print(say('chat.say.rotate.asked', name=name, n=n))
-    notes = room.dir / 'notes'
-    rules = (notes / f'{name}.rules.md').read_text(encoding='utf-8') if (notes / f'{name}.rules.md').exists() else ''
-    book = (notes / f'{name}.md').read_text(encoding='utf-8') if (notes / f'{name}.md').exists() else ''
+    read = lambda f: (notes / f).read_text(encoding='utf-8').strip() if (notes / f).exists() else ''
+    rules, state, book = read(f'{name}.rules.md'), read(f'{name}.state.md'), read(f'{name}.md')
+    try:
+        since = float(asked.read_text(encoding='utf-8'))
+        stale = (notes / f'{name}.state.md').stat().st_mtime < since - 1       # a second of grace: coarse file times
+    except (OSError, ValueError):
+        since, stale = 0, False
+    asked.unlink(missing_ok=True)
+    if not state:                                     # a fresh agent with rules and no state starts blind: say it, do not block
+        print(say('chat.say.rotate.no_state', name=name))
+    elif stale:                                       # once retired, the old agent cannot write its notebook any more: its last state would be lost
+        print(say('chat.say.rotate.state_old', name=name, minutes=int((time.time() - since) // 60)))
+    elif len(state) > ROTATE_STATE_MAX:
+        print(say('chat.say.rotate.state_long', name=name, n=len(state), cap=ROTATE_STATE_MAX))
+        state = '...' + state[-ROTATE_STATE_MAX:]
     tasks = [f"{t['id']} {t['title']} ({', '.join(t.get('files', []))})" for t in Board(room).load()['tasks']
              if t.get('owner') == name and t['state'] == 'taken']
-    cmd_retire(room, a)
-    text = fill_prompt(room, name, a.template or 'agent_prompt.md') + '\n\n' + say(
-        'chat.say.rotate.resume', name=name, rules=rules.strip() or '-', notebook=book.strip()[-6000:] or '-',
-        tasks='; '.join(tasks) or '-')
+    how = read_json(room.dir / 'prompts' / f'{name}.how.json', {})   # how `prompt` made the first prompt: its tools and its template
+    tools, template = getattr(a, 'tools', None) or how.get('tools') or 'both', a.template or how.get('template') or 'agent_prompt.md'
+    cmd_retire(room, a, quiet=True)
+    as_ = f'{name}~{generation(room, name)}'
+    text = fill_prompt(room, name, template, tools) + '\n\n' + say(
+        'chat.say.rotate.resume', name=name, rules=rules or '-', state=state or '-', tasks='; '.join(tasks) or '-',
+        lines=len(book.splitlines()), as_=as_)
     out = Path(a.out or room.dir / 'prompts' / f'{name}-rotated.md')
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding='utf-8')
-    print(say('chat.say.rotate.ready', name=name, out=out, chars=len(text)))
+    print(say('chat.say.rotate.ready', name=name, out=out, chars=len(text), tools=tools, as_=as_))
 
 
 def cmd_heavy(room, a):
@@ -4314,6 +4641,8 @@ def cmd_heavy(room, a):
     cmd = ' '.join(a.pairs).strip()
     if not cmd:
         sys.exit(say('chat.err.cmd_heavy.usage'))
+    import procs
+    procs.add('heavy', TOP_PID, room.dir.resolve() if room else '', label=cmd, starter=STARTER)
     with machine_lock(f'{a.name or "?"}: {cmd}', tell=lambda h: print(say('chat.say.cmd_heavy.waiting', label=h['label'],
                                                                            minutes=int((time.time() - h['since']) // 60)), flush=True)):
         sys.exit(subprocess.run(cmd, shell=True, env=user_env()).returncode)
@@ -4599,9 +4928,8 @@ def cmd_serve(room, a):
         work = common.dir / f'help-{rid}'
         work.mkdir(exist_ok=True)
         task = text.replace('<<<', '‹‹‹').replace('>>>', '›››')          # the fence cannot be closed from inside
-        tpl = HERE.parent / 'templates'
-        filled = (tpl / 'helper_prompt.md').read_text(encoding='utf-8').replace(
-            '{{RULES}}', (tpl / f"helper_rules_{settings()['lend_mode']}.md").read_text(encoding='utf-8').strip())
+        tpl = lambda name: layers.find('templates', name)[0].read_text(encoding='utf-8-sig')
+        filled = tpl('helper_prompt.md').replace('{{RULES}}', tpl(f"helper_rules_{settings()['lend_mode']}.md").strip())
         for key, value in (('HELPER', helper), ('GUEST', who), ('MINUTES', str(minutes)), ('CHAT', str(chat_for_agents())),
                            ('ROOM', str(room.dir)), ('WORKDIR', str(work)), ('DOCS', str(common.dir / 'docs')),
                            ('TASK', say('chat.word.request_block', who=who, task=task))):
@@ -4718,10 +5046,15 @@ def cmd_serve(room, a):
         def log_message(self, *args):
             pass
 
-        def send(self, code, body, ctype):
+        def log_request(self, *args):         # every answer: who is looking at the viewer, for the viewer that ends when nobody is
+            CLIENTS[(self.client_address[0], self.headers.get('User-Agent', ''))] = time.time()
+
+        def send(self, code, body, ctype, headers=()):
             data = body if isinstance(body, bytes) else body.encode('utf-8')
             self.send_response(code)
             self.send_header('Content-Type', ctype)
+            for k, v in headers:
+                self.send_header(k, v)
             self.send_header('Cache-Control', 'no-store')
             self.send_header('Content-Length', str(len(data)))
             self.end_headers()
@@ -4784,16 +5117,28 @@ def cmd_serve(room, a):
                     return self.send(200, json.dumps(data, ensure_ascii=False), 'application/json; charset=utf-8')
             if path in ('/', '/index.html'):
                 return self.send(200, viewer.read_bytes(), 'text/html; charset=utf-8')
-            if re.fullmatch(r'/(office(-[a-z]+)*|i18n|cards|spawn-view)\.js', path):
+            if re.fullmatch(r'/(office(-[a-z]+)*|i18n|cards|spawn-view|skills-view|preview-view)\.js', path):
                 body = (HERE / path[1:]).read_bytes()
                 if path == '/i18n.js':                 # English inside the loader: the page has its texts in the same request
-                    en = (HERE.parent / 'locales' / 'en.json').read_text(encoding='utf-8-sig')
-                    body += ('\nI18N.seed("en", ' + en + ');\n').encode('utf-8')
+                    body += ('\nI18N.seed("en", ' + json.dumps(i18n.catalog('en'), ensure_ascii=False) + ');\n').encode('utf-8')
                 return self.send(200, body, 'text/javascript; charset=utf-8')
             m = re.fullmatch(r'/locales/([a-z]{2})\.json', path)
             if m:                                      # the translations of the viewer and the office
                 f = HERE.parent / 'locales' / f'{m[1]}.json'
-                return self.send(200, f.read_bytes(), 'application/json; charset=utf-8') if f.is_file() else self.send(404, say('chat.say.do_GET.no_such_language'), 'text/plain')
+                return self.send(200, json.dumps(i18n.catalog(m[1]), ensure_ascii=False).encode('utf-8'), 'application/json; charset=utf-8') if f.is_file() else self.send(404, say('chat.say.do_GET.no_such_language'), 'text/plain')
+            if path == '/preview.json':               # the live previews the agents declared (preview.py): what to show and when it changed
+                import preview
+                return self.send(200, json.dumps(preview.listing(room), ensure_ascii=False), 'application/json; charset=utf-8')
+            if path.startswith('/preview/'):          # a file of a declared folder; the page may run but cannot touch the viewer (CSP sandbox)
+                import preview
+                name, _, rel = path[len('/preview/'):].partition('/')
+                code, data, ctype = preview.serve(room, name, rel)
+                return self.send(code, data, ctype, (('Content-Security-Policy', preview.SANDBOX),))
+            if path == '/skills.json':                # the skill workshop: the index, who has what, the searches (skills.py)
+                import skills
+                qs = urllib.parse.parse_qs(self.path.partition('?')[2])
+                return self.send(200, json.dumps(skills.index(room, qs.get('q', [''])[0], qs.get('origin', [''])[0]), ensure_ascii=False),
+                                 'application/json; charset=utf-8')
             if path == '/settings.json':              # the user's lasting choices: how far a lent helper goes, the figure's look
                 import importlib.util                  # headroom: the viewer warns while it is missing
                 return self.send(200, json.dumps({**settings(), 'headroom_install': HEADROOM, 'headroom': importlib.util.find_spec('headroom') is not None},
@@ -5077,10 +5422,22 @@ def cmd_serve(room, a):
             path = self.path.split('?')[0]
             if not self.trusted():
                 return self.send(403, 'forbidden', 'text/plain')
+            if path == '/viewlog':                # the 3D office's own log of a view that turned by itself (viewlog.py): local, write only, small
+                import viewlog
+                if self.client_address[0] not in viewlog.LOCAL:
+                    return self.send(403, 'forbidden', 'text/plain')
+                n = self.headers.get('Content-Length', '0') or '0'
+                if not n.isdigit():
+                    return self.send(400, say('chat.say.do_POST.bad_request'), 'text/plain')
+                if int(n) > viewlog.MAX_BODY:
+                    return self.send(413, 'too big', 'text/plain')
             try:
                 body = self.body()
             except (ValueError, json.JSONDecodeError):
                 return self.send(400, say('chat.say.do_POST.bad_request'), 'text/plain')
+            if path == '/viewlog':
+                code, ans = viewlog.append(room, body, self.client_address[0])
+                return self.send(code, json.dumps(ans), 'application/json')
             if path.startswith('/spawn/'):            # the spawn keys (spawn/keys.py): a key travels in this body only, to this computer
                 from spawn import keys
                 r = keys.handle('POST', path, '', body if isinstance(body, dict) else {}, a.port)
@@ -5104,6 +5461,9 @@ def cmd_serve(room, a):
                 if not isinstance(p, str) or not p:
                     return self.send(400, 'path: the picture', 'text/plain')
                 return self.send(200, json.dumps({'path': thumbs.shrink(room.dir, p)}), 'application/json')
+            if path == '/skills/do':              # a click of the skill workshop: advise, search, add (nothing is added without confirm)
+                import skills
+                return self.send(200, json.dumps(skills.do(room, body), ensure_ascii=False), 'application/json; charset=utf-8')
             if path == '/card_action':            # a click on a card: its module answers, cards.py keeps the state
                 import cards
                 try:
@@ -5322,13 +5682,30 @@ def cmd_serve(room, a):
     github = GitHub(str(repo)) if (a.repo or room.config().get('repo')) and repo.is_dir() else None
     server = ThreadingHTTPServer((a.host, a.port), Handler)
     unregister = register_room(room, a.port, a.host)
+    import procs
+    note, began = procs.add('serve', TOP_PID, room.dir.resolve(), a.port, starter=STARTER), time.time()      # not `me`: the viewer's own name function
+
+    def watch():                              # who looks at the viewer, and whether it still has a reason to run
+        now = time.time()
+        live = [k for k, t in list(CLIENTS.items()) if now - t < 90]
+        last = max([began, *CLIENTS.values()])
+        procs.touch(TOP_PID, clients=len(live), last_hit=last)
+        user = settings()
+        why = procs.idle_why(note['purpose'], len(live), last, now, pid_alive(STARTER), lambda: is_shut(room, room.messages()),
+                             {'prova': user['prova_idle_min'], 'viewer': user['viewer_idle_min']})
+        if why:
+            print(procs.exit_line(why, int((now - last) // 60)), flush=True)
+            server.shutdown()
+        return bool(why)
 
     def heartbeat():                          # the registry stamp tells the mod this room is alive, and its roster
         while True:
             time.sleep(5)
             try:
                 register_room(room, a.port, a.host, activity.mod_at)   # mod_at: the mod lives, the room delivers by itself
-            except OSError:
+                if watch():
+                    return
+            except (OSError, ValueError):
                 pass
     threading.Thread(target=heartbeat, daemon=True).start()
     import compress
@@ -5345,20 +5722,31 @@ def cmd_serve(room, a):
 
 
 def main():
+    global TOP_PID, STARTER
+    import procs
+    STARTER = int(os.environ.pop('CHATROOM_STARTER', 0) or procs.starter_pid())
+    TOP_PID = int(os.environ.pop('CHATROOM_TOP_PID', 0) or os.getpid())     # the first process of the relaunch chain; what this one starts does not inherit it
     argv = sys.argv[1:]
+    if argv[:1] == ['merge']:                            # no room: the user's own copies against the new version (merge.py)
+        import merge
+        sys.exit(merge.main(argv[1:]))
     rooms = [v for k, v in zip(argv, argv[1:]) if k == '--room']
     if argv[:1] == ['alerts'] and len(rooms) > 1:
         return multi_alerts(rooms, [x for i, x in enumerate(argv) if i and x != '--room' and argv[i - 1] != '--room'])
+    if argv[:1] in (['manifest'], ['recover']):          # no room needed: they look at the installation (manifest.py has its own options)
+        import manifest
+        sys.exit(manifest.main(argv))
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('command', choices=['init', 'config', 'roster', 'post', 'read', 'wait', 'status', 'transcript',
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
                                         'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor',
                                         'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen', 'ack', 'deadline', 'group', 'append',
-                                        'help', 'lessons'])
+                                        'help', 'lessons', 'preview', 'merge', 'procs'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
     p.add_argument('--all', action='store_true')
+    p.add_argument('--yes', action='store_true', help='procs sweep: end what it lists')
     p.add_argument('--status', action='store_true',
                    help='a short status with the percentage of your part that is done: no alert is printed')
     p.add_argument('--idle', action='store_true',
@@ -5376,6 +5764,7 @@ def main():
     p.add_argument('--spawn', action='store_true', help='init: a spawn room, for roles on external models (/spawn)')
     p.add_argument('--participants')
     p.add_argument('--title')
+    p.add_argument('--off', action='store_true', help='preview: take your preview away')
     p.add_argument('--subtitle')
     p.add_argument('--icon')
     p.add_argument('--accent')
@@ -5411,7 +5800,9 @@ def main():
     p.add_argument('--idea', help='research assign/evaluate: the idea (I-number) a cycle or a run works on')
     p.add_argument('--parent', help='research assign: base, best or att-N: where the cycle starts')
     p.add_argument('--type', help='research assign: explorer (a fresh agent, one new idea) or optimizer (the same agent refines)')
-    p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), ablation, baseline, control or repeat')
+    p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), ablation, baseline, control or repeat; lessons propose: improvement, bug or plugin')
+    p.add_argument('--score', type=int, help='lessons propose: 1 to 5 (4 and 5 are applied by themselves, 1 to 3 wait for the closing)')
+    p.add_argument('--reach', help='lessons add / propose: local (this machine) or general (the harness for anyone)')
     p.add_argument('--round', type=int, help='research init: attempts per round (default 10); research round open/close: this round\'s')
     p.add_argument('--decision', help='research round close: more (the next round opens) or done (phase 3 may follow)')
     p.add_argument('--of', help='research evaluate: what an ablation or baseline is measured against (att-N)')
@@ -5426,10 +5817,10 @@ def main():
     p.add_argument('--gate', help='research conclude: updated, kept or skipped')
     p.add_argument('--trigger', help='research conclude: a, b, c, d or none')
     p.add_argument('--costly', action='store_true', help='task add: a costly task (render, long run, publication): taken only after task approve')
-    p.add_argument('--preview', help='task add --costly: the task whose result (storyboard, frame, draft, diff) is approved first')
+    p.add_argument('--preview', help='task add --costly / task amend: the task whose result (storyboard, frame, draft, diff) is approved first')
     p.add_argument('--ask', help='vision: what the vision model should tell about the file')
     p.add_argument('--reset', action='store_true', help='cost: the counters start from now')
-    p.add_argument('--ttl', type=int, help='lock acquire: minutes of the hold (default 30)')
+    p.add_argument('--ttl', type=int, help='lock acquire: minutes of the hold (default 30, 10 for the browser lock)')
     p.add_argument('--pid', type=int, help='lock acquire: the process using the resource; when it dies the hold ends')
     p.add_argument('--now', action='store_true', help='rotate: retire the agent now and write its fresh prompt (after it wrote its notebook)')
     p.add_argument('--batch', type=int, help='alerts --until-line: after the first line that needs the lead, gather N s more into the same wake')
@@ -5459,8 +5850,8 @@ def main():
                    help='research init/amend: the sealed evaluator writes "METRIC: value" to $CHATROOM_RESULT; only that counts')
     p.add_argument('--no-result-file', dest='result_file', action='store_const', const=False,
                    help='research amend: read the metric from the output again')
-    p.add_argument('--template', help='prompt: a template of the plugin (default agent_prompt.md)')
-    p.add_argument('--tools', choices=HOSTS, help='prompt: mcp for an agent with the chatroom MCP tools (Claude Code), shell for one '
+    p.add_argument('--template', help='prompt, rotate: a template of the plugin (default agent_prompt.md; rotate: the one prompt used)')
+    p.add_argument('--tools', choices=HOSTS, help='prompt, rotate: mcp for an agent with the chatroom MCP tools (Claude Code), shell for one '
                    'without (Codex); both by default')
     p.add_argument('--state', action='store_true', help='notebook: where you are now (goal, done, files, pending, next); it replaces the previous state')
     p.add_argument('--deps', help='task add: the tasks it waits for, comma separated (T1,T2)')
@@ -5491,6 +5882,11 @@ def main():
     a = p.parse_intermixed_args()        # roster and config pairs may come after the options
     if a.command == 'rooms':
         return cmd_rooms(None, a)
+    if a.command == 'procs':                             # no room needed: what the plugin left running, on this machine
+        try:
+            return procs.command(a)
+        except ValueError as exc:
+            sys.exit(say('chat.err.main.error', exc=exc))
     if a.command == 'guide':                             # no room needed: the lead reads it before making one
         return cmd_guide(Room(a.room) if a.room else None, a)
     if a.command == 'doctor':                            # no room needed: it checks the installation
@@ -5516,7 +5912,7 @@ def main():
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
                     'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
-                    'lessons': cmd_lessons}
+                    'lessons': cmd_lessons, 'preview': cmd_preview}
         if a.command in commands:
             return commands[a.command](room, a)
     except ValueError as exc:
@@ -5570,12 +5966,56 @@ def idle_note(room, name):
             print(line)
 
 
+TOP_PID = os.getpid()
+STARTER = os.getppid()                  # who started the first process of the chain: a test viewer ends when it is gone
+CLIENTS = {}                            # (address, user agent) -> when it last asked the viewer something
+LONG_COMMANDS = ('serve', 'alerts', 'heavy', 'mcp')      # run until someone ends them: what they start must end with them
+
+
+def job_for_children():
+    """Windows: what this process starts dies with it, even when it is killed. The relaunch below is a chain (uv, then the
+    environment's python, then the real one): a viewer killed from outside (a test, a closed shell, taskkill without /T) left the
+    other three alive, 35 `serve` in one night, the computer slower by the hour. A job object that kills its processes when its last
+    handle closes, this process in it and the only handle in this process: children inherit the job, and one that must outlive
+    its starter breaks away on its own (the flag below allows it). A refusal (an older Windows, a job that forbids nesting) is
+    ignored: the chain is then what it was"""
+    if os.name != 'nt':
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class Basic(ctypes.Structure):
+        _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64), ('LimitFlags', wintypes.DWORD),
+                    ('MinimumWorkingSetSize', ctypes.c_size_t), ('MaximumWorkingSetSize', ctypes.c_size_t),
+                    ('ActiveProcessLimit', wintypes.DWORD), ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD),
+                    ('SchedulingClass', wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [('Basic', Basic), ('IoInfo', ctypes.c_uint64 * 6), ('ProcessMemoryLimit', ctypes.c_size_t),
+                    ('JobMemoryLimit', ctypes.c_size_t), ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+    k = ctypes.windll.kernel32
+    k.CreateJobObjectW.restype = wintypes.HANDLE
+    k.GetCurrentProcess.restype = wintypes.HANDLE
+    k.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    job = k.CreateJobObjectW(None, None)
+    info = Extended()
+    info.Basic.LimitFlags = 0x2000 | 0x800                   # KILL_ON_JOB_CLOSE | BREAKAWAY_OK
+    if job and k.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)) and k.AssignProcessToJobObject(job, k.GetCurrentProcess()):
+        return job                                           # never closed here: the handle goes when this process does
+    return None
+
+
 def relaunch():
     """started by a Python older than 3.14: the same command again in the room's environment, through uv (which fetches
     Python 3.14 and the locked packages the first time). Without uv it goes on here, as before 0.13"""
     if sys.version_info >= (3, 14) or os.environ.get('CHATROOM_RELAUNCHED') or not shutil.which('uv'):
         return
-    env = {**os.environ, 'CHATROOM_RELAUNCHED': '1', 'UV_PROJECT_ENVIRONMENT': str(ENV_DIR)}
+    if sys.argv[1:2] and sys.argv[1] in LONG_COMMANDS:
+        job_for_children()
+    import procs
+    env = {**os.environ, 'CHATROOM_RELAUNCHED': '1', 'CHATROOM_TOP_PID': str(os.getpid()), 'CHATROOM_STARTER': str(procs.starter_pid()), 'UV_PROJECT_ENVIRONMENT': str(ENV_DIR)}
     try:
         sys.exit(subprocess.run(['uv', 'run', '--quiet', '--python', '3.14', '--project', str(PLUGIN_DIR), '--frozen',
                                  'python', *sys.argv], env=env).returncode)

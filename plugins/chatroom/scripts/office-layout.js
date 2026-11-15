@@ -14,6 +14,7 @@ export const CATALOG = {
   bossChair: {model: 'bossChair', foot: [0.8, 0.8], seats: [{x: 0, z: -0.07, y: 0.2, rot: PI, tag: 'boss'}]},
   laptop: {model: 'laptop', y: 0.8},
   shelf: {model: 'shelf', args: ['seed'], foot: [1.6, 0.5], off: [0, 0.05]},
+  skillShelf: {model: 'skillShelf', foot: [2.0, 0.5], off: [0, 0.05]},
   smallDesk: {model: 'smallDesk', foot: [1.2, 0.7]},
   chair: {model: 'chair', args: ['color', 'accent'], foot: [0.5, 0.5], seats: [{x: 0, z: 0, y: 0.1, rot: PI}]},
   confTable: {model: 'confTable', foot: [2.8, 1.2]},
@@ -90,6 +91,8 @@ export const LEAD3_ITEMS = [
   {type: 'smallDesk', x: 8.0 + Math.sin(LS) * 0.62, z: -3.4 + Math.cos(LS) * 0.62, rot: LS},
   {type: 'chair', x: 8.0, z: -3.4, rot: LS + Math.PI, color: '#8a5b3a', tag: 'lead3'},
 ];
+// the skills bookcase (office-skills.js), against the glass of the boss's office; an office saved before it existed gets it too (office.js)
+export const SKILL_SHELF_ITEM = {type: 'skillShelf', x: 8.6, z: -6.9, rot: -PI / 2};
 const ring4 = (x, z, tag, color) => [[0, -0.72, 0], [0, 0.72, PI], [-0.72, 0, PI / 2], [0.72, 0, -PI / 2]]
   .map(([dx, dz, rot]) => ({type: 'cafeChair', x: x + dx, z: z + dz, rot, color, tag}));
 export const DEFAULT_LAYOUT = {
@@ -126,6 +129,7 @@ export const DEFAULT_LAYOUT = {
     // a second assistant, for a second session sharing this office
     {type: 'smallDesk', x: 9.8 + Math.sin(LS) * 0.62, z: -3.3 + Math.cos(LS) * 0.62, rot: LS},
     {type: 'chair', x: 9.8, z: -3.3, rot: LS + PI, color: '#5b4a8a', tag: 'lead2'},
+    SKILL_SHELF_ITEM,
     ...LEAD3_ITEMS,
     // the open space: two blocks of four cubicles (furniture like the rest: they can be moved or removed); more blocks
     // come by themselves at podSlots when the agents fill them

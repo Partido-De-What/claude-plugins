@@ -7,7 +7,8 @@ cycles, decide the splits, and report. You never edit the program and never merg
 
 Your context is the expensive one: follow the room through the relay, `research status` and `research view`, not by
 reading logs or the whole chat. Open a message (`read --range n-n`) only when it tags you or changes a decision; leave
-long work in the same session (publishing, browsing) to another session. After a compaction, `recap` rebuilds the room
+long work in the same session (publishing, browsing) to another session. Past 300k a CHECK says your context is heavy:
+write `ROOM/LEAD.md`, then tell the user to compact (the CHECK has the line to copy). After a compaction, `recap` rebuilds the room
 in about fifteen lines. The relay with `--until-line` (the room's pace: 3 minutes at the start, 15 after 20 minutes) wakes you only for what needs you (a new global best or a
 crash among the kernel's lines); big logs and diffs go to a subagent that returns ten lines.
 
@@ -275,3 +276,7 @@ the background; answers are written to the file as they come. Treat them as opin
   prune` after deleting the room), then `git branch -D research/<tag> research/<tag>-<worker>` and the tags: in bash
   `git tag -l "research/<tag>/*" | xargs git tag -d`, in PowerShell
   `git tag -l "research/<tag>/*" | ForEach-Object { git tag -d $_ }`.
+
+## Lessons: what holds on this machine and what holds everywhere
+
+A speed-up or a setting that a research room finds often depends on the machine it ran on (the GPU, the driver, the cache, a path). Score each optimization or bug you carry out of the room from 1 to 5 and say its reach: `lessons propose "rule" --score N --reach local|general --scope "when it applies"`. `local` is this machine's; `general` is only what you saw hold on more than one kind of hardware or in the harness itself. A 4 or a 5 is applied by the harness as a lesson, a 1 to 3 waits for the closing and only the plugin's creator sees it (a file named `creator` in the chatroom folder of the user's Claude config, or `CHATROOM_CREATOR=1`; nobody creates it by itself, so ask the user); `python CHAT lessons close --room ROOM` prints the two lists apart.

@@ -7,6 +7,7 @@ instead of cards in the chat. This module gives it plain data and runs its click
   POST /spawn/do {action, ...}      save/check/skip a key, log in to OpenRouter, update or study the catalog, create, replace
                                     or stop a role, move a model to another line"""
 import json
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -138,6 +139,9 @@ def state(room):
         provs.append({'id': pid, 'name': p.get('name', pid), 'offer': p.get('offer', ''), 'signup': p.get('signup', ''), 'state': st,
                       'pkce': p.get('pkce'), 'extra': p.get('extra', []), 'can_verify': p.get('can_verify')})
     cat, quotas = c.load(), _quotas()
+    if c.stale(cat) and time.time() - getattr(state, 'auto_at', 0) > 3600:     # a catalog a day old updates itself, once an hour at most
+        state.auto_at = time.time()
+        _update(room)
     models = [m for m in cat.get('models', []) if any(r.get('free') for r in m.get('routes') or [])]
     lines = []
     for g in c.lines(models):

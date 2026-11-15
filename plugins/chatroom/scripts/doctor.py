@@ -14,6 +14,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+import layers
+
 HERE = Path(__file__).resolve().parent
 PLUGIN = 'chatroom@artyomita-plugins'
 OK, WARN, FAIL = 'ok', 'warn', 'fail'
@@ -21,7 +23,7 @@ MARK = {OK: '✔', WARN: '!', FAIL: '✘'}
 
 
 def claude_dir():
-    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+    return layers.claude_dir()
 
 
 def version_of(plugin_dir):
@@ -58,6 +60,16 @@ def mcp_command(path, env):
     p = str(path).replace('\\', '/')
     e = ''.join(f'-e {k}={v} ' for k, v in env.items())
     return f'claude mcp remove chatroom -s user && claude mcp add chatroom -s user {e}-- uv run --python 3.14 --project {p} python {p}/scripts/chat.py mcp'
+
+
+def launcher_command(env):
+    """one line, once: put the launcher where an update does not move it, then register the MCP server through it (mcp_launch.py):
+    after that an update needs no new registration, the launcher starts whatever version is installed"""
+    me = str(HERE / 'mcp_launch.py').replace('\\', '/')
+    dest = str(claude_dir() / 'chatroom' / 'bin' / 'mcp_launch.py').replace('\\', '/')
+    e = ''.join(f'-e {k}={v} ' for k, v in env.items())
+    return (f'python "{me}" --install && claude mcp remove chatroom -s user && '
+            f'claude mcp add chatroom -s user {e}-- uv run --no-project --python 3.14 python "{dest}"')
 
 
 def viewers():
@@ -104,10 +116,19 @@ def checks(room=None, claude=None, source=None):
     else:
         args = (re.search(r'^\s*Args:\s*(.*)$', text, re.M) or [None, ''])[1].replace('\\', '/')
         env = dict(re.findall(r'^\s{4}(\w+)=(.*)$', text, re.M))
-        if not path or (str(path).replace('\\', '/') in args and 'Connected' in text):
+        launcher = 'mcp_launch.py' in args                   # registered through the launcher: an update cannot leave it behind
+        if launcher:
+            out.append(('mcp_ok', OK, {}, '') if 'Connected' in text else ('mcp_down', FAIL, {}, 'claude mcp get chatroom'))
+        elif not path or (str(path).replace('\\', '/') in args and 'Connected' in text):
             out.append(('mcp_ok', OK, {}, ''))
         else:
             out.append(('mcp_stale', FAIL, {'path': str(path)}, mcp_command(path, env)))
+        if path and not launcher:
+            out.append(('mcp_launcher', WARN, {}, launcher_command(env)))
+        if path and launcher:                                    # the copy in bin/ is the one registered: an update of the launcher itself does not reach it
+            new, old = Path(path) / 'scripts' / 'mcp_launch.py', claude_dir() / 'chatroom' / 'bin' / 'mcp_launch.py'
+            if new.is_file() and old.is_file() and new.read_bytes().replace(b'\r\n', b'\n') != old.read_bytes().replace(b'\r\n', b'\n'):
+                out.append(('mcp_launcher_old', WARN, {}, f'python "{new}" --install'))
     py = sys.version_info
     out.append(('python_ok' if py >= (3, 14) else 'python_old', OK if py >= (3, 14) else WARN, {'version': f'{py[0]}.{py[1]}'},
                 '' if py >= (3, 14) else 'uv run --python 3.14 python chat.py doctor'))
@@ -152,6 +173,32 @@ def checks(room=None, claude=None, source=None):
                     'claude plugin marketplace update artyomita-plugins && claude plugin update chatroom@artyomita-plugins'))
     except Exception:
         pass
+    try:                                                       # hand edits of an older copy (manifest.py): still to merge, and edited in the installed one
+        import manifest
+        todo = manifest.pending()
+        if todo:
+            out.append(('recover_pending', WARN, {'n': len(todo), 'files': ', '.join(f"{t['ver']}:{t['rel']}" for t in todo[:6])},
+                        f'python "{HERE / "chat.py"}" recover' + ('' if any(t.get('why') == 'no_reference' for t in todo) else ' --list')))   # a whole old copy not compared yet (no manifest, 0.18): the full one, with git
+        diff = (manifest.verify(path) if path else None) or {}
+        changed = [f for k in ('modified', 'added', 'removed') for f in diff.get(k, [])]
+        if changed:
+            out.append(('install_modified', WARN, {'n': len(changed), 'files': ', '.join(changed[:6])}, ''))
+    except ImportError:                                        # no manifest.py in this copy
+        pass
+    except Exception as exc:                                   # nor may a broken one
+        out.append(('recover_error', WARN, {'why': type(exc).__name__}, ''))
+    try:                                                       # the user's own copies against the version in use (reads only: merge.py writes)
+        import merge
+        from i18n import say
+        res = merge.run(apply=False)
+        out += [('merge_need', WARN, {'text': merge.sentence(x)}, '') for x in res if x['state'] in merge.NEED]
+        ready = [x['rel'] for x in res if x['state'] in (merge.MERGED, merge.ADOPTED)]
+        if ready:
+            out.append(('merge_ready', WARN, {'files': ', '.join(ready)}, f'python "{HERE / "chat.py"}" merge'))
+        elif res and not any(x['state'] in merge.NEED for x in res):
+            out.append(('merge_ok', OK, {'n': len(res)}, ''))
+    except Exception as exc:                                   # a broken user layer must not stop the doctor
+        out.append(('merge_error', WARN, {'why': type(exc).__name__}, ''))
     rtk = os.environ.get('CHATROOM_RTK') or shutil.which('rtk') or str(claude_dir() / 'chatroom' / 'bin' / ('rtk.exe' if os.name == 'nt' else 'rtk'))
     out.append(('rtk_ok', OK, {'path': rtk}, '') if Path(rtk).is_file() else ('rtk_missing', WARN, {}, 'see the README (RTK): install rtk, then restart the viewer'))
     try:

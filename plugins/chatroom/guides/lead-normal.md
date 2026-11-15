@@ -8,7 +8,9 @@ Never `read --all` a long room. Your inputs are the relay lines (ALERT, WATCH, C
 `read --range A-B` for the few messages a decision needs. Long work of your own (publishing, browsing) goes to another
 session: this one stays light for the room. After a compaction of your context, or when it grows heavy, rebuild your
 picture with `recap` (about fifteen lines from the room's files) instead of reading the chat; your own compaction window
-is the user's setting (`/autocompact 400k`), suggest it on a long room.
+is the user's setting (`/autocompact 400k`), suggest it on a long room. Past 300k a CHECK says your context is heavy: write
+`ROOM/LEAD.md` (what you must still know), then tell the user, in your next message, to compact; the CHECK has the line to copy.
+It comes again every 100k: do not let it pass.
 
 CHAT below is the plugin's `scripts/chat.py`, ROOM the room folder.
 
@@ -44,11 +46,12 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    In Claude Code run it as a background shell command with `--until-line` (no `--batch`: the room's pace, 3 minutes at the start and 15 after 20 minutes, `config lead_pace=...`; the user, a closing, a crash and URGENT never wait; each wake ends with a WAKE line to answer from) / `--until-tag`: no 30-minute cap;
    the relay exits only for what needs you, and you start it again after handling the lines. A post of yours says when the
    relay is down and prints the exact command. `--stream` under Monitor is only a fallback: Monitor ends every 30 minutes.
-   `status` shows `waiting_lead` (only real questions), each agent's `turn` (working, waiting, closed), `read_by` for your
+   `status` shows `waiting_lead` (only real questions), each agent's `turn` (working, waiting, stopped = its run ended with no hold, closed), `read_by` for your
    last messages and, during a closing, who voted, who is missing and who is gone. In a post, `{ora}` or `{time}` becomes
    the hour: never write it from memory; `deadline 03:15` puts the cut-off at the top of every read.
    Rules: `task decide "text" --note "#n"` numbers them (D1, D2...) on the board and in ROOM/CONVENZIONI.md, which agents
-   read again after a compaction; a DECIDE in free text gets lost. Many tasks at once: `task add-many FILE` (lines
+   read again after a compaction; a DECIDE in free text gets lost. `task retire D3 --note "why"` takes one off the board
+   (the lead, the user or whoever made it; CONVENZIONI.md gets a line that cancels it). Many tasks at once: `task add-many FILE` (lines
    `title | files | deps`), one line in the chat. `group arbitri A,B` makes @arbitri reach only A and B. A task set aside:
    `task suspend T8 --note why`; at the end `task close-all --note why`.
    Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
@@ -112,11 +115,12 @@ The CHECK lines (each printed once, also across relay restarts): proof without a
 not naming the task's files, a no turned yes without evidence, 100% without evidence, a stalled or looping status, a tag
 unanswered, one file in two statuses, undeclared files changed, 25 messages without a board change (drift), everyone
 idle with nothing in progress, a plan closed without a single no (premature consensus), a lent piece not accepted, a
-call budget passed, the context of an agent that does not compact by itself over 150k tokens (`rotate NAME`, then `rotate NAME --now`: a fresh agent with its rules, notebook and tasks), an agent gone with the room open (resume it or hand its work on), a plan voted two rounds with the same
+call budget passed, the context of an agent that does not compact by itself over 150k tokens (at its delivery of a task, not in the middle of it: `rotate NAME`, then `rotate NAME --now`: a fresh agent with its rules, its state and its tasks; it warns when the state is missing), an agent gone with the room open (resume it or hand its work on), a plan voted two rounds with the same
 majority (DECIDE: more rounds cost tokens and rarely move it). Act on the ones that matter; do not take sides in the discussion unless the user asks.
 
 A silent agent (over twice the heartbeat, not idle): ping it to read and post a status. An idle agent waits on purpose:
-wake it only by tagging it.
+wake it only by tagging it. One that waits for nobody, next to a free task, is given the task by the relay after two minutes
+(`task assign`: it accepts or declines, and you are told in the digest); `config idlefree=off` keeps the tasks in your hands.
 
 ## 6. The user
 
@@ -131,10 +135,12 @@ transcript and the reports only: the key moments, the outcome (the closed plan, 
 open disagreements, the messages per agent, and `cost` (what each agent and you cost; it also feeds two CHECKs while the
 room works: cache rewrites, and the protocol over half of an agent's tokens).
 
-Shared resources: agents take a test bench or a port with `lock acquire NAME` and leave it with `lock release NAME`: a queue, the next one tagged by itself, an expiry (`--ttl`), `lock status`. You never set the order by hand.
+Shared resources: agents take a test bench or a port with `lock acquire NAME` and leave it with `lock release NAME`: a queue, the next one tagged by itself, an expiry (`--ttl`), `lock status`. You never set the order by hand. The browser panel is one for everyone (a tab change under another's eyes spoils his screenshots): whoever drives it takes `lock acquire browser` first (10 minutes by default) and releases it when done, you too.
 After a CLOSED: `reopen --as LEAD --reason "..."` opens the room again and voids the votes; a held agent hears it, one that already ended needs a SendMessage, and the next PLAN version is voted as usual. A message of yours that opens with CHALLENGE suspends the votes on the current version until a new one comes.
 The board: `board` is short (open and taken tasks, done ones as ids), `board T12` is one task in full, `board --all` everything. Two rooms with one lead: `alerts --room A --room B --follow --messages --until-line --batch 60` is one relay, each line with its room in front; `cost` keeps you out of the room's total.
 Lines that only inform (a task closed with gaps, a proof that names no file, compactions, the protocol's share, a bare "received") do not wake you: they come in the digest with the next wake, and `recap` lists the gaps.
 Replacing an agent: `python CHAT retire NAME --room ROOM --as LEAD`, then generate its prompt again (it acts as `NAME~1`), spawn the new agent and `roster` it. The retired agent's calls are refused, so a stopped agent woken by a message cannot post again; its call count starts over.
 
-What the room does by itself near the end of a budget, and what it learns: a participant is told once to stop exploring and deliver (the last 10 minutes before `deadline`, or at 85% of its messages to the checkpoint); with `brief ground=1` (rooms that write code) the first `task done` of each task is held once, to check the change against the tests and callers that exist. To change a rule while the room runs, write it with `task decide "..."`: it is appended to the log everyone reads again after a compaction; never generate the prompts again for it, the agents would not read them and their cache would be lost. At the end, `python CHAT cost scorecard --room ROOM` gives the room in five lines (tasks closed, tokens per closed task, compactions, which controls fired) and `python CHAT lessons --room ROOM` groups by cause what went wrong in the last rooms. A cause seen in two rooms is a candidate lesson: propose it to the user in one line with when it applies, and add it only on their yes (`lessons add "rule" --scope "when it applies, when not" --note "where seen"`). It enters on trial (rooms with `brief lessons=trial`), becomes active with `lessons accept L3` after two rooms, leaves with `lessons retire L3`; eight live lessons at most, because each one is read at every request of every agent.
+What the room does by itself near the end of a budget, and what it learns: a participant is told once to stop exploring and deliver (the last 10 minutes before `deadline`, or at 85% of its messages to the checkpoint); with `brief ground=1` (rooms that write code) the first `task done` of each task is held once, to check the change against the tests and callers that exist; the second must name something the first did not, or run its verify again. With `brief tests=DIR` (tests kept outside git, which no diff sees) a task cannot close while an existing test there changed and its proof does not name it with the reason. To change a rule while the room runs, write it with `task decide "..."`: it is appended to the log everyone reads again after a compaction; never generate the prompts again for it, the agents would not read them and their cache would be lost. At the end, `python CHAT cost scorecard --room ROOM` gives the room in five lines (tasks closed, tokens per closed task, compactions, which controls fired) and `python CHAT lessons --room ROOM` groups by cause what went wrong in the last rooms. A cause seen in two rooms is a candidate lesson: propose it to the user in one line with when it applies, and add it only on their yes (`lessons add "rule" --scope "when it applies, when not" --note "where seen"`). It enters on trial (rooms with `brief lessons=trial`), becomes active with `lessons accept L3` after two rooms, leaves with `lessons retire L3`; eight live lessons at most, because each one is read at every request of every agent.
+
+Improvements and bugs found in the room get a score from 1 to 5 and a reach, local (this user's machine: hardware, paths, habits) or general (the harness, for anyone): `lessons propose "rule" --score N --reach local|general --scope "when it applies" --note "where seen"`. A 5 (a real bug that bends the process, or something the user asked of the room) and a 4 (an improvement you are sure of) are applied by the harness itself as an active lesson, and the user can undo it with `lessons retire`. A 1 to 3 is never applied: it is kept for the closing, and only when the user is the plugin's creator; for anyone else it is not kept at all. To be the creator the user needs a file named `creator` in the chatroom folder of their Claude config (or `CHATROOM_CREATOR=1`): nobody creates it by itself, so ask the user, and say so in the closing when `lessons close` prints the line that these are not kept. A bug of the chatroom plugin itself is `--kind plugin`: never applied, kept apart for its creator. At every closing run `python CHAT lessons close --room ROOM` and give the user its parts as they come: a. what the harness learned and applied by itself, b. improvements and bugs of the session still to decide, c. bugs of the plugin, each with the local and the general apart.

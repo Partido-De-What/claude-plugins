@@ -10,11 +10,13 @@ import sys
 import time
 from pathlib import Path
 
+import layers
+
 POLL = 2
 
 
 def lock_path():
-    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'machine.lock'
+    return layers.chatroom_dir() / 'machine.lock'
 
 
 def holder():

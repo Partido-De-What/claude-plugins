@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import layers
 from limits import HOLD_WAIT
 
 POLL = 2
@@ -24,11 +25,14 @@ REASON_MAX = 6000              # characters of messages in a reason; past it the
 REPORT_MIN = 200               # last words shorter than this are not a report ("waiting for CLOSED")
 HANDBACK_MAX = 2               # reports put off at most this often: the third goes through (a room never closed kept them forever)
 EMPTY_MAX = 3                  # turns in a row with nothing new: then it reports and goes (an idle woken every 9 minutes for hours)
+TASK_EMPTY_MAX = 12            # the same for an agent that holds a task: its job may take hours, not for ever (12 turns of 9 minutes, 1 h 50 min)
+FELL_MAX = 3                   # times in a row the hold resumes an agent whose last turn ended on an API error (a network that stays down)
+PROCS_TAIL = 2_000_000         # bytes of a transcript read for the processes an agent leaves running
 
 
 def candidates():
     """room folders worth looking in: the served ones and the ones chat.py met lately"""
-    base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom'
+    base = layers.chatroom_dir()
     out = []
     for f in ('rooms.json', 'known_rooms.json'):
         try:
@@ -118,15 +122,42 @@ def handback(ev):
                                        'lock': chat.say('chat.say.hold.why_lock')}[why])}}
 
 
-def left(room, name):
-    """it goes while the room is open: no idle, no task, no run, so nothing here says what was still to come. Only the lead
-    can tell a finished job from one left half way: the relay tells it (CHECK), unless the agent comes back and writes"""
+def running_procs(room, name):
+    """the background processes of this agent's transcript that still run (a viewer, an http.server left up for hours):
+    their commands, for the lead's CHECK. The tail of the transcript only: [] when it is not here or not readable"""
+    import chat
+    import activity
+    path = chat.agent_file(room.roster().get(name))
+    if not path:
+        return []
+    try:
+        with open(path, 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - PROCS_TAIL))
+            lines = f.read().decode('utf-8', errors='replace').splitlines()[1:]
+        act, agent = activity.Activity(room), activity.Agent(name, room.roster().get(name))
+        for line in lines:
+            try:
+                act.record(agent, json.loads(line))
+            except (ValueError, AttributeError, TypeError):
+                pass
+    except OSError:
+        return []
+    return [q['cmd'][:120] for q in agent.procs.values() if q['state'] == 'running'][:6]
+
+
+def left(room, name, why=''):
+    """it goes while the room is open. gone.json keeps what it still held when it went: `why` (idle, task, lock or run: what
+    waits() said; '' when nothing), its taken tasks and the background processes it left running. 0.19.0 kept only the message
+    number, and the CHECK said "no idle and nothing taken" of an agent that went holding T6. Only the lead can tell a finished
+    job from one left half way: the relay tells it (CHECK), unless the agent comes back and writes"""
     import chat
     try:
         got = chat.read_json(room.dir / 'gone.json', {})
-        got[name] = max((m['n'] for m in room.messages() if m['from'] == name), default=0)
+        got[name] = {'n': max((m['n'] for m in room.messages() if m['from'] == name), default=0), 'why': why,
+                     'tasks': [t['id'] for t in chat.Board(room).load()['tasks'] if t.get('owner') == name and t['state'] == 'taken'],
+                     'procs': running_procs(room, name)}
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
-    except OSError:
+    except (OSError, ValueError, KeyError):
         pass
 
 
@@ -186,10 +217,15 @@ def report(room, name):
     import chat
     mark = room.dir / f'report_asked_{name}.txt'
     words = last_words(room, name)
-    if words is None or len(words) >= REPORT_MIN or mark.exists():
+    n = max((m['n'] for m in room.messages() if m['from'] == name), default=0)
+    try:
+        asked = mark.read_text().strip() == str(n)      # asked once for each stretch of silence: 0.19.0 asked once for the room, and the 2nd and 3rd exit of an agent went without a report
+    except OSError:
+        asked = False
+    if words is None or len(words) >= REPORT_MIN or asked:
         return None
     try:
-        mark.write_text(str(int(time.time())))
+        mark.write_text(str(n))
     except OSError:
         return None
     chat.use(room.config().get('lang'))
@@ -239,6 +275,7 @@ def decide(ev, wait=HOLD_WAIT, poll=POLL):
 
 def _hold(room, aid, key, name, end, wait, poll):
     import chat
+    first = True
     while True:
         if find(aid) != (key, name):                      # gone quiet for hours, or retired meanwhile
             return None
@@ -249,8 +286,16 @@ def _hold(room, aid, key, name, end, wait, poll):
         note = None if new else draft_note(room, name)
         if note:
             return note
-        if not new and (not waits(room, name) or done_closing(room, name)):   # nothing it waits for: its work is done, it goes
-            left(room, name)
+        if first and not new:                                  # the stop itself: did its last turn end on an API error (a network down)? nothing else resumes it
+            err, first = chat.fell(room, name), False
+            if err and bump(room, f'fell_{name}') <= FELL_MAX:
+                chat.use(room.config().get('lang'))
+                return {'decision': 'block', 'reason': chat.say('chat.say.hold.fell', err=err[0], minutes=max(0, int((time.time() - err[1]) // 60)))}
+            if not err:
+                bump(room, f'fell_{name}', reset=True)
+        why = waits(room, name)
+        if not new and (not why or done_closing(room, name)):   # nothing it waits for: its work is done, it goes
+            left(room, name, why)
             return report(room, name)
         if new:
             bump(room, f'empty_{name}', reset=True)
@@ -261,8 +306,9 @@ def _hold(room, aid, key, name, end, wait, poll):
                 pass
             return {'decision': 'block', 'reason': reason(room, name, new)}
         if time.time() >= end:
-            if waits(room, name) != 'run' and bump(room, f'empty_{name}') > EMPTY_MAX:   # a queued run of the kernel wakes it, the rest goes
-                left(room, name)
+            cap = None if why == 'run' else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why == 'task' else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
+            if cap and bump(room, f'empty_{name}') > cap:
+                left(room, name, why)
                 return report(room, name)
             chat.use(room.config().get('lang'))
             return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing', name=name, minutes=max(1, wait // 60))}
@@ -290,7 +336,7 @@ def _prova():
     (base / 'c' / 'chatroom').mkdir(parents=True)
     room = base / 'room'
     room.mkdir()
-    (room / 'config.json').write_text(json.dumps({'user_name': 'Adrian', 'self_names': ['LEAD'], 'participants': ['A', 'B'], 'lang': 'en'}))
+    (room / 'config.json').write_text(json.dumps({'user_name': 'USER', 'self_names': ['LEAD'], 'participants': ['A', 'B'], 'lang': 'en'}))
     r = chat.Room(room)
     r.update_roster(lambda ro: ro.update(A='aaaa1111', B='bbbb2222'))       # chat.py records the room: no viewer needed
     r.append('LEAD', 'start')

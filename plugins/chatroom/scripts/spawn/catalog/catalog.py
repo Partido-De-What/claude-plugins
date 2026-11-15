@@ -25,6 +25,7 @@ except ImportError:                                      # lanciato come script 
     from identity import canonical_id, line_key, no_size
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import layers                                             # noqa: E402
 from research import _params_b                            # noqa: E402  la taglia dall'id ('550b-a55b' -> 550), come il panel
 
 MAX_AGE = 12 * 3600
@@ -39,11 +40,11 @@ def order(m):
 
 
 def override_path():
-    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'lines_override.json'
+    return layers.chatroom_dir() / 'spawn' / 'lines_override.json'
 
 
 def load_override():
-    """{'move': {canonical: linea}, 'split': [canonical], 'checked': [linea]}: le scelte di Adrian (card Scheda) e del
+    """{'move': {canonical: linea}, 'split': [canonical], 'checked': [linea]}: le scelte dell'utente (card Scheda) e del
     lettore delle linee; vincono sulla regola"""
     try:
         d = json.loads(override_path().read_text(encoding='utf-8'))
@@ -135,7 +136,7 @@ def line_changes(cat):
 
 
 MODELS_DEV = 'https://models.dev/api.json'
-FAMILY_MAX_AGE = 7 * 24 * 3600                            # 6 MB: una volta a settimana basta (connessione lenta di Adrian)
+FAMILY_MAX_AGE = 7 * 24 * 3600                            # 6 MB: una volta a settimana basta (connessione lenta)
 
 
 def families(payload=None):
@@ -153,7 +154,7 @@ def families(payload=None):
 
 
 def catalog_path():
-    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'catalog.json'   # Path.home a ogni chiamata: i test usano una HOME finta
+    return layers.chatroom_dir() / 'spawn' / 'catalog.json'   # a ogni chiamata: i test usano una HOME e una CLAUDE_CONFIG_DIR finte
 
 
 def load():
@@ -493,6 +494,15 @@ def age_days(cat=None):
     return (time.time() - float(cat.get('updated') or 0)) / 86400 if cat.get('updated') else None
 
 
+STALE_DAYS = 1
+
+
+def stale(cat=None):
+    """older than a day: brought up to date by itself (spawn ping, the Spawn view); never set up (no date) is not old"""
+    age = age_days(cat)
+    return age is not None and age > STALE_DAYS
+
+
 def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None):
     """il giro completo, da chiamare in un thread (la card Catalogo, Prepara spawn): le liste dei provider che hanno una
     chiave, la fonte veloce Artificial Analysis una volta al giorno (con la sua chiave, D2), i risultati del ricercatore
@@ -695,7 +705,7 @@ def _prova_update(tmp):
 
 def _prova_veri(strengths, researcher):
     """i 4 file veri della prova dal vivo (#627): una sola colonna CyberGym, Kimi K3.1 Pro 94.7 primo, Mistral Large 4 secondo"""
-    real = Path(r'E:\claudecode pesante\claude-plugins-dev-tools\cantiere013\prove\payload\research')
+    real = Path(os.environ.get('CHATROOM_PROVA_PAYLOAD', os.devnull)) / 'research'      # senza la variabile la prova non gira
     if not real.is_dir():
         return
     g = strengths.load_glossary()
@@ -741,10 +751,11 @@ def _prova():
     import researcher
     g = strengths.load_glossary()
     _prova_veri(strengths, researcher)
-    real = Path.home() / '.claude' / 'chatroom' / 'spawn' / 'catalog.json'
+    real = layers.chatroom_dir() / 'spawn' / 'catalog.json'
     before = real.stat().st_mtime_ns if real.exists() else None             # quello vero (prove dal vivo del LEAD) non si tocca
     with tempfile.TemporaryDirectory() as tmp:
         os.environ['USERPROFILE'] = os.environ['HOME'] = tmp       # mai la ~/.claude vera
+        os.environ.pop('CLAUDE_CONFIG_DIR', None)
         assert Path.home() == Path(tmp) and catalog_path().is_relative_to(Path(tmp))
         lists = {'open_router': [{'id': 'z-ai/glm-5.3:free', 'name': 'GLM 5.3 (free)', 'ctx': 200000, 'tools': True, 'free': True, 'price_in': 0, 'price_out': 0},
                                  {'id': 'z-ai/glm-5.3', 'name': 'GLM 5.3', 'ctx': 200000, 'tools': True, 'free': False, 'price_in': 0.5, 'price_out': 2}],

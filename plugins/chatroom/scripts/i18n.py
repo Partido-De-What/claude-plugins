@@ -14,6 +14,8 @@ import threading
 import time
 from pathlib import Path
 
+import layers
+
 LOCALES = Path(__file__).resolve().parent.parent / 'locales'
 LANGS = ('en', 'it')
 FALLBACK = 'en'
@@ -53,9 +55,9 @@ def catalog(lang):
         return entry[1]
     path = LOCALES / f'{lang}.json'
     try:
-        stamp = path.stat().st_mtime_ns
+        stamp = (path.stat().st_mtime_ns, layers.locale_stamp(lang))     # the plugin's file and the user's overrides of single keys
         if not entry or entry[0] != stamp:
-            entry = (stamp, json.loads(path.read_text(encoding='utf-8-sig')), now)
+            entry = (stamp, {**json.loads(path.read_text(encoding='utf-8-sig')), **layers.locale_overlay(lang)}, now)
     except (OSError, ValueError) as exc:
         if lang not in _warned:
             _warned.add(lang)

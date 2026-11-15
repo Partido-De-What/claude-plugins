@@ -24,6 +24,7 @@ from pathlib import Path
 
 import httpx
 
+import layers
 from spawn.providers import catalog
 
 TIMEOUT = 5.0
@@ -33,7 +34,7 @@ _pkce, _lock = {}, threading.Lock()                # state -> (verifier, created
 
 
 def secrets_dir():
-    return Path(os.environ.get('CHATROOM_SECRETS') or Path.home() / '.claude' / 'chatroom' / 'secrets')
+    return Path(os.environ.get('CHATROOM_SECRETS') or layers.chatroom_dir() / 'secrets')
 
 
 # ------------------------------------------------------------------ encryption at rest

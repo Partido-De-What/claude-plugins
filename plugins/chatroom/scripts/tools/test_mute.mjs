@@ -1,4 +1,4 @@
-// Audio off by default (0.13, Adrian's decision): a page that never saved its levels is silent, every source; saved levels stay.
+// Audio off by default (0.13 decision): a page that never saved its levels is silent, every source; saved levels stay.
 // node plugins/chatroom/scripts/tools/test_mute.mjs
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import path from 'node:path';

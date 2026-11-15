@@ -353,6 +353,15 @@ export function shelf(seed = 3) {
   for (const y of [1, 7, 13]) for (let x = 1; x < 15; x++) if (r() < 0.82) v.box(x, y, 1, x, y + 2 + Math.floor(r() * 3), 3, books[Math.floor(r() * books.length)]);
   return mesh(v, {pivot: [8, 0, 2]});
 }
+/** the skills bookcase: an empty frame (office-skills.js fills the rows with one spine per skill); SKILL_SHELF is its grid, in voxels */
+export const SKILL_SHELF = {w: 20, cols: 18, rows: 4, rowY: [1, 6, 11, 16], height: 4, pivot: [10, 0, 2.5]};
+export function skillShelf() {
+  const wood = '#6a4a3c', v = new Vox().box(0, 0, 0, 19, 20, 0, '#2c2038');
+  for (const y of [0, 5, 10, 15, 20]) v.box(0, y, 0, 19, y, 4, wood);
+  v.box(0, 0, 0, 0, 20, 4, wood).box(19, 0, 0, 19, 20, 4, wood).box(0, 21, 0, 19, 21, 4, '#4e342e');
+  for (const y of [5, 10, 15]) v.box(1, y, 4, 18, y, 4, '#8d6e63');
+  return mesh(v, {pivot: SKILL_SHELF.pivot});
+}
 export function printer() {
   const v = new Vox().box(0, 0, 0, 7, 3, 5, '#e0e0e0').box(0, 4, 0, 7, 4, 5, '#bdbdbd').box(2, 2, 6, 5, 2, 7, '#f5f5f5').box(6, 4, 4, 6, 4, 4, '#4caf50');
   const g = new THREE.Group(); g.add(mesh(v, {pivot: [4, 0, 3]}));

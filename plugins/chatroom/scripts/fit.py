@@ -11,12 +11,14 @@ import sys
 import time
 from pathlib import Path
 
+import layers
+
 READ_BIG, WRITE_BIG, LINES, AGAIN = 50_000, 20_000, 800, 120
 SKIP = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf', '.ipynb', '.bmp', '.svg')
 
 
 def room_of(aid):
-    base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom'
+    base = layers.chatroom_dir()
     for f in ('rooms.json', 'known_rooms.json'):
         try:
             for k in json.loads((base / f).read_text(encoding='utf-8')):

@@ -16,7 +16,9 @@ import sys
 import time
 from pathlib import Path
 
-CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+import layers
+
+CLAUDE_DIR = layers.claude_dir()
 POLL = 2                      # seconds between looks at the chat file
 ROOMS_EVERY = 5               # seconds between looks at rooms.json while no room is found
 SHOWN = 5                     # lines printed at most for one batch: the older ones are one line of count
@@ -115,6 +117,13 @@ def who_am_i(room_dir, session):
     return name or read_json(Path(room_dir) / 'config.json', {}).get('user_name')
 
 
+def seen_by(room_dir, names):
+    """the last message number read or handed to any of `names`: cursor, delivered mark and (the lead's relay) its own
+    cursor. A lead has all three kinds under several names (LEAD, COORDINATOR) and may have no cursor at all, and a mark
+    caught half written reads as 0: one file alone made old messages arrive again hours later"""
+    return max((read_int(Path(room_dir) / f'{kind}_{n}.txt') for n in names for kind in ('cursor', 'delivered', 'cursor__alerts')), default=0)
+
+
 def pending(room_dir, name, after=0):
     """messages newer than what `name` read or was handed, that tag it, or @all, or come from the user; oldest first"""
     import chat
@@ -122,7 +131,7 @@ def pending(room_dir, name, after=0):
     c = room.config()
     users = room.user_names()
     mine = {name} | (users if name in users else set())          # the lead answers to the user's name and its own
-    seen = max(after, read_int(Path(room_dir) / f'cursor_{name}.txt'), read_int(Path(room_dir) / f'delivered_{name}.txt'))
+    seen = max(after, seen_by(room_dir, [name, *(c.get('self_names', []) if name in users else [])]))
     out = []
     for m in room.messages():
         if m['n'] <= seen or m.get('kind') or m['from'] == name:
@@ -218,9 +227,9 @@ def _prova():
     (CLAUDE_DIR / 'chatroom').mkdir(parents=True)
     room = base / 'room'
     room.mkdir()
-    (room / 'config.json').write_text(json.dumps({'user_name': 'Adrian', 'self_names': ['LEAD'], 'participants': ['A'], 'title': 'T'}))
+    (room / 'config.json').write_text(json.dumps({'user_name': 'USER', 'self_names': ['LEAD'], 'participants': ['A'], 'title': 'T'}))
     (room / 'sessions.json').write_text(json.dumps({'sid-1': 'LEAD'}))
-    chat.Room(room).append('Adrian', 'hello')                                     # 1: from the user
+    chat.Room(room).append('USER', 'hello')                                     # 1: from the user
     chat.Room(room).append('A', 'status, 50%')                                    # 2: tags nobody
     chat.Room(room).append('A', '@LEAD look')                                     # 3: tags the lead
     chat.Room(room).append('A', 'to @all')                                        # 4
@@ -232,7 +241,7 @@ def _prova():
     assert find_room(live_rooms(), 'other', '/nowhere') is None
     two = {**stamp, str(base / 'room2'): {'ts': time.time(), 'sessions': ['sid-1']}}
     assert find_rooms(two, 'sid-1', '/nowhere') == [str(room), str(base / 'room2')]   # one session leading two rooms: both watched
-    assert who_am_i(room, 'sid-1') == 'LEAD' and who_am_i(room, 'x') == 'Adrian'
+    assert who_am_i(room, 'sid-1') == 'LEAD' and who_am_i(room, 'x') == 'USER'
     out, n = lines(room, 'LEAD')
     assert [x.split(' ')[2] for x in out] == ['#1', '#3', '#4'] and n == 4, out    # user, tag, @all; not #2 (tags nobody), not its own #5
     assert read_int(room / 'delivered_LEAD.txt') == 4

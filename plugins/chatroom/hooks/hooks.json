@@ -11,6 +11,11 @@
             "type": "command",
             "timeout": 10,
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/share.py\" --ensure-cloudflared-background || python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/share.py\" --ensure-cloudflared-background || uv run --no-project --python 3.14 python \"${CLAUDE_PLUGIN_ROOT}/scripts/share.py\" --ensure-cloudflared-background || true"
+          },
+          {
+            "type": "command",
+            "timeout": 30,
+            "command": "py=$(command -v python || command -v python3) || exit 0; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/scripts/manifest.py\" recover --auto; \"$py\" \"${CLAUDE_PLUGIN_ROOT}/scripts/merge.py\" --auto; exit 0"
           }
         ]
       }
@@ -33,6 +38,16 @@
             "type": "command",
             "timeout": 10,
             "command": "in=$(cat); [[ $in =~ \\\"agent_id\\\"[[:space:]]*:[[:space:]]*\\\"([A-Za-z0-9]+)\\\" ]] || exit 0; r=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/chatroom\"; grep -qsF \"${BASH_REMATCH[1]}\" \"$r/known_rooms.json\" \"$r/rooms.json\" || exit 0; py=$(command -v python || command -v python3) && printf '%s' \"$in\" | \"$py\" -S -E \"${CLAUDE_PLUGIN_ROOT}/scripts/fit.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|mcp__.*chatroom.*",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "in=$(cat); case \"$in\" in *'\"agent_id\"'*) ;; *) exit 0;; esac; case \"$in\" in *chat.py*|*mcp__*chatroom*) ;; *) exit 0;; esac; py=$(command -v python || command -v python3) && printf '%s' \"$in\" | \"$py\" -S -E \"${CLAUDE_PLUGIN_ROOT}/scripts/roster_hook.py\""
           }
         ]
       },

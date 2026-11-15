@@ -567,7 +567,7 @@ def _prova():
         from spawn.catalog import catalog
         room = chat.Room(Path(tmp) / 'room')
         room.dir.mkdir()
-        room.save_config({'topic': 't', 'title': 'Hangar', 'participants': ['A'], 'lang': 'it', 'user_name': 'Adrian',
+        room.save_config({'topic': 't', 'title': 'Hangar', 'participants': ['A'], 'lang': 'it', 'user_name': 'USER',
                           'self_names': ['LEAD'], 'heartbeat': 120})
         r1 = {'adapter': 'open_router', 'model_id': 'x/m:free', 'ctx': 100000, 'free': True, 'tools': True, 'ping': {'ok': True, 'ms': 5}}
         r2 = {'adapter': 'kilo', 'model_id': 'x/m', 'ctx': 100000, 'free': True, 'tools': True, 'ping': {'ok': True, 'ms': 9}}
@@ -626,7 +626,7 @@ def _prova():
             assert role['route']['adapter'] == 'kilo' and role['state'] == 'switch' and 'cambio porta open_router → kilo' in room.messages()[-1]['text']
             r.fail(role, errors.ProviderError('rate_limit', 429))                           # the limiter gave up: no host left
             last = [m for m in room.messages() if m['from'] == 'ARCH' and not m.get('kind')][-1]
-            assert roles(room)['ARCH']['state'] == 'notokens' and '@Adrian' in last['text'] and 'senza token' in last['text'] and not last.get('kind')
+            assert roles(room)['ARCH']['state'] == 'notokens' and '@USER' in last['text'] and 'senza token' in last['text'] and not last.get('kind')
             snap = snapshot(room)['roles'][0]
             assert snap == {'name': 'ARCH', 'provider': 'kilo', 'model': 'm', 'host': 'kilo', 'state': 'notokens', 'compact': False,
                             'trophy': 'swe-bench', 'aa': 40.0, 'strong': ['swe-bench', 'gpqa']}, snap

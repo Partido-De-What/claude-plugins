@@ -400,9 +400,8 @@ class Limiter:
 
 
 def out_path():
-    import os as _os
-    from pathlib import Path
-    return Path(_os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom' / 'spawn' / 'out.json'
+    import layers
+    return layers.chatroom_dir() / 'spawn' / 'out.json'
 
 
 LIMITER = Limiter(path=out_path())                   # one per process; what is out of quota is shared through the file

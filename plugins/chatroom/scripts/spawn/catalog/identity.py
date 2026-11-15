@@ -75,7 +75,7 @@ def merge(records):
 
 
 def _prova():
-    same = [  # id veri da docs/adapter-modelli.md: ogni riga è un modello solo
+    same = [  # id veri dei modelli: ogni riga è un modello solo
         ('nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3-ultra-550b-a55b', 'nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B',
          'nvidia/Nemotron-3-Ultra-550b-a55b'),
         ('z-ai/glm-5.3', 'zai-org/GLM-5.3', 'zai-glm-5-3', 'z-ai/glm-5.3:batch'),
@@ -99,7 +99,7 @@ def _prova():
     m = merge([{'adapter': 'open_router', 'model_id': 'z-ai/glm-5.3'}, {'adapter': 'siliconflow', 'model_id': 'zai-org/GLM-5.3'},
                {'adapter': 'groq', 'model_id': 'qwen/qwen3.6-27b'}, {'adapter': 'x', 'model_id': ' '}])
     assert [len(v) for v in m.values()] == [2, 1] and 'glm-5-3' in m, m
-    lines = [  # #456 di Adrian, poi id veri di docs/adapter-modelli.md: ogni gruppo una linea
+    lines = [  # id veri dei modelli: ogni gruppo una linea
         ('glm-5', 'glm-5-2', 'glm-5-3'), ('nemotron-3-super-120b-a12b', 'nemotron-3-5-super-120b-a12b'),
         ('deepseek-v4-flash', 'deepseek-v4-1-flash'), ('claude-opus-4-5', 'claude-opus-5-5', 'claude-opus-5'),
         ('kimi-k2-6', 'kimi-k3'), ('qwen3-6-27b', 'qwen3-8-27b'), ('gemini-3-5-flash', 'gemini-3-8-flash'), ('o3-mini', 'o4-mini')]

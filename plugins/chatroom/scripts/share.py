@@ -35,8 +35,9 @@ from pathlib import Path
 import sys  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from i18n import say  # noqa: E402
+import layers  # noqa: E402
 
-BIN = Path.home() / '.claude' / 'chatroom' / 'bin'
+BIN = layers.chatroom_dir() / 'bin'
 CLOUDFLARED = '2026.9.3'                                    # pinned, with the checksums from its release page
 SUMS = {
     ('windows', 'amd64'): ('cloudflared-windows-amd64.exe', 'f096265ec2fcbe9bb6e2d64268db167ced3fcbb83d894bdb9e2fcdb26f2ea7e2'),
@@ -352,7 +353,7 @@ class Share:
         elif via == 'local':
             self.url = f'http://127.0.0.1:{port}'
         else:
-            start_tunnel(via, port, self, (self.state.parent if self.state else Path.home() / '.claude' / 'chatroom') / 'tunnel.log')
+            start_tunnel(via, port, self, (self.state.parent if self.state else layers.chatroom_dir()) / 'tunnel.log')
         self.save()
 
     def save(self):

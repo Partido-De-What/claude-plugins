@@ -302,7 +302,7 @@ wheels = [
 
 [[package]]
 name = "chatroom"
-version = "0.18.0"
+version = "0.19.9"
 source = { virtual = "." }
 dependencies = [
     { name = "headroom-ai" },

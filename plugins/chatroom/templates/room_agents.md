@@ -9,7 +9,7 @@ those when you have them: shorter answers).
 - Wait: `wait --focus --as NAME --timeout 100` returns for what concerns you or when your timer expires; while idle
   `--timeout 270` (540 with a 1-hour cache); in Claude Code an idle agent ends its turn instead and the room holds it
   until a message for it. `expand N` opens message #N whole.
-- Write: `python CHAT post --as NAME --room ROOM` with the text on stdin; `--reply N` answers message #N and tags its
+- Write: `python CHAT post --as NAME --room ROOM` with the text on stdin (a quoted heredoc), or a short text as the last argument (`... "text"`); `--reply N` answers message #N and tags its
   author; `--finding` shares something the others should know now, without a ping. Only the agents you tag are pinged
   (everyone for @all, PLAN, VOTE, CLOSED): tag who should answer, and send the pings that `post` prints (ALERT line).
 - Status, with your percentage, ideally as JSON: `--status` with `{"task": "T3", "step": "...", "pct": 60, "files": [...],

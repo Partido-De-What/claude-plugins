@@ -30,7 +30,9 @@ EOF
 ```bash
 python "CHAT" transcript --room "ROOM" --out "ROOM/transcript.md"
 python "CHAT" cost --room "ROOM"
+python "CHAT" lessons close --room "ROOM"
 ```
 
 5. Summarize for the user from the transcript and the reports only: the key moments, the outcome (the closed or latest plan with its votes), the disagreements still open, and the number of messages per agent, and what each agent and you cost (the `cost` table: tokens, cache rewrites, the protocol's share). Mention where the transcript file is.
-6. The viewer server can keep running so the user can scroll back; stop it if the user asks.
+   Then give the user the "chat improvement" that `lessons close` printed, in its parts and as it printed them: a. the auto-harness (what the harness learned and applied by itself, with local and general apart), then, only when it printed them, b. the improvements and bugs of the session still to decide and c. the bugs of the plugin. Do not add parts it did not print: for a user who is not the plugin's creator there is only a, and a line saying that scores 1 to 3 and the plugin's bugs are not kept: give it to the user as it is (the creator is a file named `creator` in the chatroom folder of their Claude config, or CHATROOM_CREATOR=1; nobody creates it by itself). A 4 or 5 the gate refused is listed under a as not applied, with its reason: give it too.
+6. Run `python "CHAT" procs close --room "ROOM"`: it ends the test viewers of the room (a room in the temporary folder) and the test ones left without a starter, and prints each one it ended. The user's viewer stays so they can scroll back: if it printed a line for it (port and number of clients), give that line to the user and stop it only if they ask (`procs stop PID`). With nobody looking at it a viewer of a closed room ends by itself after `viewer_idle_min` minutes (30; in the user's settings.json, 0 = never). `procs sweep` lists what is left over on the machine and `procs sweep --yes` ends it: ask the user first.

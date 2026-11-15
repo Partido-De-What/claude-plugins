@@ -11,6 +11,7 @@ catalogo. Ogni benchmark di nicchia porta i 3 migliori della sua classifica ("le
 """
 import json
 import math
+import os
 import re
 import time
 from pathlib import Path
@@ -26,10 +27,19 @@ except ImportError:                                      # lanciato come script 
     from strengths import lookup, resolve_bench, load_glossary
     from identity import canonical_id, no_size
 
-TEMPLATE = Path(__file__).resolve().parents[3] / 'templates' / 'bench_researcher.md'
-BOARD_TEMPLATE = TEMPLATE.with_name('bench_board.md')
-LINES_TEMPLATE = TEMPLATE.with_name('bench_lines.md')
-PROFILES_TEMPLATE = TEMPLATE.with_name('model_profiles.md')
+try:
+    import layers
+except ImportError:                                      # run as a script (_prova): scripts/ is not on the path
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import layers
+
+
+def _template(name):
+    """the text of a templates/ file: the user's own when there is one (layers.py), else the plugin's"""
+    return layers.find('templates', name)[0].read_text(encoding='utf-8-sig')
+
+
 PROFILES_BATCH = 25                                      # models per profiler: one agent reads ~25 model pages in its minutes
 _TXT = lambda n: {'type': 'string', 'maxLength': n}
 _NUM = {'type': ['number', 'null'], 'minimum': 0}
@@ -53,7 +63,7 @@ LINES_SCHEMA = {
             'properties': {'canonical': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.-]{0,120}$'}, 'action': {'enum': ['split', 'move']},
                            'line': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.~-]{0,120}$'}}}},
         'checked': {'type': 'array', 'maxItems': 300, 'items': {'type': 'string', 'maxLength': 140}}}}
-STUDIED = Path.home() / '.claude' / 'chatroom' / 'spawn' / 'studied.json'
+STUDIED = layers.chatroom_dir() / 'spawn' / 'studied.json'
 MINUTES = 6
 # le classifiche lette una volta al giorno per tutti i modelli (#530 p.3); indirizzi scritti a memoria: il lettore li cerca
 BOARDS = [
@@ -114,7 +124,7 @@ def mark_studied(canonicals):
 
 
 def _boards_path():
-    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'boards.json'
+    return layers.chatroom_dir() / 'spawn' / 'boards.json'
 
 
 def _boards_read():
@@ -156,7 +166,7 @@ def prepare(models, out, glossary_path, areas, lang='it', minutes=MINUTES, skip=
               'MINUTES': str(minutes), 'LANGUAGE': 'Italian' if lang == 'it' else 'English', 'SKIP': ', '.join(skip) or '-',
               'KNOWN': ', '.join(b['id'] for b in _known_glossary(glossary_path)['benchmarks']),
               **({'BOARD': board['name'], 'BOARD_URL': board['url'], 'BOARD_BENCHES': board['benches']} if board else {})}
-    tpl = (BOARD_TEMPLATE if board else TEMPLATE).read_text(encoding='utf-8')
+    tpl = _template('bench_board.md' if board else 'bench_researcher.md')
     text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), tpl)
     left = re.findall(r'\{\{[A-Z_]+\}\}', text)
     if left:
@@ -172,7 +182,7 @@ def prepare_lines(groups, out, lang='it', minutes=MINUTES):
     if not groups:
         return None
     clean = lambda s: re.sub(r'[\x00-\x1f`<>]', ' ', str(s))[:160]
-    text = LINES_TEMPLATE.read_text(encoding='utf-8')
+    text = _template('bench_lines.md')
     values = {'GROUPS': '\n'.join(f"- {clean(g['line'])}: {', '.join(clean(m) for m in g['members'][:12])} ({clean(g['why'])})" for g in groups),
               'OUT': str(out), 'MINUTES': str(minutes), 'LANGUAGE': 'Italian' if lang == 'it' else 'English'}
     text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), text)
@@ -189,7 +199,7 @@ def prepare_profiles(models, out, lang='it', minutes=MINUTES):
     clean = lambda s: re.sub(r'[\x00-\x1f`<>]', ' ', str(s))[:120]
     rows = '\n'.join(f'- {clean(c)}: ' + ', '.join(f'{clean(h)} = {clean(i)}' for h, i in hosts[:8]) for c, hosts in models.items())
     values = {'MODELS': rows, 'OUT': str(out), 'MINUTES': str(minutes), 'LANGUAGE': 'Italian' if lang == 'it' else 'English'}
-    text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), PROFILES_TEMPLATE.read_text(encoding='utf-8'))
+    text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), _template('model_profiles.md'))
     path = Path(out).with_suffix('.prompt.md')
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding='utf-8')
@@ -319,7 +329,7 @@ def _prova():
         assert resolve('mistralai/mistral-large-4', {'mistral-large-4'}) == 'mistral-large-4' and resolve('x', {'y'}) is None
         assert resolve('nemotron-3-ultra', {'nemotron-3-ultra-550b-a55b', 'glm-5-3'}) == 'nemotron-3-ultra-550b-a55b'
         assert resolve('gemma-4', {'gemma-4-31b-it', 'gemma-4-26b-a4b-it'}) is None                    # due taglie: nessuna
-        real = Path(r'E:\claudecode pesante\claude-plugins-dev-tools\cantiere013\prove\payload\research')   # file veri della prova del LEAD (#599)
+        real = Path(os.environ.get('CHATROOM_PROVA_PAYLOAD', os.devnull)) / 'research'   # file veri di una prova dal vivo; senza la variabile non gira
         if real.is_dir():
             three = {'mistral-large-4', 'nemotron-3-ultra-550b-a55b', 'glm-5-3'}
             for f, ask in (('m1', {'mistral-large-4'}), ('b1', three), ('b2', {'mistral-large-4'}), ('b11', three)):

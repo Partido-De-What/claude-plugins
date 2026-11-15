@@ -5,10 +5,11 @@ output 5), the cache rewrites (a write over half of the context after a pause lo
 request is charged to the tool result it digests. Files are read incrementally (offset and totals kept per file), so the
 relay can ask every minute. No transcript (Codex, another machine): "n/a"."""
 import json
-import os
 import re
 import time
 from pathlib import Path
+
+import layers
 
 W_IN, W_W5, W_W1, W_READ, W_OUT = 1, 1.25, 2, 0.1, 5
 PROTOCOL = re.compile(r'chat\.py["\']?\s+(?:wait|read|post|board|task|notebook|status|check|expand|recap)\b|mcp__chatroom__|^SendMessage$')
@@ -18,7 +19,7 @@ _STATE = {}                    # (path, since) -> [offset, totals, seen message 
 
 
 def transcript_of(agent_id=None, session_id=None):
-    base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'projects'
+    base = layers.claude_dir() / 'projects'
     pattern = f'*/*/subagents/agent-{agent_id}.jsonl' if agent_id else f'*/{session_id}.jsonl'
     return next(iter(base.glob(pattern)), None) if (agent_id or session_id) else None
 

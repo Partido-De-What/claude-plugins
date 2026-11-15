@@ -20,12 +20,13 @@ import argparse
 import base64
 import binascii
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-CLAUDE_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude')
+import layers
+
+CLAUDE_DIR = layers.claude_dir()
 FORMAT = 'chatroom-pack'
 MAX_FILE = 12 * 1024 * 1024                  # bytes of one pack file
 MAX_MODELS, MAX_PACKS, MAX_VOXELS = 400, 40, 60000

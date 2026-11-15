@@ -180,18 +180,21 @@ async function inboxOf($: any, key: string, e: { agent_id?: string; session_id?:
   if (!s) return ''
   const name = await whoIs($, key, e)
   if (!name) return ''
-  const mine = [name]
+  const mine = [name], heads = [name]
   if (!e.agent_id) {                                   // the lead answers to the user's names too
     try {
       const c = JSON.parse(await readText($, key + '/config.json') || '{}')
       mine.push(c.user_name, ...(c.user_aliases || []), ...(c.self_names || []))
+      heads.push(...(c.self_names || []))
     } catch { mine.push(s.user) }
   }
   const mark = handed.get(key + '|' + name) || 0
   const maybe = s.last.filter(m => m.n > mark && !m.kind && m.from !== name &&
     (m.from === s.user || /(?<![\w@])@(all|tutti|everyone)(?![\w-])/i.test(m.text) || mine.some(w => w && tagsName(m.text, w))))
   if (!maybe.length) return ''
-  const seen = Math.max(mark, await readInt($, `${key}/cursor_${name}.txt`), await readInt($, `${key}/delivered_${name}.txt`))
+  // as inbox.py seen_by: a lead has its marks under several names and its relay's cursor, and a mark caught half written reads as 0
+  let seen = mark
+  for (const n of heads) for (const kind of ['cursor', 'delivered', 'cursor__alerts']) seen = Math.max(seen, await readInt($, `${key}/${kind}_${n}.txt`))
   const fresh = maybe.filter(m => m.n > seen)
   const top = Math.max(...maybe.map(m => m.n))
   handed.set(key + '|' + name, top)

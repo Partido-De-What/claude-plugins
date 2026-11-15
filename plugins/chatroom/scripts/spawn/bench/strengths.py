@@ -11,6 +11,13 @@ import json
 import re
 from pathlib import Path
 
+try:
+    import layers
+except ImportError:                                      # run as a script (_prova): scripts/ is not on the path
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import layers
+
 GLOSSARY = Path(__file__).resolve().parents[2] / 'bench_glossary.json'
 TOP, PER_AREA, MIN_MODELS, DECLARED = 10, 3, 3, 0.7
 NOT_STRENGTHS = ('index', 'efficiency')
@@ -21,7 +28,7 @@ def norm(name):
 
 
 def extra_path():
-    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'glossary_extra.json'   # i benchmark che il ricercatore ha trovato
+    return layers.chatroom_dir() / 'spawn' / 'glossary_extra.json'   # i benchmark che il ricercatore ha trovato
 
 
 def load_glossary(path=GLOSSARY):

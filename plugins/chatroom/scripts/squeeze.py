@@ -10,6 +10,8 @@ import sys
 import time
 from pathlib import Path
 
+import layers
+
 LIMIT = 32_000                 # characters, about 8k tokens
 TAIL_C, HEAD_C, LINE_C = 16_000, 6_000, 2_000   # the budget goes to the tail first (the result), then the head, then errors
 ERROR = re.compile(r'error|fail|traceback|exception|assert|fatal|panic|denied|not found', re.IGNORECASE)
@@ -49,7 +51,7 @@ def short(text, saved):
 
 def room_of(aid):
     """the room whose roster has this agent, among the served rooms and the ones chat.py met lately"""
-    base = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom'
+    base = layers.chatroom_dir()
     for f in ('rooms.json', 'known_rooms.json'):
         try:
             for k in json.loads((base / f).read_text(encoding='utf-8')):

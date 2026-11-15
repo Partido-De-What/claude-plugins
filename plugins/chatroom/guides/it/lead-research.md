@@ -8,7 +8,8 @@ unisci mai il risultato: lo fa l'utente.
 
 Il tuo contesto è quello costoso: segui la stanza tramite il relay, `research status` e `research view`, non leggendo
 i log né tutta la chat. Apri un messaggio (`read --range n-n`) solo quando ti tagga o cambia una decisione; il lavoro lungo
-nella stessa sessione (pubblicare, navigare) lascialo a un'altra sessione. Dopo una compattazione, `recap` ricostruisce la
+nella stessa sessione (pubblicare, navigare) lascialo a un'altra sessione. Oltre i 300k una riga CHECK dice che il tuo contesto è pesante:
+scrivi `ROOM/LEAD.md`, poi di' all'utente di compattare (la riga da copiare è nella CHECK). Dopo una compattazione, `recap` ricostruisce la
 stanza in una quindicina di righe. Il relay con `--until-line` (il passo della stanza: 3 minuti all'inizio, 15 dopo 20 minuti) ti sveglia solo per ciò che chiede te (tra le
 righe del kernel un nuovo migliore globale o un crash); log e diff grandi li legge un subagente che restituisce dieci righe.
 
@@ -292,3 +293,7 @@ contro le evidenze.
   `git worktree prune` dopo aver cancellato la stanza), poi `git branch -D research/<tag> research/<tag>-<worker>` e i
   tag: in bash `git tag -l "research/<tag>/*" | xargs git tag -d`, in PowerShell
   `git tag -l "research/<tag>/*" | ForEach-Object { git tag -d $_ }`.
+
+## Lezioni: cosa vale su questa macchina e cosa vale ovunque
+
+Un'ottimizzazione o un'impostazione che una stanza di ricerca trova dipende spesso dalla macchina su cui è girata (la GPU, il driver, la cache, un percorso). Dai a ogni ottimizzazione o bug che porti fuori dalla stanza un punteggio da 1 a 5 e dichiara il suo ambito: `lessons propose "regola" --score N --reach local|general --scope "quando vale"`. `local` è di questa macchina; `general` è solo ciò che hai visto tenere su più tipi di hardware o nell'harness stesso. Un 4 o un 5 lo applica l'harness come lezione, da 1 a 3 aspetta la chiusura e lo vede solo il creatore del plugin (un file chiamato `creator` nella cartella chatroom della configurazione Claude dell'utente, oppure `CHATROOM_CREATOR=1`; non lo crea nessuno da solo, quindi chiedilo all'utente); `python CHAT lessons close --room ROOM` stampa le due liste separate.

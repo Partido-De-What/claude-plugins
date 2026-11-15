@@ -4,26 +4,39 @@
     chat.py lessons add "rule" --scope "when it applies, when it does not" --note "where it was seen"
     chat.py lessons accept L3             a lesson on trial becomes active: it goes into every prompt
     chat.py lessons retire L3             out of the prompts; it stays in the file with its history
+    chat.py lessons propose "rule" --score 1-5 --reach local|general [--kind improvement|bug|plugin] --scope "when" --note "where"
+    chat.py lessons close                 the closing summary of the room in its parts (what the harness applied, what is left to decide)
+
+Every improvement or bug found in a room gets a score from 1 to 5. A 5 (a real bug that can bend the process, or something the
+user asked of the room) and a 4 (an improvement, certain at 4 of 5) are applied by the harness itself, as an active lesson through
+the same gate. A 1 to 3 is never applied: it is kept for the closing, and only when the user is the plugin's creator (a file
+`creator` in the chatroom folder, or CHATROOM_CREATOR=1); for anyone else it is not even kept. A bug of the plugin itself
+(--kind plugin) is never applied: it goes to the creator apart. Each carries a reach: local (this user's machine: its hardware,
+its habits) or general (the harness for anyone), and the closing lists them apart.
 
 A lesson is a rule, its evidence and its conditions together: a rule without the conditions it held under is applied
 where it does not hold. It enters on trial (only in rooms whose brief asks for it: brief lessons=trial) and becomes
 active when the user says so. Nothing is added by itself: an add-only loop keeps rules for failures that never happened.
 The active ones are capped: a new one enters when one leaves."""
+import contextlib
 import json
 import os
 import re
 import time
 from pathlib import Path
 
+import layers
 from i18n import say
 
+REACH = ('local', 'general')
+KINDS = ('improvement', 'bug', 'plugin')
 CAP = 8               # active and trial lessons together: every one is read at every request of every agent
 LONG = 300            # characters of a rule: a lesson is one instruction, not a page
 SPECIFIC = re.compile(r'#\d+\b|\bT\d+\b|[A-Za-z]:[\\/]|(?<![\w.])/(?:[\w.-]+/){2,}|\b[0-9a-f]{7,40}\b|\battempt-?\d+\b', re.IGNORECASE)
 
 
 def home():
-    return Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude') / 'chatroom'
+    return layers.chatroom_dir()
 
 
 def load():
@@ -36,9 +49,46 @@ def load():
 
 def save(data):
     home().mkdir(parents=True, exist_ok=True)
-    tmp = home() / 'lessons.json.tmp'
+    tmp = home() / f'lessons.json.{os.getpid()}.tmp'
     tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False) + '\n', encoding='utf-8')
-    os.replace(tmp, home() / 'lessons.json')
+    for attempt in range(20):                  # Windows refuses the swap while another process has the file open for a moment
+        try:
+            return os.replace(tmp, home() / 'lessons.json')
+        except PermissionError:
+            if attempt == 19:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.02 + 0.02 * attempt)
+
+
+@contextlib.contextmanager
+def lessons_lock():
+    """one process at a time reads, changes and writes lessons.json (two `lessons add` together kept only the last, and a prompt
+    that wrote the rooms it served undid a lesson added at that moment). The lock is a file made exclusively, as machine.py does,
+    with the holder's pid: a dead holder's is taken over at once, and any one older than 20 s (the work inside takes milliseconds)"""
+    home().mkdir(parents=True, exist_ok=True)
+    lock, start = home() / 'lessons.lock', time.time()
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except (FileExistsError, PermissionError):      # PermissionError: Windows, the holder is deleting it
+            from chat import pid_alive                  # only when the lock is taken: the import costs
+            with contextlib.suppress(OSError, ValueError):
+                held = lock.read_text(encoding='utf-8').strip()
+                if time.time() - lock.stat().st_mtime > 20 or (held and not pid_alive(int(held))):
+                    lock.unlink()
+                    continue
+            if time.time() - start > 30:
+                raise TimeoutError(say('lessons.busy'))
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            lock.unlink()
 
 
 def rooms(extra=()):
@@ -103,18 +153,106 @@ def for_prompt(trial=False):
 
 def used(room_dir, trial=False):
     """a room whose prompts carried a lesson is written on it: a lesson on trial is accepted on what it did in rooms"""
-    data, want, key, changed = load(), ('active', 'trial') if trial else ('active',), str(Path(room_dir).resolve()), False
-    for x in data['lessons']:
-        if x.get('status') in want and key not in x.setdefault('rooms', []):
-            x['rooms'].append(key)
-            changed = True
-    if changed:
+    want, key = ('active', 'trial') if trial else ('active',), str(Path(room_dir).resolve())
+    with lessons_lock():
+        data, changed = load(), False
+        for x in data['lessons']:
+            if x.get('status') in want and key not in x.setdefault('rooms', []):
+                x['rooms'].append(key)
+                changed = True
+        if changed:
+            save(data)
+
+
+def creator():
+    """the user is the plugin's creator: scores 1 to 3 and the plugin's bugs are for them alone"""
+    return os.environ.get('CHATROOM_CREATOR') == '1' or (home() / 'creator').is_file()
+
+
+def proposals(room):
+    try:
+        got = json.loads((Path(room.dir) / 'proposals.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    return got if isinstance(got, list) else []
+
+
+def propose(room, a, rest, data):
+    """a scored improvement or bug of this room: 4 and 5 are applied now as an active lesson, 1 to 3 and the plugin's bugs wait
+    for the closing (the creator's), and for any other user they are not kept"""
+    text = ' '.join(' '.join(rest).split())
+    score, reach, kind = getattr(a, 'score', None), getattr(a, 'reach', None), getattr(a, 'kind', None) or 'improvement'
+    if not text or score not in (1, 2, 3, 4, 5) or reach not in REACH or kind not in KINDS:
+        raise ValueError(say('lessons.propose.usage'))
+    p = {'text': text, 'score': score, 'reach': reach, 'kind': kind, 'note': (getattr(a, 'note', None) or '')[:300],
+         'by': a.name or '', 'ts': int(time.time())}
+
+    def keep():                                   # the id is taken inside the lock: two proposals together never share one
+        got = proposals(room)
+        p['id'] = f"P{max([int(x['id'][1:]) for x in got] or [0]) + 1}"
+        (Path(room.dir) / 'proposals.json').write_text(json.dumps([*got, p], indent=1, ensure_ascii=False), encoding='utf-8')
+    if kind == 'plugin' or score <= 3:
+        if not creator():
+            return print(say('lessons.propose.not_kept'))
+        p['status'] = 'presented'
+    else:
+        when = ' '.join((getattr(a, 'scope', None) or '').split())
+        refusal = gate(text, data) if when else say('lessons.need_when')
+        if refusal:                               # a 4 or a 5 the gate stops is still written: the closing lists it, it never disappears
+            p.update(status='refused', why=refusal)
+            room.locked(keep)
+            raise ValueError(refusal)
+        lid = f"L{max([int(x['id'][1:]) for x in data['lessons']] or [0]) + 1}"
+        data['lessons'].append({'id': lid, 'text': text, 'when': when, 'evidence': p['note'], 'status': 'active', 'reach': reach, 'score': score,
+                                'auto': True, 'rooms': [str(Path(room.dir).resolve())], 'ts': p['ts'], 'by': p['by']})
         save(data)
+        p.update(status='applied', lesson=lid)
+    room.locked(keep)
+    print(say('lessons.propose.kept', id=p['id'], score=score, reach=reach) if p['status'] == 'presented'
+          else say('lessons.propose.applied', id=p['id'], score=score, reach=reach, lesson=p['lesson']))
+
+
+def closing(room):
+    """the closing summary of a room, in the parts the user's rule asks: a. what the harness learned and applied by itself, b. what
+    the session found and is left to decide (the creator's), c. the plugin's bugs (the creator's), each listed local and general apart"""
+    items, out = proposals(room), [say('lessons.close.head')]
+    labels = {'local': say('lessons.reach.local'), 'general': say('lessons.reach.general')}
+
+    def block(title, rows):
+        out.append(title)
+        for reach in REACH:
+            out.append('  ' + labels[reach])
+            mine = [p for p in rows if p['reach'] == reach]
+            out.extend(f"    {p.get('lesson') or p['id']} (score {p['score']}) {p['text']}" + (f" · {p['note']}" if p.get('note') else '') for p in mine)
+            if not mine:
+                out.append('    -')
+    block(say('lessons.close.auto'), [p for p in items if p['status'] == 'applied'])
+    refused = [p for p in items if p['status'] == 'refused']
+    if refused:
+        out.append(say('lessons.close.refused'))
+        out.extend(f"    {p['id']} (score {p['score']}, {p['reach']}) {p['text']} · {p.get('why', '')}" for p in refused)
+    if not creator():
+        out.append(say('lessons.close.not_creator'))
+    if creator():
+        block(say('lessons.close.session'), [p for p in items if p['status'] == 'presented' and p['kind'] != 'plugin'])
+        block(say('lessons.close.plugin'), [p for p in items if p['status'] == 'presented' and p['kind'] == 'plugin'])
+    return out
 
 
 def command(room, a):
+    if (a.pairs[:1] or [''])[0].lower() in ('propose', 'add', 'accept', 'retire'):
+        with lessons_lock():
+            return _command(room, a)
+    return _command(room, a)
+
+
+def _command(room, a):
     act, rest = (a.pairs[0].lower() if a.pairs else ''), a.pairs[1:]
     data = load()
+    if act == 'propose':
+        return propose(room, a, rest, data)
+    if act == 'close':
+        return print('\n'.join(closing(room)))
     if act == 'add':
         text = ' '.join(' '.join(rest).split())
         if not text:
@@ -125,8 +263,11 @@ def command(room, a):
         when = ' '.join((getattr(a, 'scope', None) or '').split())
         if not when:
             raise ValueError(say('lessons.need_when'))
+        reach = getattr(a, 'reach', None) or 'local'
+        if reach not in REACH:
+            raise ValueError(say('lessons.propose.usage'))
         lid = f"L{max([int(x['id'][1:]) for x in data['lessons']] or [0]) + 1}"
-        data['lessons'].append({'id': lid, 'text': text, 'when': when, 'evidence': (getattr(a, 'note', None) or '')[:300],
+        data['lessons'].append({'id': lid, 'text': text, 'when': when, 'evidence': (getattr(a, 'note', None) or '')[:300], 'reach': reach,
                                 'status': 'trial', 'rooms': [], 'ts': int(time.time()), 'by': a.name or ''})
         save(data)
         return print(say('lessons.added', id=lid))
@@ -149,10 +290,13 @@ def command(room, a):
     if not rows:
         print('  ' + say('lessons.no_events'))
     print(say('lessons.kept'))
-    for x in data['lessons']:
-        print(f"  {x['id']} [{x.get('status')}] {x['text']} ({x.get('when', '')}) · {say('lessons.rooms', n=len(x.get('rooms', [])))}")
-    if not data['lessons']:
-        print('  -')
+    for reach, label in (('local', say('lessons.reach.local')), ('general', say('lessons.reach.general'))):
+        print('  ' + label)
+        mine = [x for x in data['lessons'] if x.get('reach', 'local') == reach]    # a lesson of an older version has no reach: it was written on this machine
+        for x in mine:
+            print(f"    {x['id']} [{x.get('status')}] {x['text']} ({x.get('when', '')}) · {say('lessons.rooms', n=len(x.get('rooms', [])))}")
+        if not mine:
+            print('    -')
     print(say('lessons.how'))
 
 

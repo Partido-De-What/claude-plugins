@@ -8,6 +8,7 @@ import shutil
 import time
 from pathlib import Path
 
+import layers
 from i18n import lang_of, say, use
 
 HERE = Path(__file__).resolve().parent.parent
@@ -15,7 +16,7 @@ TOP = 15                                         # models in the catalog card an
 
 
 def _setup_path():
-    return Path.home() / '.claude' / 'chatroom' / 'spawn' / 'setup.json'      # Path.home each time: tests use a fake HOME
+    return layers.chatroom_dir() / 'spawn' / 'setup.json'      # each time: tests use a fake HOME and CLAUDE_CONFIG_DIR
 
 
 def _setup():
