@@ -2543,6 +2543,8 @@
  "kernel.detectors.assigned_idle": "{key} è stato assegnato {minutes} minuti fa e non ha corso: la sua corsa sta davvero andando?",
  "chat.say.lock.busy": "il lock {lock} è tenuto da {owner}",
  "chat.say.lock.free": "il lock {lock} è libero per te",
+ "chat.say.state_old": "Lo stato del tuo quaderno ha {minutes} minuti: riscrivilo ora (notebook state=true: scopo | fatto | file | in sospeso | prossimo), è ciò che leggi dopo una compattazione.",
+ "chat.say.state_old_none": "Non hai ancora uno stato nel quaderno: scrivilo ora (notebook state=true: scopo | fatto | file | in sospeso | prossimo), è ciò che leggi dopo una compattazione.",
  "chat.say.missed_again": "!!! #{n} di {from_} era per te e non l'avevi letto (è passato con il tuo ultimo status): {text}",
  "chat.say.read.digest_now": "({n} messaggi nuovi: per intero ciò che ti riguarda, il resto come riassunto; read --range A-B per una parte)",
  "chat.say.wait.budget_over": "Niente attesa: hai fatto {used} chiamate di chat, una volta e mezza oltre il budget della stanza di {budget}. Consegna ciò che hai, posta uno status e chiudi il turno.",

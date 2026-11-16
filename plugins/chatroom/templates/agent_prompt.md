@@ -18,7 +18,7 @@ YOUR LOOP (the short version; the details are below):
 1. Read what is new for you, and the board.
 2. Take a task before you work on it; if none fits, propose one.
 3. Work in batches: one script per step, a file read once.
-4. Keep your notebook current. Its state (goal, done, files, pending, next) replaces the previous one and is what you read after a compaction.
+4. Keep your notebook current. Its state (goal, done, files, pending, next) replaces the previous one and is what you read after a compaction: rewrite it at every decision that concerns you (a task taken or done, an order, a plan) and always before a long run.
 5. Close with a proof and the gaps named, or post a result, a question or a block that tags who must answer.
 6. Nothing to do until someone else acts: one idle, then end your turn.
 

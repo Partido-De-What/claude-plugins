@@ -492,6 +492,7 @@ def waits_for_lead(room, items=None, only=None, now=None):
     return out
 
 
+STATE_OLD_MIN = 20       # minutes: a task command of an agent whose notebook state is older says to rewrite it (S5)
 READ_MAX = 40             # new messages past which a plain read gives the digest (155k characters re-read by a lead after a compaction)
 LEAD_CTX = 300_000        # tokens of the lead's context: past this, recap and a fresh start cost less than every turn
 
@@ -2616,6 +2617,19 @@ class Board:
         return '\n'.join(lines)
 
 
+def state_note(room, name, act):
+    """a decision that concerns the agent (a task taken, done, handed over, a rule of the room) while its notebook state is older than
+    STATE_OLD_MIN minutes, or missing: said once with the age. The state is what a compaction or a rotation leaves it"""
+    if act not in ('take', 'done', 'handoff', 'help', 'giveback', 'accept', 'decide') or name in room.user_names():
+        return
+    try:
+        age = (time.time() - (room.dir / 'notes' / f'{name}.state.md').stat().st_mtime) / 60
+    except OSError:
+        return print(say('chat.say.state_old_none'))
+    if age >= STATE_OLD_MIN:
+        print(say('chat.say.state_old', minutes=int(age)))
+
+
 def cmd_task(room, a):
     """task add TITLE | take ID | done ID | drop ID | note ID TEXT | fact TEXT: change the board, and say it in the chat"""
     if not a.name:
@@ -2624,6 +2638,7 @@ def cmd_task(room, a):
         sys.exit(say('chat.err.cmd_task.task_add_title_deps'))
     act, rest, b = a.pairs[0], a.pairs[1:], Board(room)
     b.by = a.name
+    state_note(room, a.name, act)
     if getattr(a, 'expect_version', None) is not None and rest and act not in ('add', 'fact', 'decide', 'retire'):
         b.expect = (rest[0], a.expect_version)
     split = lambda v: [x.strip() for x in (v or '').split(',') if x.strip()]

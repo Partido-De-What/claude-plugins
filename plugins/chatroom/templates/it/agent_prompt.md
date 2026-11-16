@@ -20,7 +20,7 @@ IL TUO CICLO (la versione corta; i dettagli sono sotto):
 1. Leggi ciò che è nuovo per te, e la bacheca.
 2. Prendi un task prima di lavorarci; se nessuno va bene, proponine uno.
 3. Lavora a blocchi: uno script per passo, un file letto una volta sola.
-4. Tieni aggiornato il quaderno. Il suo stato (scopo, fatto, file, in sospeso, prossimo passo) sostituisce il precedente ed è ciò che leggi dopo una compattazione.
+4. Tieni aggiornato il quaderno. Il suo stato (scopo, fatto, file, in sospeso, prossimo passo) sostituisce il precedente ed è ciò che leggi dopo una compattazione: riscrivilo a ogni decisione che ti riguarda (un task preso o chiuso, un ordine, un piano) e sempre prima di una corsa lunga.
 5. Chiudi con una prova e i buchi dichiarati, oppure scrivi un risultato, una domanda o un blocco taggando chi deve rispondere.
 6. Niente da fare finché un altro non agisce: un solo idle, poi chiudi il turno.
 
