@@ -450,6 +450,38 @@ def note_refusal(code):
     note_event(room, 'refusal', call_key(a), getattr(a, 'name', None) or '', detail=' '.join(code.split())[:200])
 
 
+LEARN_AT = (3, 10)       # times a cause fires in a room before the lead is told to propose a lesson, and told again
+LEARN_KINDS = ('refusal', 'lead', 'hold')   # what went wrong or was fixed by hand; a kernel action that passed teaches nothing
+
+
+def learn_checks(room):
+    """[(key, line)] for the causes that fired LEARN_AT times in this room: a refusal met again and again, a remedy the lead
+    repeats by hand, an agent the stop hook keeps letting go. The line carries the lesson command to copy: in a real room of
+    28 hours nobody proposed one, and 45 defects went to a file written by hand"""
+    seen = {}
+    try:
+        rows = (room.dir / 'events.jsonl').read_text(encoding='utf-8').splitlines()
+    except OSError:
+        return []
+    for row in rows:
+        try:
+            e = json.loads(row)
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get('kind') in LEARN_KINDS and e.get('key'):
+            c = seen.setdefault((e['kind'], e['key']), {'n': 0, 'who': set(), 'detail': ''})
+            c['n'] += 1
+            c['who'].add(e.get('name') or '-')
+            c['detail'] = e.get('detail') or c['detail']
+    out = []
+    for (kind, key), c in sorted(seen.items()):
+        step = max((s for s in LEARN_AT if c['n'] >= s), default=0)
+        if step:
+            out.append((f'learn:{kind}:{key}:{step}', say('chat.check.learn', kind=kind, key=key, n=c['n'], who=', '.join(sorted(c['who'])),
+                                                         detail=c['detail'][:160] or '-')))
+    return out
+
+
 def check_event(room, key):
     """a CHECK that fired, as an event: its type (cost: has two parts), the agent and the task its key names, and the whole key.
     A key without an agent (gone, silent) gets the agent's taken tasks from note_event"""
@@ -3368,6 +3400,7 @@ def failures(room, now=None):
     for e in procs.running():                         # the user's viewer of this room that nobody has looked at for hours: said once
         if e['kind'] == 'serve' and e.get('purpose') == 'utente' and e['room'] and Path(e['room']).resolve() == room.dir.resolve()                 and not e.get('clients') and now - float(e.get('last_hit') or now) > 3 * 3600:
             out.append((f"procs:{e['pid']}", say('procs.check', port=e['port'], pid=e['pid'], hours=int((now - float(e['last_hit'])) // 3600))))
+    out += learn_checks(room)                         # a cause that keeps firing: the lesson to propose, now
     return out
 
 
