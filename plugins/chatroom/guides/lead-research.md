@@ -138,7 +138,7 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 ```
 
 `max` in the brief is the checkpoint: every N messages an agent asks you whether to continue (set it high for a long
-research; answer every checkpoint). Generate a worker's prompt after its `assign`, so it names its own worktree.
+research; answer every checkpoint). `constraints` and `closing` in the brief reach every research prompt too. Generate a worker's prompt after its `assign`, so it names its own worktree.
 Spawn the workers as `chatroom:room-agent-long` and the other roles as `chatroom:room-agent` (1-hour cache, compacting at
 300k / 200k tokens), each with its model and effort.
 

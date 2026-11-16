@@ -193,5 +193,22 @@ if section('H1'):
         time.sleep(1)
     ok('H1 the runner ended with the line', not alive(), lock.read_text() if lock.exists() else '')
 
+# ---------------------------------------------------------------------------------------------------------------- T1
+if section('T1'):
+    # a research prompt carries the brief's constraints and closing, as agent_prompt.md does
+    room, repo, work = research_room('t1', participants='W,A')
+    run(room, 'brief', 'constraints=MARK-CONSTRAINTS-7', 'closing=MARK-CLOSING-9')
+    roles = ('worker', 'searcher', 'proposer', 'registrar', 'auditor')
+    for role in roles:
+        c, o = run(room, 'prompt', 'W', '--template', f'research_{role}.md')
+        ok(f'T1 research_{role} carries the brief constraints', c == 0 and 'MARK-CONSTRAINTS-7' in o, o[:300])
+        ok(f'T1 research_{role} carries the brief closing', c == 0 and 'MARK-CLOSING-9' in o, o[:300])
+        ok(f'T1 research_{role} leaves no placeholder', '{{' not in o, o[o.find('{{'):][:80])
+    tpl = Path(SCRIPTS).parent / 'templates'
+    for role in roles:
+        for sub in ('', 'it'):
+            text = (tpl / sub / f'research_{role}.md').read_text(encoding='utf-8')
+            ok(f'T1 template {sub or "en"}/research_{role} names both placeholders', '{{CONSTRAINTS}}' in text and '{{CLOSING}}' in text)
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)

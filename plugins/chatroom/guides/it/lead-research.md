@@ -145,7 +145,7 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 ```
 
 `max` nel brief è il checkpoint: ogni N messaggi un agente ti chiede se continuare (impostalo alto per una ricerca
-lunga; rispondi a ogni checkpoint). Genera il prompt di un worker dopo il suo `assign`, così nomina il proprio worktree.
+lunga; rispondi a ogni checkpoint). `constraints` e `closing` del brief arrivano anche ai prompt di ricerca. Genera il prompt di un worker dopo il suo `assign`, così nomina il proprio worktree.
 Lancia i worker come `chatroom:room-agent-long` e gli altri ruoli come `chatroom:room-agent` (cache di 1 ora, compattano a
 300k / 200k token), ciascuno con il suo modello ed effort.
 
