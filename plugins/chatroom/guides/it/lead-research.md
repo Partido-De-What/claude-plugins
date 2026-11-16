@@ -101,7 +101,9 @@ python CHAT research init --room ROOM --as LEAD --repo <percorso> --program <fil
 `--precheck` gira prima di ogni corsa e deve uscire con 0 (VRAM a riposo sotto un limite, nessun server rimasto vivo): un
 controllo fallito rifiuta la corsa e non conta nulla. Distingue anche una corsa morta con la macchina da una morta col
 programma: se una corsa crasha e subito dopo il precheck fallisce, la corsa è `invalid` (numero aux, riga in results.tsv,
-evento `run-invalid`), il budget e il round non si muovono e lo stesso codice si rilancia quando la macchina è tornata. Mettici fin dall'inizio le regole che servono alla macchina, non dopo
+evento `run-invalid`), il budget e il round non si muovono e lo stesso codice si rilancia quando la macchina è tornata. Una corsa in coda che il precheck rifiuta (o che finisce invalida)
+resta in coda e riprova ogni 5 minuti (evento `queue-retry`; l'autore è avvisato al primo rifiuto e a ogni sesto tentativo,
+e dopo 72 tentativi la corsa è tolta con una riga). Mettici fin dall'inizio le regole che servono alla macchina, non dopo
 una corsa persa. `--final-dry` è un comando lanciato al sigillo: carica i dati tenuti da parte e i loro riferimenti e non
 misura nulla, così un finale rotto si vede subito e non in fase 4 (una notte ha perso così una build da 16 minuti e un'ora
 di GPU); senza, il sigillo avvisa soltanto.
@@ -188,6 +190,11 @@ a lui al tuo release, prima della fila, o subito se la GPU è libera, e aspetta 
 Un titolare che cade (il suo turno è finito e nessuna attesa o trattenimento lo tiene) perde il blocco subito, non alla
 scadenza: il kernel lo rilascia al primo `research status`, `evaluate`, `hold` o giro del runner, fa avanzare la fila e lo
 dice sulla board, col nome del titolare e ciò che ha lasciato in esecuzione.
+Il lavoro a lotti (una lista di corse in coda) non chiede di leggere il log a intervalli né un marcatore "LISTA FINITA"
+tuo: `research wait --runs N [--minutes M]` (lancialo in background) torna quando N corse nuove sono chiuse, o quando la
+lista in coda è finita, o dopo M minuti (default 60), con le righe delle corse chiuse. Quando la coda si svuota dopo corse
+che ha avviato, il kernel scrive una riga che tagga gli auditor e gli autori ("la lista in coda è finita: N corse chiuse,
+migliore att-X"), e un keep che è un nuovo migliore della sua linea tagga l'auditor.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 
@@ -197,7 +204,7 @@ La fase 2 va a round corti, mai a un budget grande deciso prima (`--max-evals` r
 |---|---|---|
 | 1. Analizza | tu, AUDITOR | la situazione e i numeri finora; alla baseline il kernel stampa il rumore che ha misurato e il `--min-gain` che consiglia (il doppio del rumore) |
 | 2. Ricerca online | SEARCHER, PROPOSER | idee con le fonti, ciascuna controllata su ciò che la stanza ha già misurato |
-| 3. Test | WORKER | 5-10 corse corte (`--round N` in init, 10 di default); un tenuto che guadagna meno del 10% viene rimisurato da solo prima di contare |
+| 3. Test | WORKER | 5-10 corse corte (`--round N` in init, 10 di default); un tenuto che guadagna meno del 10% viene rimisurato da solo prima di contare (la board dice "misura ancora una volta"; la replica non è una delle corse). `--budget-min` è il budget di ogni misura: oltre, la riga della corsa lo dice, oltre il doppio la misura è uccisa; `init` stampa i due limiti e la grandezza del round |
 | 4. Analisi dei risultati | REGISTRAR, AUDITOR | la conclusione del round dalle sue corse; l'auditor legge ogni tenuto |
 | 5. Ricerca online | SEARCHER | su quei risultati |
 | 6. Decisione | tu, con l'utente | `research round close --decision more --text "..."` apre il round dopo, `--decision done` lascia seguire la fase 3 |

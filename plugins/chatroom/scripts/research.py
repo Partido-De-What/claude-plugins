@@ -445,6 +445,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
             + (say('kernel.init.warning_the_build_output')
                if build and not keep else '') + subs
             + say('kernel.init.one_evaluate_call_can', max_run_seconds=max_run_seconds(contract))
+            + say('kernel.init.budget_rule', budget_s=contract['budget_s'], kill=2 * contract['budget_s'], round=contract['round_max'])
             + (say('kernel.init.phase_write_and_smoke') if draft else say('kernel.init.the_first_run_is')))
 
 
@@ -1006,6 +1007,7 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
                           say('kernel._measure.build_exit', code=code) + (f': {_reason(text)}' if _reason(text) else '')), secs, '', [], text
     values, protocol, envs, proved, gvals = [], [], [], [], {g['name']: [] for g in c.get('guards', [])}
     c['_env'] = envs                                      # filled as the repeats go: a crash keeps what was printed
+    c['_slow'] = 0                                        # the longest single measure: over the budget it is said, over twice it is killed
     wants = _shas(Path(work) / c['program']) if env.get('CHATROOM_PROGRAM_SHA') else set()
     pattern = rf"^\s*{re.escape(c['metric'])}\s*:\s*{NUMBER}\s*$"
     for k in range(c.get('repeats', 1)):
@@ -1018,6 +1020,7 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         code, s = _run(c['evaluate'], work, log, 2 * c['budget_s'], run_env, mode='ab' if (c.get('build') or k) else 'wb',
                        on_start=on_start)
         secs += s
+        c['_slow'] = max(c['_slow'], s)
         text = log.read_text(encoding='utf-8', errors='replace')
         out = text[start:] if len(text) >= start else text
         for line in re.findall(r'^\s*protocol\s*:\s*(.+?)\s*$', out, re.MULTILINE | re.IGNORECASE):
@@ -1247,6 +1250,10 @@ def _reconcile(room, c, st):
     return line
 
 
+class PrecheckRefused(ValueError):
+    """the contract's precheck refused a run before it started: nothing ran, nothing was counted"""
+
+
 def _precheck(room, c, work, d, name):
     """the contract's precheck: None when it passes (or there is none), else (exit code, the end of its output)"""
     if not c.get('precheck'):
@@ -1353,7 +1360,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         raise ValueError(say('kernel._evaluate.tag_already_exists_while', tag=tag))
     refused = _precheck(room, c, work, d, name)           # the machine as the contract wants it (idle VRAM, no stray server, the device lock...)
     if refused:
-        raise ValueError(say('kernel.precheck.failed', code=refused[0], tail=refused[1]))
+        raise PrecheckRefused(say('kernel.precheck.failed', code=refused[0], tail=refused[1]))
     pending = {'n': n, 'by': name, 'worker': key, 'desc': desc, 'ts': time.time(), 'kind': kind, 'idea': idea}
     _edit(room, lambda c2, s2: s2.update(pending=pending))  # from here a cut-off run is a crash at the next call
     try:
@@ -1393,6 +1400,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     guards = c.pop('_guards', {}) if value is not None else {}
     info = c.pop('_info', {}) if value is not None else {}
     env_lines, built_ok, values = c.pop('_env', [])[:12], c.pop('_built', False), c.pop('_values', [])
+    slow = c.pop('_slow', 0)
     base_g = (st.get('baseline') or {}).get('guards') or {}
     if value is not None and kind == 'attempt' and not first:
         broken = []                                       # all the guards, not the first one that breaks
@@ -1436,9 +1444,11 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
                 (say('kernel._evaluate.by_more_than', min_gain=c['min_gain']) if c.get('min_gain') else '')
     if status == 'keep' and kind == 'attempt' and not first and not fix and line_best and line_best.get('metric') \
             and abs(value - line_best['metric']) < REPLICA_GAIN * abs(line_best['metric']):
+        room.append(name, say('kernel._evaluate.replica_running', n=n, value=f'{value:.6g}', best=f"{line_best['metric']:.6g}", gain=f'{100 * REPLICA_GAIN:.0f}'), 'board')   # K13: not in silence
         v2, _, s_2, _, _, _ = _measure(c, work, d, n, env, log.with_name(f'{n}-replica.log'), started, None)
         for k in ('_guards', '_env', '_built', '_values'):
             c.pop(k, None)
+        slow = max(slow, c.pop('_slow', 0))
         secs += s_2
         both = None if v2 is None else (value + v2) / 2
         if both is None or not _better(c, both, line_best['metric']):
@@ -1522,10 +1532,12 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
             gain = float(str(c3.get('min_gain') or '0').rstrip('%') or 0) if str(c3.get('min_gain') or '').endswith('%') else None
             flags += say('kernel._evaluate.noise_hint', noise=f'{noise:.1f}', want=f'{2 * noise:.1f}') + (
                 say('kernel._evaluate.noise_low', gain=c3['min_gain']) if gain is not None and gain < 2 * noise else '')
-        elif c3.get('repeats', 1) < 2:
+        elif c3.get('repeats', 1) < 2 and not (c3.get('reference') or c3.get('info')):   # K12: a contract that prints a reference arm measures its noise itself
             flags += say('kernel._evaluate.noise_unknown')
         if secs > 600:                                     # 12 repeats once (3 in the contract x 4 in the evaluator): over 30 minutes a run
             flags += say('kernel._evaluate.run_long', minutes=f'{secs / 60:.0f}', repeats=c3.get('repeats', 1))
+    if slow > c3['budget_s']:                              # K11: the soft budget; the hard one kills at twice
+        flags += say('kernel._evaluate.over_budget', secs=f'{slow:.0f}', budget_s=c3['budget_s'], kill=2 * c3['budget_s'])
     if kind == 'attempt' and status == 'keep' and s3['best']:     # a keep beats the line's best; the global best wants min_gain more
         flags += (say('kernel._evaluate.new_global_best') if s3['best']['n'] == n else
                   say('kernel._evaluate.line_keep', best=s3['best']['n'], metric=f"{s3['best']['metric']:.6g}", gain=c.get('min_gain') or '0'))
@@ -1537,7 +1549,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     line = (say('kernel._evaluate.att_by', n=n, kind=kind, name=name, desc=desc[:100], metric=c['metric'], v6='—' if value is None else f'{value:.6g}')
             + (f' ({spread})' if spread else '') + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
             + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' and status != 'invalid' else ''))
-    room.append(name, line, 'board')
+    audit = [a for a in c.get('roles', {}).get('AUDITOR') or [] if a != name] if kind == 'attempt' and status == 'keep' and not first else []
+    room.append(name, line + (say('kernel._evaluate.for_auditor', who=' '.join(f'@{a}' for a in audit)) if audit else ''), 'board')   # K17: a keep is the auditor's to check
     tail = '\n'.join(text.strip().splitlines()[-30:])[-3000:] if status in ('crash', 'invalid') else ''   # the end of the log, bounded: everyone who reads the line pays it
     warn = say('kernel._evaluate.warning_some_files_could', held=held[:300]) if held else ''
     nudge = ''
@@ -2052,7 +2065,7 @@ def _hold_promote(room):
         q.sort(key=lambda x: x['ts'])
         c, st = _state(room)
         done = {f"att-{a['n']}" for a in st['attempts']}
-        runs = [x['ts'] for x in _queue(room) if not x.get('after') or x['after'] in done]
+        runs = [x['ts'] for x in _queue(room) if (not x.get('after') or x['after'] in done) and x.get('retry_at', 0) <= time.time()]   # a run waiting for the machine does not hold the line back
         if runs and min(runs) < q[0]['ts']:
             return ''
         return q[0]
@@ -2204,11 +2217,71 @@ def _queue_runner(room):
         return
 
 
+QUEUE_RETRY_S = 300       # a queued run the precheck refused (or whose machine died) tries again after this many seconds
+QUEUE_RETRY_MAX = 72      # tries (6 hours at 5 minutes) before the run is dropped with a line
+
+
+def _requeue(room, lead, x, why):
+    """a queued run that could not start for the machine's sake goes back to the front, due again in QUEUE_RETRY_S; its
+    author is told at the first refusal and every sixth try after it"""
+    tries = x.get('tries', 0) + 1
+    if tries > QUEUE_RETRY_MAX:
+        _log(room, x['by'], 'queue-retry', {'desc': x['desc'][:100], 'tries': tries, 'gave_up': True, 'why': why})
+        room.append(lead, f"@{x['by']} " + say('kernel.queue.retry_gave_up', desc=x['desc'][:80], tries=QUEUE_RETRY_MAX), 'board')
+        return
+    again = {**x, 'tries': tries, 'retry_at': time.time() + QUEUE_RETRY_S}
+    own = x.get('kind', 'attempt') in ('attempt', 'fix')
+
+    def back(q):
+        if not (own and any(y['by'] == x['by'] and y.get('kind', 'attempt') in ('attempt', 'fix') for y in q)):   # a newer run of its author replaces it
+            q.insert(0, again)
+    _queue_edit(room, back)
+    _log(room, x['by'], 'queue-retry', {'desc': x['desc'][:100], 'tries': tries, 'why': why})
+    if tries == 1 or tries % 6 == 0:
+        room.append(lead, f"@{x['by']} " + say('kernel.queue.retry', desc=x['desc'][:80], minutes=QUEUE_RETRY_S // 60, tries=tries, why=why), 'board')
+
+
+WAIT_MINUTES = 60         # `research wait` gives up after this many minutes unless told otherwise
+
+
+def wait_runs(room, runs=None, minutes=None, poll=5):
+    """K17: returns when `runs` new runs are closed since the call, or when the queued list is finished (it had runs at the
+    call, now nothing is queued or running), or after `minutes`. The runs it saw close are in the text. A list that is
+    finished is read on two polls in a row: a run is between the queue and its lock for an instant"""
+    first, listed, quiet = len(_state(room)[1]['attempts']), bool(_queue(room)), 0
+    if not runs and not listed:
+        return say('kernel.wait.nothing')
+    end = time.time() + 60 * (minutes or WAIT_MINUTES)
+    while True:
+        c, st = _state(room)
+        new = st['attempts'][first:]
+        quiet = quiet + 1 if listed and not _queue(room) and not _run_alive(room) and not st.get('pending') else 0
+        why = 'runs' if runs and len(new) >= runs else 'list' if quiet >= 2 else 'timeout' if time.time() >= end else ''
+        if why:
+            lines = '\n'.join(say('kernel.wait.line', n=a['n'], kind=a['kind'], status=a['status'], by=a.get('worker', ''),
+                                  metric='-' if a['metric'] is None else format(a['metric'], '.6g'), desc=a['desc'][:80]) for a in new)
+            return say(f'kernel.wait.{why}', n=len(new), want=runs or '-', minutes=minutes or WAIT_MINUTES) + (f'\n{lines}' if lines else '')
+        time.sleep(poll)
+
+
+def _list_done(room, lead, authors, first):
+    """the queue ran dry after runs it started: one line tells the auditors and the authors the list is finished (the
+    lead reads the board, and `research wait` wakes it), so nobody polls the log or invents a "list finished" marker"""
+    c, st = _state(room)
+    new = st['attempts'][first:]
+    if not new:
+        return
+    best, who = st['best'], list(dict.fromkeys([*(c.get('roles', {}).get('AUDITOR') or []), *authors]))
+    room.append(lead, ' '.join(f'@{w}' for w in who if w != lead) + ' ' + say('kernel.queue.list_done', n=len(new), best=(
+        say('kernel.queue.list_best', n=best['n'], metric=format(best['metric'], '.6g')) if best else '')), 'board')
+
+
 def run_queue(room, poll=15):
     """the runner: the first queued run whose turn has come, when no run is alive and the GPU is not held by another.
     A run that can never come (after a number past the budget, or out of its phase) is dropped with a line; any fault
     of one run is told on the board and the runner goes on"""
     lead = (room.config().get('self_names') or ['LEAD'])[0]
+    first, authors = len(_state(room)[1]['attempts']), []
     try:
         while True:
             c, st = _state(room)
@@ -2224,7 +2297,7 @@ def run_queue(room, poll=15):
                         room.append(lead, say('kernel.queue.dropped', by=x['by'], desc=x['desc'][:80]), 'board')
                 if not q:
                     return None if _holdq(room) else 'empty'   # a line for the GPU keeps the runner: it hands the GPU over, expiries included
-                ready = next((x for x in q if not x.get('after') or x['after'] in done), None)
+                ready = next((x for x in q if (not x.get('after') or x['after'] in done) and x.get('retry_at', 0) <= time.time()), None)
                 held = _gpu_hold(room)
                 if not ready or _run_alive(room) or st.get('pending') or (held and held['by'] != ready['by']):
                     return None
@@ -2234,15 +2307,24 @@ def run_queue(room, poll=15):
             _hold_promote(room)
             ready = _queue_edit(room, take)
             if ready == 'empty':
+                _list_done(room, lead, authors, first)
                 return
             if not ready:
                 time.sleep(poll)
                 continue
+            started = time.time()
+            authors.append(ready['by'])
             try:
                 line = evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt',
                                 ready.get('of'), ready.get('seed'), ready.get('env') or None)
+                last = (_state(room)[1]['attempts'] or [{}])[-1]
+                if last.get('status') == 'invalid' and last.get('ts', 0) >= started:   # K4: the machine died under it, the code is staged
+                    _requeue(room, lead, ready, line.splitlines()[0][:200])
+                    continue
                 run = re.search(r'att-(\d+)', line)          # the run's own line is already in the chat: this one only wakes its author
                 room.append(lead, f"@{ready['by']} " + (say('kernel.queue.done_ref', n=run.group(1)) if run else say('kernel.queue.done', line=line.splitlines()[0][:300])), 'board')
+            except PrecheckRefused as exc:                # nothing ran: the same run waits for the machine instead of being lost
+                _requeue(room, lead, ready, str(exc)[:300])
             except Exception as exc:                      # one bad run never stops the queue
                 room.append(lead, f"@{ready['by']} " + say('kernel.queue.refused', desc=ready['desc'][:80], exc=str(exc)[:300]), 'board')
     finally:
@@ -2953,7 +3035,7 @@ def status(room):
     q = _queue(room)
     if q:
         _queue_runner(room)                               # a runner that died with runs left: started again
-        head += say('kernel.status.queue', items='; '.join(f"{x['by']}: {x['desc'][:40]}" + (f" (after {x['after']})" if x.get('after') else '') for x in q))
+        head += say('kernel.status.queue', items='; '.join(f"{x['by']}: {x['desc'][:40]}" + (f" (after {x['after']})" if x.get('after') else '') + (say('kernel.status.queue_retry', tries=x['tries']) if x.get('tries') else '') for x in q))
     for f in sorted((_dir(room) / 'runs').glob('prebuild-*.exit')):
         if time.time() - f.stat().st_mtime > 6 * 3600:
             continue                                      # an old prebuild (a worker stopped days ago) is noise in every status
@@ -3188,6 +3270,8 @@ def _cmd(room, a):
         return print('\n'.join(f"{x['by']}: {x['desc'][:100]}" for x in _queue(room)) or say('kernel.plan.empty'))
     if act == 'run-queue':
         return run_queue(room)
+    if act == 'wait':
+        return print(wait_runs(room, getattr(a, 'runs', None), getattr(a, 'minutes', None)))
     if act == 'evaluate':
         if not a.name:
             sys.exit(say('kernel._cmd.as_name_required'))

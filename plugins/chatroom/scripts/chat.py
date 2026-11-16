@@ -6243,7 +6243,8 @@ def _main():
     p.add_argument('--build-min', dest='build_min', type=float, help='research init/amend: minutes a build may take')
     p.add_argument('--repeats', type=int, help='research init/amend: measures per run; the median counts')
     p.add_argument('--guard', action='append', help='research init/amend: NAME:min|max:TOL (TOL a number, N%% or abs=X), repeatable or comma-separated: secondary numbers the evaluator prints, median against the baseline (abs=X: against X)')
-    p.add_argument('--minutes', type=float, help='research hold: how long the GPU is held')
+    p.add_argument('--minutes', type=float, help='research hold: how long the GPU is held; research wait: the longest it waits (default 60)')
+    p.add_argument('--runs', type=int, help='research wait: returns when this many new runs are closed (or the queued list is finished)')
     p.add_argument('--provenance', dest='provenance', action='store_const', const=True, default=None,
                    help='research init/amend: every measure must print "built: <CHATROOM_PROGRAM_SHA>" (the build of this run)')
     p.add_argument('--no-provenance', dest='provenance', action='store_const', const=False)
