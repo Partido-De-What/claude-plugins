@@ -214,6 +214,52 @@ if section('K6'):
     ok('K6 every broken guard is named in the verdict', 'mem' in head(o) and 'cold' in head(o), head(o))
     ok('K6 the guard values of the run are kept', state(room)['attempts'][-1]['guards'] == {'mem': 25.0, 'cold': 25.0}, state(room)['attempts'][-1])
 
+# ---------------------------------------------------------------------------------------------------------------- K9
+EVAL9 = 'import os, program\nprint("loss:", (program.X - 2) ** 2 + float(os.environ.get("PROBE_ADD", "0")))\n'
+if section('K9'):
+    room, repo, work = research_room('k9', eval_src=EVAL9)
+    c, o = run(room, 'research', 'evaluate', '--kind', 'probe', '--env', 'PROBE_ADD=7', '--desc', 'too early', '--as', 'W')
+    ok('K9 a probe before the baseline still runs in phase 2 (not an attempt)', c == 0 and 'PROBE' in o, o)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K9 baseline is attempt 1 whatever the probe did', c == 0 and 'KEEP' in o and 'att-1 ' in o and state(room)['evals'] == 1, o)
+    c, o = run(room, 'research', 'evaluate', '--kind', 'probe', '--env', 'PROBE_ADD=7,PROBE_B=x', '--desc', 'with env', '--as', 'W')
+    ok('K9 probe: measured with the env (9 + 7 = 16), env in the line', c == 0 and 'PROBE' in o and '16' in o and 'PROBE_ADD=7' in o, o)
+    s = state(room)
+    a = s['attempts'][-1]
+    ok('K9 probe: not counted, not best, kind and env registered', s['evals'] == 1 and a['kind'] == 'probe' and a['status'] == 'probe'
+       and a.get('env_set') == {'PROBE_ADD': '7', 'PROBE_B': 'x'} and s['best']['n'] == 1 and a['n'] > 100000, a)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('K9 status still shows 1/30 runs and no round opened by a probe', '1/30' in o and 'opens round 1' in o, o[-700:])
+    c, o = run(room, 'research', 'evaluate', '--kind', 'attempt', '--env', 'PROBE_ADD=7', '--desc', 'x', '--as', 'W')
+    ok('K9 --env on an attempt is refused', c != 0 and 'probe' in o, o)
+    c, o = run(room, 'research', 'evaluate', '--kind', 'probe', '--env', 'CHATROOM_RUN=1', '--desc', 'x', '--as', 'W')
+    ok('K9 a CHATROOM_ variable cannot be set', c != 0 and 'CHATROOM_RUN' in o, o)
+    c, o = run(room, 'research', 'queue', '--desc', 'q', '--env', 'PROBE_ADD=1', '--as', 'W')
+    ok('K9 queue refuses --env on an attempt too', c != 0 and 'probe' in o, o)
+    # the MCP tool: same call, env passed as a string
+    room_obj = chat.Room(str(room))
+    text, err = chat.mcp_call(room_obj, 'W', 'research', {'action': 'evaluate', 'kind': 'probe', 'env': 'PROBE_ADD=2', 'desc': 'via mcp'})
+    ok('K9 MCP research evaluate takes env (9 + 2 = 11)', not err and 'PROBE' in text and '11' in text, text)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    ok('K9 the next attempt is number 2', c == 0 and 'KEEP' in o and state(room)['evals'] == 2, o)
+    room2, _, _ = research_room('k9d', extra=['--draft'], eval_src=EVAL9)
+    c, o = run(room2, 'research', 'evaluate', '--kind', 'probe', '--desc', 'in drafting', '--as', 'W')
+    ok('K9 a probe in phase 1 is refused', c != 0 and 'phase 2' in o, o)
+
+if section('K9Q'):                                                  # the queue runner takes a probe with its env (a detached runner: slower)
+    room, repo, work = research_room('k9q', eval_src=EVAL9)
+    run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    c, o = run(room, 'research', 'queue', '--kind', 'probe', '--env', 'PROBE_ADD=1', '--desc', 'queued probe', '--as', 'W')
+    ok('K9 queue --kind probe --env is accepted', c == 0 and 'queued' in o, o)
+    for _ in range(90):                                                  # the detached runner starts it at once
+        if any(a['kind'] == 'probe' and 'queued probe' in a['desc'] for a in state(room)['attempts']):
+            break
+        time.sleep(1)
+    q = [a for a in state(room)['attempts'] if 'queued probe' in a['desc']]
+    ok('K9 the queue runner ran the probe with its env (loss 9 + 1 = 10)', q and q[0]['env_set'] == {'PROBE_ADD': '1'} and q[0]['metric'] == 10.0
+       and state(room)['evals'] == 1, q)
+
 # ---------------------------------------------------------------------------------------------------------------- K7
 if section('K7'):
     block = lambda o: o.split('next constraints', 1)[1].split('\n| ', 1)[0].split('\nn\tcommit', 1)[0] if 'next constraints' in o else ''
@@ -259,6 +305,56 @@ if section('T1'):
         for sub in ('', 'it'):
             text = (tpl / sub / f'research_{role}.md').read_text(encoding='utf-8')
             ok(f'T1 template {sub or "en"}/research_{role} names both placeholders', '{{CONSTRAINTS}}' in text and '{{CLOSING}}' in text)
+
+# ---------------------------------------------------------------------------------------------------------------- K16
+if section('K16'):
+    # the evaluator writes out/clip.txt (like the wavs of a voice run): each run's copy must stay, the next run overwrites it
+    EVAL16 = ('import os, program\nos.makedirs("out", exist_ok=True)\nopen("out/clip.txt", "w").write(str(program.X))\n'
+              'print("loss:", (program.X - 2) ** 2)\n')
+    ok_py, bad_py = BASE / 'dry_ok.py', BASE / 'dry_bad.py'
+    ok_py.write_text('print("dry ok")\n')
+    bad_py.write_text('import sys\nprint("held-out data missing")\nsys.exit(3)\n')
+    try:
+        room, repo, work = research_room('k16', eval_src=EVAL16, extra=['--artifacts', 'out', '--final', f'"{sys.executable}" eval.py'])
+    except AssertionError as e:
+        ok('K16 init takes --artifacts', False, e)
+        room = None
+    if room:
+        ok('K16 the contract keeps the artifact paths', contract(room).get('artifacts') == ['out'], contract(room))
+        run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+        (work / 'program.py').write_text('X = 3\n')
+        run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+        f1, f2 = room / 'research' / 'runs' / '1' / 'artifacts' / 'out' / 'clip.txt', room / 'research' / 'runs' / '2' / 'artifacts' / 'out' / 'clip.txt'
+        ok('K16 each run keeps its own artifacts (5 then 3)', f1.is_file() and f2.is_file() and f1.read_text() == '5' and f2.read_text() == '3',
+           [p for p in (room / 'research' / 'runs').rglob('*') if 'artifacts' in str(p)][:6])
+        c, o = run(room, 'research', 'amend', '--artifacts', '../etc', '--as', 'LEAD')
+        ok('K16 an artifact path outside the worktree is refused', c != 0 and 'artifacts' in o, o)
+        c, o = run(room, 'research', 'final', '--dry', '--as', 'LEAD')
+        ok('K16 final --dry without a dry command says how to set one', c != 0 and 'final-dry' in o, o)
+        c, o = run(room, 'research', 'status', '--as', 'LEAD')
+        ok('K16 status says the final has no dry run', 'no dry run' in o, o[-700:])
+        run(room, 'research', 'amend', '--final-dry', f'"{sys.executable}" "{bad_py}"', '--as', 'LEAD')
+        c, o = run(room, 'research', 'final', '--dry', '--as', 'LEAD')
+        ok('K16 a failing dry run is refused with its exit and the log tail', c != 0 and 'exit 3' in o and 'held-out data missing' in o, o)
+        run(room, 'research', 'amend', '--final-dry', f'"{sys.executable}" "{ok_py}"', '--as', 'LEAD')
+        c, o = run(room, 'research', 'final', '--dry', '--as', 'LEAD')
+        ok('K16 a passing dry run is reported in phase 2, and the final did not run', c == 0 and 'passed' in o and not state(room).get('final'), o)
+    # the pruning, on made-up runs: the newest ARTIFACT_RUNS and every keep stay
+    d, w = BASE / 'k16-prune', BASE / 'k16-prune-work'
+    (d / 'runs').mkdir(parents=True)
+    (w / 'out').mkdir(parents=True)
+    (w / 'out' / 'a.txt').write_text('x')
+    (d / 'results.tsv').write_text(research.TSV_HEAD + '\n'.join(f'{n}\tc\t1\t{"keep" if n == 1 else "discard"}\t1\t\tW\td\tattempt\t\t' for n in range(1, 5)) + '\n')
+    for n in range(1, 5):
+        (d / 'runs' / str(n) / 'artifacts').mkdir(parents=True)
+        os.utime(d / 'runs' / str(n) / 'artifacts', (1000 + n, 1000 + n))
+    old, research.ARTIFACT_RUNS = research.ARTIFACT_RUNS, 2
+    try:
+        research._keep_artifacts({'artifacts': ['out']}, w, d, 5, 0)
+    finally:
+        research.ARTIFACT_RUNS = old
+    left = sorted(p.parent.name for p in (d / 'runs').glob('*/artifacts'))
+    ok('K16 pruning keeps the keep and the newest runs', left == ['1', '4', '5'], left)
 
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
