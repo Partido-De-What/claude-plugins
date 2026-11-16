@@ -167,6 +167,11 @@ e poi `research release`. Mentre il blocco della GPU è attivo, solo chi lo tien
 prenderlo, e `research status` lo mostra. Un agente lo tiene al massimo 120 minuti, il lead 720. Due stanze research su una
 GPU: `--for STANZA` dà una finestra all'altra stanza (le corse di questa aspettano), e `research status` elenca corse e
 blocchi delle altre stanze.
+Se la GPU è già tenuta, `research hold` non rifiuta: ti mette in fila (un posto per agente, ordinata per tempo insieme alle
+corse in coda) e il kernel ti dà la GPU quando è libera e ti tagga sulla board, quindi non richiederla; `research release`
+mentre aspetti ti toglie dalla fila. `research hold --for NOME` (NOME un partecipante) riserva il turno dopo a NOME: passa
+a lui al tuo release, prima della fila, o subito se la GPU è libera, e aspetta 15 minuti che lo prenda con il suo
+`research hold`.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 
