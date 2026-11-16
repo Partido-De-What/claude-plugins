@@ -193,6 +193,27 @@ if section('H1'):
         time.sleep(1)
     ok('H1 the runner ended with the line', not alive(), lock.read_text() if lock.exists() else '')
 
+# ---------------------------------------------------------------------------------------------------------------- K6
+EVAL6 = ('import sys, program\n'
+         'if program.X == 3:\n    raise ValueError("coherence check: shapes differ")\n'
+         'if program.X == 4:\n    print("setup ok")\n    print("ERROR: device busy")\n    sys.exit(1)\n'
+         'print("loss:", (program.X - 2) ** 2)\nprint("mem:", program.X * 10)\nprint("cold:", program.X * 10)\n')
+if section('K6'):
+    room, repo, work = research_room('k6', extra=['--guard', 'mem:min:abs=20', '--guard', 'cold:min:abs=20'], eval_src=EVAL6)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K6 baseline kept', c == 0 and 'KEEP' in o, o)
+    head = lambda o: next((l for l in o.splitlines() if 'CRASH' in l or 'DISCARD' in l or 'KEEP' in l), '')
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'raises', '--as', 'W')
+    ok('K6 a Python exception: the board line has its message', 'CRASH' in head(o) and 'exit 1' in head(o) and 'coherence check: shapes differ' in head(o), head(o))
+    (work / 'program.py').write_text('X = 4\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'exits', '--as', 'W')
+    ok('K6 an error line printed before exit(1): the board line has it', 'CRASH' in head(o) and 'ERROR: device busy' in head(o), head(o))
+    (work / 'program.py').write_text('X = 2.5\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'two guards over', '--as', 'W')
+    ok('K6 every broken guard is named in the verdict', 'mem' in head(o) and 'cold' in head(o), head(o))
+    ok('K6 the guard values of the run are kept', state(room)['attempts'][-1]['guards'] == {'mem': 25.0, 'cold': 25.0}, state(room)['attempts'][-1])
+
 # ---------------------------------------------------------------------------------------------------------------- T1
 if section('T1'):
     # a research prompt carries the brief's constraints and closing, as agent_prompt.md does
