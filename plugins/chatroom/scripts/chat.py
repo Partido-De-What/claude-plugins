@@ -3304,9 +3304,6 @@ def cmd_resume(room, a):
             print(say('chat.say.cmd_resume.relaunch', name=k, prompt=room.dir / 'prompts' / f'{k}.md', state=room.dir / 'notes' / f'{k}.state.md'))
 
 
-STATE_WARN_CTX = 150_000    # tokens: a room agent compacts by itself at 200k; from here an old notebook state is the lead's to hear, not only the agent's
-
-
 def state_gap(room, k, items, now):
     """how old the notebook state of k is, for the lead: (minutes, 'HH:MM' it was written, messages k posted since), or (None, '-', all of its
     messages) when it has none; None while it is younger than STATE_OLD_MIN minutes"""
@@ -3502,7 +3499,7 @@ def failures(room, now=None):
                 out.append((f"ctx:{k}:{ctx // 100_000}:{last}", say('chat.check.rotate_now', k=k, ctx=ctx // 1000, done=last, cmd=cmd)))
             else:
                 out.append((f"ctx:{k}:{ctx // 100_000}", say('chat.check.context_high', k=k, ctx=ctx // 1000)))
-        gap = state_gap(room, k, items, now) if ctx and ctx >= STATE_WARN_CTX else None      # its context is near a compaction: is its state old?
+        gap = state_gap(room, k, items, now) if ctx and ctx >= CTX_ROTATE else None      # as heavy as a rotation is advised (a compaction is near): is its state old?
         if gap:
             args = dict(k=k, ctx=ctx // 1000, minutes=gap[0], when=gap[1], n=gap[2])
             out.append((f'oldstate:{k}:{ctx // 50_000}', say('chat.check.state_none', **args) if gap[0] is None else say('chat.check.state_old', **args)))
