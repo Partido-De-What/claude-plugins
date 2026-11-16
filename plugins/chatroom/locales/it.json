@@ -389,6 +389,8 @@
  "chat.say.wait.no_new_messages_in": "(nessun messaggio nuovo in {timeout} s)",
  "chat.say.wait.nothing_for_you_in": "(niente per te in {timeout} s",
  "chat.say.wait.you_hold_device": ". Hai ancora il dispositivo condiviso riservato per {left} minuti e il tuo lavoro lì non è finito: controlla il tuo processo o il suo log e vai avanti con la tua lista. Non rilasciare la riserva e non chiudere qui.)",
+ "chat.say.wait.cmd_true": "La tua condizione è vera (`{cmd}` è uscito con 0): vai avanti con il lavoro.\n{out}",
+ "chat.say.wait.cmd_not_yet": "(`{cmd}` non è ancora vero dopo {timeout} s e nessuno ti ha scritto: richiama wait con lo stesso --until-cmd. Il tuo lavoro non è finito: non chiudere il turno e non scrivere il rapporto.)",
  "chat.say.wait.this_is_not_an": ". Non è un'attesa vuota (regola 8): chiudi il turno, la stanza ti consegna il prossimo messaggio; solo dove niente ti tiene (Codex), richiama wait con --timeout {IDLE_WAIT_MAX}.)",
  "chat.say.wait.wake_up_from_is": "*** WAKE-UP @{name}: #{n} di {from_} è per te. Resti in attesa finché non scrivi qualcosa: rispondi, o richiama wait se non ti chiede niente. Se cominci a lavorarci, scrivi prima uno --status (con la tua percentuale): chiude l'attesa e fa ripartire il timer. ***\n",
  "chat.say.wait.you_are_idle_since": "(sei in attesa da #{n}: nessuno ti ha taggato in {timeout} s",

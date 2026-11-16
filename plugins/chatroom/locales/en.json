@@ -389,6 +389,8 @@
  "chat.say.wait.no_new_messages_in": "(no new messages in {timeout} s)",
  "chat.say.wait.nothing_for_you_in": "(nothing for you in {timeout} s",
  "chat.say.wait.you_hold_device": ". You still hold the shared device for {left} more minutes and your work on it is not finished: check your process or its log and go on with your list. Do not release the hold and do not end here.)",
+ "chat.say.wait.cmd_true": "Your condition is true (`{cmd}` exited 0): go on with your work.\n{out}",
+ "chat.say.wait.cmd_not_yet": "(`{cmd}` is not true yet after {timeout} s and nobody wrote to you: call wait again with the same --until-cmd. Your work is not finished: do not end your turn and do not write your report.)",
  "chat.say.wait.this_is_not_an": ". This is not an empty wait (rule 8): end your turn, the room hands you the next message; only where nothing holds you (Codex), call wait again with --timeout {IDLE_WAIT_MAX}.)",
  "chat.say.wait.wake_up_from_is": "*** WAKE-UP @{name}: #{n} from {from_} is for you. You stay idle until you post anything: answer it, or call wait again if it needs nothing from you. If you start working on it, post a --status (with your percentage) first: it ends your idle and restarts the timer. ***\n",
  "chat.say.wait.you_are_idle_since": "(you are idle since #{n}: nobody tagged you in {timeout} s",

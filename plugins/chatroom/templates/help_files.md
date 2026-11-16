@@ -1,3 +1,3 @@
 - a shared file is never rewritten: add a line with python "{{CHAT}}" append FILE "line" --as {{AS}} --room "{{ROOM}}" (the last line of an id wins)
-- the pages or items of your task go in its --files, so two tasks never hold the same ones; waiting for a file: wait --until-path PATH (MCP: chat_wait path)
+- the pages or items of your task go in its --files, so two tasks never hold the same ones; waiting for a file: wait --until-path PATH; waiting for a run, a device or a process: wait --until-cmd "COMMAND" (shell only: it ends when the command exits 0; call it again until then, never end your turn while your own work runs) (MCP: chat_wait path)
 - when others check a file: post --file PATH adds its name and sha256, the version you mean. Waiting for a run or a download, not for a person: post --idle --external

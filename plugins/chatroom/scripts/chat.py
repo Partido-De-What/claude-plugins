@@ -492,6 +492,7 @@ def waits_for_lead(room, items=None, only=None, now=None):
     return out
 
 
+UNTIL_CMD_EVERY = 10      # seconds between two tries of a wait's --until-cmd, and the most one try may take
 READ_MAX = 40             # new messages past which a plain read gives the digest (155k characters re-read by a lead after a compaction)
 LEAD_CTX = 300_000        # tokens of the lead's context: past this, recap and a fresh start cost less than every turn
 
@@ -1393,9 +1394,10 @@ class Room:
                 if not m.get('kind') and PLAN_WORD.search(m.get('text', '')):
                     print(f"  #{m['n']} {m['from']}: {m['text'].strip().splitlines()[0][:160]}", flush=True)
 
-    def wait(self, name, timeout, focus=False, cancel=None, until=None):
+    def wait(self, name, timeout, focus=False, cancel=None, until=None, until_cmd=None):
         """wait, marked as waiting meanwhile: a message for an agent in wait needs no ping (it sees the chat file);
-        until: a path, the wait ends when it appears or changes"""
+        until: a path, the wait ends when it appears or changes; until_cmd: a shell command, the wait ends when it exits 0
+        (a run finished, a device back on power): agents built polling scripts of their own for this"""
         if name not in self.user_names():
             budget, used = call_budget(self), sum(self.counters().get(name, {}).values())
             if budget and used >= 1.5 * budget:
@@ -1406,7 +1408,7 @@ class Room:
         except OSError:
             pass
         try:
-            return self._wait(name, timeout, focus, cancel, until)
+            return self._wait(name, timeout, focus, cancel, until, until_cmd)
         finally:
             try:
                 mark.unlink()
@@ -1422,7 +1424,7 @@ class Room:
         except (OSError, ValueError):
             return False
 
-    def _wait(self, name, timeout, focus=False, cancel=None, until=None):
+    def _wait(self, name, timeout, focus=False, cancel=None, until=None, until_cmd=None):
         """focus: what wakes it is shown as read --focus shows it (in full only what concerns you); cancel: an Event the
         MCP server sets when the client gives up on the call, so the messages are not consumed by an answer nobody reads"""
         items = self.messages()
@@ -1430,9 +1432,18 @@ class Room:
         timeout = max(1, min(timeout, self.idle_wait_max(name) if idle else WAIT_MAX))
         start, limit, users = time.time(), self.heartbeat(), self.user_names()
         was = _stamp(Path(until)) if until else None
+        tried = 0.0
         while True:
             if cancel is not None and cancel.is_set():
                 return
+            if until_cmd and time.time() - tried >= UNTIL_CMD_EVERY:
+                tried = time.time()
+                try:
+                    got = subprocess.run(until_cmd, shell=True, capture_output=True, text=True, errors='replace', timeout=UNTIL_CMD_EVERY)
+                except (OSError, subprocess.SubprocessError):
+                    got = None
+                if got is not None and got.returncode == 0:
+                    return print(say('chat.say.wait.cmd_true', cmd=until_cmd, out=(got.stdout or '').strip()[-600:]))
             if until and _stamp(Path(until)) != was:
                 return print(say('chat.say.wait.path_changed', path=until))
             cursor = self.cursor(name)
@@ -1458,6 +1469,8 @@ class Room:
             if cancel is None:
                 time.sleep(2)
             items = self.messages()
+        if until_cmd:                                     # its condition is not there yet: it waits again, it does not end here
+            return print(say('chat.say.wait.cmd_not_yet', cmd=until_cmd, timeout=timeout))
         if idle:
             import hold                              # the stop hook's rule: a device held is work going, not an empty wait
             held = hold.device_hold(self, name)
@@ -5858,6 +5871,7 @@ def main():
     p.add_argument('--until-line', action='store_true', help='alerts --follow: return after the first lines (run it as a background shell: its exit wakes the lead)')
     p.add_argument('--top', type=int, help='spawn ping: only the N models highest in the catalog')
     p.add_argument('--vision', action='store_true', help='spawn ping: send a small picture instead (who reads images)')
+    p.add_argument('--until-cmd', dest='until_cmd', help='wait: also end when this shell command exits 0 (checked every 10 s): a run that finished, a device back on power, a process that ended')
     p.add_argument('--until-path', dest='until_path', help='wait: also end when this file appears or changes (the material you wait for)')
     p.add_argument('--stream', action='store_true', help='alerts --follow: never return; what needs the lead comes in one block every --batch s (default 20), the rest as a digest with it (run it under Monitor)')
     p.add_argument('--external', action='store_true', help='post --idle: you wait for something outside the room (a run, a download), so "everyone is idle" is no stall')
@@ -5985,7 +5999,7 @@ def main():
     if a.command == 'read':
         idle_note(room, a.name)
         return room.read(a.name, a.focus)
-    room.wait(a.name, a.timeout, a.focus, until=getattr(a, 'until_path', None))   # wait caps the timeout: 110 s, or 270 s while idle
+    room.wait(a.name, a.timeout, a.focus, until=getattr(a, 'until_path', None), until_cmd=getattr(a, 'until_cmd', None))   # wait caps the timeout: 110 s, or 270 s while idle
     idle_note(room, a.name)
 
 
