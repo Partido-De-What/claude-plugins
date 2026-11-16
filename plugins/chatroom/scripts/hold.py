@@ -89,6 +89,8 @@ def waits(room, name):
     '' when it has none: its work is finished, it reports and goes, and nothing keeps it. A shared lock it holds or queues
     for counts too: its turn comes with a tag, and it needs no turn before that"""
     import chat
+    if chat.is_paused(room):                              # the user stopped the room: nobody goes, nobody reports, until resume
+        return 'pause'
     if device_hold(room, name):
         return 'hold'
     if room.idle_entry(name, room.messages()):
@@ -133,7 +135,7 @@ def handback(ev):
     return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                    'permissionDecisionReason': chat.say('chat.say.hold.report_later', why={
                                        'idle': chat.say('chat.say.hold.why_idle'), 'task': chat.say('chat.say.hold.why_task'),
-                                       'run': chat.say('chat.say.hold.why_run'), 'hold': chat.say('chat.say.hold.why_hold'),
+                                       'run': chat.say('chat.say.hold.why_run'), 'hold': chat.say('chat.say.hold.why_hold'), 'pause': chat.say('chat.say.hold.why_pause'),
                                        'lock': chat.say('chat.say.hold.why_lock')}[why])}}
 
 
@@ -323,11 +325,13 @@ def _hold(room, aid, key, name, end, wait, poll):
                 pass
             return {'decision': 'block', 'reason': reason(room, name, new)}
         if time.time() >= end:
-            cap = None if why in ('run', 'hold') else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why == 'task' else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
+            cap = None if why in ('run', 'hold', 'pause') else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why == 'task' else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
             if cap and bump(room, f'empty_{name}') > cap:
                 left(room, name, why)
                 return report(room, name)
             chat.use(room.config().get('lang'))
+            if why == 'pause':
+                return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing_pause', name=name)}
             if why == 'hold':                             # its measurement runs on the device: it checks it, it does not end here
                 return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing_hold', name=name, left=device_hold(room, name))}
             return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing', name=name, minutes=max(1, wait // 60))}
@@ -392,6 +396,16 @@ def _prova():
     (room / 'research' / 'gpu.hold').write_text(json.dumps({'by': 'A', 'reason': 'bench', 'until': time.time() - 5}))
     assert waits(r, 'A') == 'idle'                                                # the hold ran out: back to the usual rules
     (room / 'research' / 'gpu.hold').unlink()
+    (room / 'paused.json').write_text(json.dumps({'ts': time.time(), 'by': 'LEAD', 'why': 'night'}))
+    (room / 'empty_A.txt').write_text('0')
+    (room / 'gone.json').unlink(missing_ok=True)
+    assert chat.is_paused(r) and waits(r, 'A') == 'pause'
+    for _ in range(EMPTY_MAX + 2):                                                # a paused room keeps its agents: no report, no fall
+        got = decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2)
+        assert got and got['decision'] == 'block' and 'paused' in got['reason'].lower(), got
+    assert 'A' not in chat.read_json(room / 'gone.json', {})
+    (room / 'paused.json').unlink()
+    assert waits(r, 'A') == 'idle'
     (room / 'waiting_A.txt').write_text(f'{time.time() + 500:.0f} 999999')
     assert not r.in_wait('A')                                                     # a dead holder's mark does not count
     r.append('LEAD', 'CLOSED v1: done')

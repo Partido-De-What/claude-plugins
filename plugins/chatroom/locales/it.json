@@ -2566,6 +2566,8 @@
  "chat.err.cmd_lock.usage": "uso: chat.py lock acquire|release NOME --as AGENTE [--ttl MIN] [--pid N], oppure chat.py lock status",
  "chat.err.cmd_lock.not_yours": "il lock {lock} non è tuo: non è cambiato nulla",
  "chat.say.hold.why_lock": "hai un lock condiviso o ne aspetti uno",
+ "chat.say.hold.why_pause": "la stanza è in pausa",
+ "chat.say.hold.nothing_pause": "La stanza è in pausa, {name}: niente da fare e niente da riferire. Chiudi il turno con una riga; la stanza ti tiene e ti consegna ciò che arriva alla ripresa.",
  "chat.say.hold.why_hold": "hai il dispositivo condiviso riservato e il tuo lavoro lì non è finito",
  "chat.say.hold.nothing_hold": "Niente di nuovo per te, {name}, e hai ancora il dispositivo condiviso riservato per {left} minuti: il tuo lavoro lì non è finito. Controlla ora il tuo processo o il suo log e vai avanti con la tua lista; non rilasciare la riserva e non scrivere il rapporto finale finché la lista non è finita.",
  "chat.err.cmd_reopen.usage": "uso: chat.py reopen --as LEAD --reason \"perché\": solo il lead o l'utente",

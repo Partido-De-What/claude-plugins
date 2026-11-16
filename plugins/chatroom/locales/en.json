@@ -2566,6 +2566,8 @@
  "chat.err.cmd_lock.usage": "usage: chat.py lock acquire|release NAME --as AGENT [--ttl MIN] [--pid N], or chat.py lock status",
  "chat.err.cmd_lock.not_yours": "lock {lock} is not yours: nothing changed",
  "chat.say.hold.why_lock": "you hold a shared lock or wait for one",
+ "chat.say.hold.why_pause": "the room is paused",
+ "chat.say.hold.nothing_pause": "The room is paused, {name}: nothing to do and nothing to report. End your turn with one line; the room keeps you and hands you what comes at the resume.",
  "chat.say.hold.why_hold": "you hold the shared device and your work on it is not finished",
  "chat.say.hold.nothing_hold": "Nothing new for you, {name}, and you still hold the shared device for {left} more minutes: your work on it is not finished. Check your process or its log now and go on with your list; do not release the hold and do not write your final report until the list is done.",
  "chat.err.cmd_reopen.usage": "usage: chat.py reopen --as LEAD --reason \"why\": the lead or the user only",
