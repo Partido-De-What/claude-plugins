@@ -12,6 +12,7 @@ from pathlib import Path
 SCRIPTS = os.environ.get('CHATROOM_SCRIPTS') or str(Path(__file__).resolve().parent.parent)
 BASE = Path(tempfile.mkdtemp(prefix='smoke10r2_'))
 os.environ['CLAUDE_CONFIG_DIR'] = str(BASE / 'claude')
+os.environ['CHATROOM_RELAUNCHED'] = '1'      # a fresh config dir has no uv environment yet: relaunching into it costs a minute
 (BASE / 'claude' / 'chatroom').mkdir(parents=True)
 sys.path.insert(0, SCRIPTS)
 import chat  # noqa: E402
@@ -28,10 +29,9 @@ def ok(name, cond, info=''):
 
 def make(name):
     room = BASE / name
-    subprocess.run([sys.executable, CHAT, 'init', '--room', str(room), '--participants', 'A,B', '--lang', 'en'], capture_output=True)
-    cfg = json.loads((room / 'config.json').read_text(encoding='utf-8'))
-    cfg.update({'lead_pace_start': 600, 'lead_pace': 600, 'lead_pace_runs': 7})
-    (room / 'config.json').write_text(json.dumps(cfg), encoding='utf-8')
+    room.mkdir()
+    (room / 'config.json').write_text(json.dumps({'participants': ['A', 'B'], 'self_names': ['LEAD'], 'user_name': 'USER',
+                                                  'lead_pace_start': 600, 'lead_pace': 600, 'lead_pace_runs': 7}), encoding='utf-8')
     return room
 
 
@@ -45,18 +45,23 @@ ok('R2 research phase 2: lead_pace_runs', chat.relay_pace(r, young=False) == 7, 
 (room / 'research' / 'state.json').write_text(json.dumps({'phase': 1}), encoding='utf-8')
 ok('R2 research phase 1: lead_pace', chat.relay_pace(r, young=False) == 600, chat.relay_pace(r, young=False))
 ok('R2 the start of the room keeps lead_pace_start', chat.relay_pace(r, young=True) == 600)
+cfg = json.loads((room / 'config.json').read_text(encoding='utf-8'))
+del cfg['lead_pace_runs']
+(room / 'config.json').write_text(json.dumps(cfg), encoding='utf-8')
+(room / 'research' / 'state.json').write_text(json.dumps({'phase': 2}), encoding='utf-8')
+ok('R2 lead_pace_runs defaults to 20 minutes', chat.relay_pace(chat.Room(room), young=False) == 1200, chat.relay_pace(chat.Room(room), young=False))
 
 # 2. what declares a block
-blk = [{'text': '@LEAD bloccato: la GPU non risponde', 'from': 'A'},
-       {'text': '@LEAD blocked on the hold', 'from': 'A'},
+blk = [{'text': '@LEAD BLOCCATO: la GPU non risponde', 'from': 'A'},
+       {'text': '@LEAD BLOCKED on the hold', 'from': 'A'},
        {'text': '@LEAD T3 (40%)', 'from': 'A', 'kind': 'status', 'state': {'blocked_by': 'the hold of B'}}]
-fine = [{'text': '@LEAD T3 done, nothing blocks me', 'from': 'A'}, {'text': '@LEAD report', 'from': 'A', 'kind': 'status', 'state': {'blocked_by': ''}}]
+fine = [{'text': '@LEAD T3 done, nothing blocks me', 'from': 'A'}, {'text': '@LEAD blocco 3 chiuso, 16 blocchi misurati', 'from': 'A'}, {'text': '@LEAD the measuring block 3 is closed, not blocked', 'from': 'A'}, {'text': '@LEAD report', 'from': 'A', 'kind': 'status', 'state': {'blocked_by': ''}}]
 ok('R2 a block is declared', all(chat.declares_block(m) for m in blk), [chat.declares_block(m) for m in blk])
 ok('R2 a plain report is not a block', not any(chat.declares_block(m) for m in fine), [chat.declares_block(m) for m in fine])
 
 # 3. the relay on a quiet pace wakes at once for a tag that declares a block
 room = make('block')
-chat.Room(room).append('A', '@LEAD blocked: the hold is taken and nobody answers')
+chat.Room(room).append('A', '@LEAD BLOCKED: the hold is taken and nobody answers')
 t0 = time.time()
 p = subprocess.Popen([sys.executable, '-X', 'utf8', CHAT, 'alerts', '--follow', '--messages', '--until-line', '--as', 'LEAD', '--room', str(room)],
                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
@@ -68,6 +73,7 @@ except subprocess.TimeoutExpired:
     p.wait()
     out = p.stdout.read()
     out = 'TIMEOUT ' + out
+print("took", round(time.time() - t0, 1), flush=True)
 ok('R2 the relay wakes at once for a tag that declares a block', 'WATCH #1' in out and 'TIMEOUT' not in out, out)
 print('fails', fails)
 sys.exit(1 if fails else 0)

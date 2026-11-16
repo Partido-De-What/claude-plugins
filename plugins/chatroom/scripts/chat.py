@@ -554,11 +554,11 @@ def relay_command(room, name):
 
 
 URGENT = re.compile(r'\bURGENT[EI]?\b')              # in capitals, in a message for the lead: it does not wait for the pace
-BLOCKED = re.compile(r'\b(?:blocked|blocker|blocco|bloccat[oaie])\b', re.IGNORECASE)
+BLOCKED = re.compile(r'\b(?:BLOCKED|BLOCKER|BLOCCAT[OAIE])\b')   # in capitals like URGENT: \"blocco 3\" is a measuring block in a research room
 
 
 def declares_block(m):
-    """a message that says its author is stuck (a blocked_by in the status, or the word): when it tags the lead it does not
+    """a message that says its author is stuck (a blocked_by in the status, or BLOCKED in capitals): when it tags the lead it does not
     wait for the pace either, a viewer was left still for 15 minutes behind one"""
     st = m.get('state')
     return bool(isinstance(st, dict) and st.get('blocked_by')) or bool(BLOCKED.search(m.get('text', '')))
@@ -566,7 +566,7 @@ def declares_block(m):
 
 def relay_pace(room, young=None):
     """seconds the relay gathers lines for the lead into one wake: close at the start (lead_pace_start, 180, for the first
-    lead_warmup minutes, 20), then lead_pace (900), or lead_pace_runs (300) in phase 2 of a research room, where the lead waits for runs"""
+    lead_warmup minutes, 20), then lead_pace (900), or lead_pace_runs (1200) in phase 2 of a research room, where the lead waits for runs"""
     c = room.config()
     if young is None:
         first = next((float(m.get('ts') or 0) for m in room.messages()), time.time())
@@ -574,7 +574,7 @@ def relay_pace(room, young=None):
     if young:
         return int(c.get('lead_pace_start', 180))
     if read_json(room.dir / 'research' / 'state.json', {}).get('phase') == 2:
-        return int(c.get('lead_pace_runs', 300))
+        return int(c.get('lead_pace_runs', 1200))
     return int(c.get('lead_pace', 900))
 
 
