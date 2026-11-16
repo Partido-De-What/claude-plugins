@@ -1852,10 +1852,15 @@ def user_env(env=None):
     """the user's environment for the commands the room runs for them (a task's verify, a role's shell, a research build):
     without the plugin's uv environment, so `python` and `pytest` there are the user's (a prebuild found no psutil)"""
     env = dict(os.environ if env is None else env)
-    venv = env.pop('VIRTUAL_ENV', None)
-    if venv:
+    own = [env.pop('VIRTUAL_ENV', None)]
+    uv_py = {'uv', 'python'} <= set(os.path.normcase(sys.base_prefix).replace('\\', '/').split('/'))   # a uv-managed python, put on PATH by `uv run`
+    if sys.prefix != sys.base_prefix or uv_py:                # this process runs in a venv (or in uv's own python): VIRTUAL_ENV may be unset
+        own += [sys.prefix, sys.exec_prefix] + ([sys.base_prefix] if uv_py else [])
+    own = [os.path.normcase(os.path.realpath(p)) for p in own if p] + [os.path.normcase(p) for p in own if p]
+    if own:
         key = next((k for k in env if k.upper() == 'PATH'), 'PATH')
-        env[key] = os.pathsep.join(p for p in env.get(key, '').split(os.pathsep) if not os.path.normcase(p).startswith(os.path.normcase(venv)))
+        env[key] = os.pathsep.join(p for p in env.get(key, '').split(os.pathsep)
+                                   if not p or not (os.path.normcase(p).startswith(tuple(own)) or os.path.normcase(os.path.realpath(p)).startswith(tuple(own))))
     for k in ('CHATROOM_RELAUNCHED', 'UV_PROJECT_ENVIRONMENT', 'PYTHONHOME'):
         env.pop(k, None)
     return env

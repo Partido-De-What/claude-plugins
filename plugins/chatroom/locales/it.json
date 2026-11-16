@@ -912,6 +912,8 @@
  "kernel.word.log": "\nlog: {log}",
  "kernel.word.next": " · prossimo: {next}",
  "kernel.word.no_files": "nessun file",
+ "kernel.word.python_not_found": "non trovato nel PATH",
+ "kernel._seal.python": "; `python` nei comandi del contratto è: {py}",
  "kernel.word.no_metric_line": "nessuna riga \"{metric}:\"",
  "kernel.word.no_role": "senza un ruolo nella ricerca",
  "kernel.word.none": "nessuno",

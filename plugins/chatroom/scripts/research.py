@@ -243,6 +243,12 @@ def _env(**extra):
     return env
 
 
+def resolved_python():
+    """the interpreter `python` is for a contract command: what the room's environment (no plugin venv) resolves it to"""
+    path = next((v for k, v in _env().items() if k.upper() == 'PATH'), '')
+    return shutil.which('python', path=path) or say('kernel.word.python_not_found')
+
+
 def _submodules(work):
     """a worktree gets the repository's submodules too (CUTLASS, third-party kernels...): '' or a warning"""
     if not (Path(work) / '.gitmodules').is_file():
@@ -2192,6 +2198,7 @@ def _seal(room, by, sealed, stay=False):
     _edit(room, apply)
     _log(room, by, 'seal', {'commit': commit, 'sealed': list(seals)})
     return say('kernel._seal.sealed_by_at_phase', by=by, commit=commit[:7], v3=', '.join(seals) or say('kernel.word.no_files')) + dry + (
+        say('kernel._seal.python', py=resolved_python())) + (
         say('kernel._seal.waits_for_go') if stay else '')
 
 
