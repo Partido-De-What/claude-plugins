@@ -178,7 +178,7 @@ IMAGE_MAX_BYTES = 20 * 1024 * 1024
 IMAGE_NAME = re.compile(r'^[A-Za-z0-9_.-]+$')
 STATUS_KINDS = ('status', 'stato', 'board', 'finding')   # 'stato': older rooms' statuses; 'board': a change of the task board
 STATE_KEYS = {'task': str, 'step': str, 'pct': int, 'files': list, 'blocked_by': str, 'next': str, 'needs': str,
-              'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str}
+              'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str, 'runs_pct': int}
 IDLE = 'idle'
 SETUP_KINDS = ('choice', 'mode')   # the mode card of init --ask-mode and the choice made on it: for the lead only
 PERCENT = re.compile(r'\d[^\S\n]?%')
@@ -1795,6 +1795,23 @@ def idle_short(room, name, text):
     return say('chat.say.idle_short', first=cut(text.strip().splitlines()[0], 200), n=last['n'])
 
 
+LONG_MSG = 3000      # characters: a message over it is kept whole in notes/ and the chat carries its start, its tags and its hash
+LONG_HEAD = 700
+
+
+def long_to_notes(room, name, text):
+    """the text of a long message: its start (to a line end), the tags the cut would lose, and the file with the whole text and its hash"""
+    import hashlib
+    sha = hashlib.sha256(text.encode('utf-8')).hexdigest()
+    path = room.dir / 'notes' / f'msg-{name}-{sha[:8]}.md'
+    if not path.is_file():
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text, encoding='utf-8')
+    head = text[:LONG_HEAD].rsplit('\n', 1)[0] if '\n' in text[:LONG_HEAD] else cut(text, LONG_HEAD)
+    lost = [t for t in dict.fromkeys(re.findall(r'(?<![\w@])@([\w-]+)', text)) if not tags(head, t)]
+    return '\n'.join([head.rstrip(), *(['@' + ' @'.join(lost)] if lost else []), say('chat.say.long_to_notes', n=len(text), path=path, sha=sha[:12])])
+
+
 def cmd_post(room, a, text=None):
     if text is None:
         text = post_text(a)
@@ -1885,6 +1902,9 @@ def cmd_post(room, a, text=None):
         draft.write_text(text, encoding='utf-8')
         draft.with_name(f'{a.name}.txt').write_text(text, encoding='utf-8')    # a reply never posted ended up only in the CLOSED: the hold reminds it (the last one)
         sys.exit(say('chat.err.cmd_post.crossed', ns=', '.join(f'#{x}' for x in missed[:8]), path=draft))
+    human = {room.config().get('user_name', 'USER'), *room.config().get('user_aliases', [])}
+    if not kind and len(text) > LONG_MSG and a.name not in human and not (plan_version(text) or closing(text)[0] or decision_for_all(text)):
+        text = long_to_notes(room, a.name, text)      # a plan, a closing and a DECISION are read by everyone whole; the rest costs each reader its length
     try:
         images = [room.store_image_file(p, i) for i, p in enumerate(a.image or [])]
     except ValueError as exc:
@@ -1982,6 +2002,8 @@ def parse_state(text):
         sys.exit(say('chat.err.parse_state.error_the_status_starts', exc=exc))
     if not isinstance(d, dict) or not isinstance(d.get('pct'), (int, float)) or not 0 <= d['pct'] <= 100:
         sys.exit(say('chat.err.parse_state.error_a_json_status'))
+    if d.get('runs_pct') not in (None, '') and not (isinstance(d['runs_pct'], (int, float)) and not isinstance(d['runs_pct'], bool) and 0 <= d['runs_pct'] <= 100):
+        sys.exit(say('chat.err.parse_state.error_runs_pct'))   # pct is the agent's own part; runs_pct the part of its runs: two fields, never one number for both
     unknown = sorted(set(d) - set(STATE_KEYS))
     if unknown:
         sys.exit(say('chat.err.parse_state.error_unknown_keys_in', unknown=", ".join(unknown), STATE_KEYS=", ".join(STATE_KEYS)))
@@ -2013,6 +2035,8 @@ def state_line(st):
     """the readable line of a structured status: task: step (pct%) · files · blocked by · next · needs"""
     line = ': '.join(x for x in (st.get('task'), st.get('step')) if x) + f" ({st['pct']}%)"
     line = line.lstrip()
+    if st.get('runs_pct') is not None:
+        line += f" · {say('chat.word.lbl.runs_pct')} {st['runs_pct']}%"
     if st.get('files'):
         line += ' · ' + ', '.join(st['files'])
     for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs', 'waits_on'):
@@ -2529,8 +2553,9 @@ class Board:
                                  + (say('chat.say.fn.decide_who_changes_them') if lead
                                     else say('chat.say.fn.ask_the_lead_lead')))
             new = [f for f in files if f not in t['files']]
+            was = ', '.join(t['files']) or '-'
             t['files'] += new
-            return say('chat.say.fn.now_also_changes', id=t['id'], v2=', '.join(new) or say('chat.word.nothing_new'), name=name) + (f' · {said}' if preview else '')
+            return say('chat.say.fn.now_also_changes', id=t['id'], v=t.get('v', 1) + 1, was=was, v2=', '.join(new) or say('chat.word.nothing_new'), name=name) + (f' · {said}' if preview else '')
         return self.change(fn)
 
     def drop(self, name, tid):
@@ -3519,7 +3544,7 @@ MCP_TOOLS = [
          'external': {'type': 'boolean'}, 'file': {'type': 'string', 'description': 'a path: the message carries its name and sha256, the version you mean'},
          'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
                                                                                    'blocked_by, next, needs, done, evidence, risks, '
-                                                                                   'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead)'}}}},
+                                                                                   'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead), runs_pct (the percentage of your runs, when pct is your own work)'}}}},
     {'name': 'chat_wait', 'description': 'Wait for someone to write (up to 110 s; while idle 270 s, 540 s with config cache_ttl=1h). focus=true (default): what '
                                          'arrives is shown as chat_read shows it.',
      'inputSchema': {'type': 'object', 'properties': {'timeout': {'type': 'integer'}, 'focus': {'type': 'boolean'},
