@@ -728,10 +728,21 @@ def mod_active(room):
     return bool(info.get('ids')) and time.time() - float(info.get('ts', 0)) < 120 and time.time() - float(info.get('mod_at') or 0) < 120
 
 
+def gone_agent(room, k, items):
+    """the agent ended its run with the room open (gone.json, written by its stop hook) and has written nothing since: it reads
+    no tag and no task by itself"""
+    got = read_json(room.dir / 'gone.json', {}).get(k)
+    n = got.get('n', 0) if isinstance(got, dict) else got
+    return n is not None and max((m['n'] for m in items if m['from'] == k), default=0) <= n
+
+
 def print_alert(room, author, n, text, images=()):
     """the ping the author must send: everyone not idle, plus the idle ones this message wakes"""
     items = room.messages()
     users = room.user_names()
+    for k, aid in room.roster().items():              # a tag for one that ended: neither the mod nor an idle line reaches it
+        if k != author and tags(text, k) and gone_agent(room, k, items):
+            print(say('chat.say.print_alert.gone_tagged', k=k, n=n, aid=aid))
     others = {k: v for k, v in room.roster().items() if k != author}
     first = ' '.join(text.split())[:140 if author in users else 60] + (f' [+{len(images)} image(s)]' if images else '')   # an agent's ALERT: short, the chat has the rest
     if not others:
@@ -3083,6 +3094,12 @@ def failures(room, now=None):
                 text = (say('chat.check.gone_task', k=k, n=n, ids=', '.join(held)) if held else say('chat.check.gone_idle', k=k, n=n, why=why) if why
                         else say('chat.check.gone', k=k, n=n))
                 out.append((f'gone:{k}:{n}', text + (say('chat.check.gone_procs', procs='; '.join(procs)) if procs else '')))
+        for k in active:                              # a tag or a task for one that ended: it is not read until the lead resumes it
+            if gone_agent(room, k, items):
+                first = next((m['n'] for m in items if m['n'] > max((x['n'] for x in items if x['from'] == k), default=0)
+                              and m['from'] != k and m.get('kind') != 'board' and tags(m.get('text', ''), k)), None)
+                if first:
+                    out.append((f'gonetag:{k}:{first}', say('chat.check.gone_tagged', k=k, n=first, aid=room.roster().get(k, '-'))))
         stays, gone = settings()['task_idle_turns'] or TASK_IDLE_TURNS, read_json(room.dir / 'gone.json', {})
         for k in active:                              # hold.py counts the turns a task holder was held with nothing new: it holds work and does none
             mine = [t['id'] for t in board['tasks'] if t['owner'] == k and t['state'] == 'taken']
