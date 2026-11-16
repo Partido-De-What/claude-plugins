@@ -43,7 +43,7 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    agent (a style, a rule) go in the brief, or right after the spawn, before they first go idle.
 8. Relay: `alerts --as LEAD --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
-   In Claude Code run it as a background shell command with `--until-line` (no `--batch`: the room's pace, 3 minutes at the start and 15 after 20 minutes, `config lead_pace=...`; in phase 2 of a research room every 20 minutes (`lead_pace_runs`); the user, a closing, a crash, URGENT and a tag to you that declares a block never wait; each wake ends with a WAKE line to answer from) / `--until-tag`: no 30-minute cap;
+   In Claude Code run it as a background shell command with `--until-line` (no `--batch`: the room's pace, 3 minutes at the start and 15 after 20 minutes, `config lead_pace=...`; in phase 2 of a research room every 20 minutes (`lead_pace_runs`); the user, a closing, a crash, URGENT and a tag to you that declares a block never wait; each wake ends with a WAKE line to answer from; `--heartbeat N` adds a wake every N seconds on a quiet room) / `--until-tag`: no 30-minute cap;
    the relay exits only for what needs you, and you start it again after handling the lines. A post of yours says when the
    relay is down and prints the exact command. `--stream` under Monitor is only a fallback: Monitor ends every 30 minutes.
    `status` shows `waiting_lead` (only real questions), each agent's `turn` (working, waiting, stopped = its run ended with no hold, closed), `read_by` for your

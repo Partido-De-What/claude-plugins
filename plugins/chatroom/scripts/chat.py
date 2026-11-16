@@ -4223,6 +4223,7 @@ def cmd_alerts(room, a):
     with --messages also one WATCH line per real message, so the lead follows the room without reading it all. Each lead
     (--as) keeps its own place; the first time, what is older than ten minutes is not replayed"""
     name, checked, last, shut_checked = '_alerts' + (f'_{a.name}' if a.name else ''), 0, None, 0
+    beat_every, beat_at = int(getattr(a, 'heartbeat', None) or 0), time.time()   # --heartbeat N: a wake every N s, even on a quiet room
     quiet, said = {}, time.time()                     # the statuses since the last WATCH line, by author
     spoke, info = [], []                              # spoke: when lines that need the lead came; info: the others, held back
     stream = getattr(a, 'stream', False)
@@ -4299,6 +4300,9 @@ def cmd_alerts(room, a):
             if not mine:
                 print(say('chat.say.cmd_alerts.relay_a_newer_relay'), flush=True)
                 return
+        if a.follow and beat_every and time.time() - beat_at >= beat_every:
+            beat_at = time.time()
+            out(say('chat.say.cmd_alerts.heartbeat', seconds=beat_every), urgent=True, flush=True)
         # the chat and the lend log are read again only when one of them changed: a long chat parsed every second
         # kept a CPU core 20% busy for each room watched
         sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl', room.dir / 'spawn' / 'study.jsonl', room.dir / 'skills.json'))
@@ -5794,7 +5798,7 @@ def main():
     p.add_argument('--theme')
     p.add_argument('--wallpaper')
     p.add_argument('--lang')
-    p.add_argument('--heartbeat', type=int)
+    p.add_argument('--heartbeat', type=int, help='init/config: seconds of silence before an agent counts as quiet; alerts --follow: wake the lead every N seconds')
     p.add_argument('--user-name')
     p.add_argument('--profile', action='append', help='"NAME|emoji|#color|role|model|effort", once per participant')
     p.add_argument('--image', action='append', help='post: attach a picture (png, jpg, webp, gif); repeat for more')
