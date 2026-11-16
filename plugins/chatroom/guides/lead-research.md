@@ -157,6 +157,11 @@ The GPU outside the runs (a profile, a microbenchmark, the auditor's check): `re
 then `research release`; while it holds, only the holder may evaluate. Any agent can take it, and `research status`
 shows it. An agent holds it at most 120 minutes, the lead 720. Two research rooms on one GPU: `--for ROOM` gives the other
 room a window (this room's runs wait), and `research status` lists the runs and holds of the other rooms.
+When the GPU is already held, `research hold` does not refuse: it puts you in a line (one place per agent, ordered with
+the queued runs by time) and the kernel gives you the GPU when it is free and tags you on the board, so do not ask again;
+`research release` while waiting leaves the line. `research hold --for NAME` (NAME a participant) reserves the next turn
+for NAME: it passes to them at your release, ahead of the line, or at once when the GPU is free, and waits 15 minutes
+for them to claim it with their own `research hold`.
 
 ## 4. Phase 2: investigation, the loop you run
 

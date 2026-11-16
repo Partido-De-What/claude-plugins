@@ -3298,6 +3298,7 @@ MCP_TOOLS = [
          'drop': {'type': 'string'}, 'gate': {'type': 'string'}, 'trigger': {'type': 'string'}, 'reason': {'type': 'string'},
          'phase': {'type': 'integer'}, 'outcome': {'type': 'string'}, 'next_intent': {'type': 'string'}, 'minutes': {'type': 'number'},
          'after': {'type': 'string'}, 'draft': {'type': 'boolean'},
+         'for': {'type': 'string', 'description': 'hold: a participant to reserve the next GPU turn for (or another room, for a window)'},
          'json': {'description': 'propose-idea, direction, verdict: the object'}}}},
     {'name': 'notebook', 'description': 'Your own notes, which survive a compacted context: with text adds a line (rule=true: a rule kept word for word and shown first; state=true: where you are now, as goal | done | files | pending | next, replacing the previous state), without reads them; read it first after a compaction.',
      'inputSchema': {'type': 'object', 'properties': {'text': {'type': 'string'}, 'rule': {'type': 'boolean'}, 'state': {'type': 'boolean'}}}},
@@ -3427,8 +3428,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 for k in ('idea', 'kind', 'of', 'seed', 'text', 'source', 'accept', 'reject', 'drop', 'gate', 'trigger', 'reason',
                           'outcome', 'next_intent', 'minutes', 'after', 'draft'):
                     setattr(ns, k, args.get(k))
-                ns.phase = args.get('phase')
-                ns.json = json.dumps(args['json']) if isinstance(args.get('json'), (dict, list)) else args.get('json')
+                ns.phase, ns.for_room = args.get('phase'), args.get('for')
+                ns.json =json.dumps(args['json']) if isinstance(args.get('json'), (dict, list)) else args.get('json')
                 ns.force, ns.mcp = False, True
                 if ns.pairs[0] == 'evaluate' and wait_cap:
                     import research
