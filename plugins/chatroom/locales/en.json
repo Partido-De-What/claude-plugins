@@ -2543,6 +2543,7 @@
  "kernel.detectors.assigned_idle": "{key} was assigned {minutes} minutes ago and has not run: is its run really going?",
  "chat.say.lock.busy": "lock {lock} is held by {owner}",
  "chat.say.lock.free": "lock {lock} is free for you",
+ "chat.say.missed_again": "!!! #{n} from {from_} was for you and you had not read it (it passed your last status): {text}",
  "chat.say.read.digest_now": "({n} new messages: what concerns you in full, the rest as a digest; read --range A-B for one part)",
  "chat.say.wait.budget_over": "No wait: you made {used} chat calls, half again over the room's budget of {budget}. Deliver what you have, post one status and end your turn.",
  "chat.say.wait.path_changed": "{path} appeared or changed: the material you waited for is there.",

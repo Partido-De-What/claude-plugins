@@ -736,6 +736,19 @@ def gone_agent(room, k, items):
     return n is not None and max((m['n'] for m in items if m['from'] == k), default=0) <= n
 
 
+def redeliver_missed(room, name):
+    """what a typed post (status, finding) of `name` went through without reading: shown at its next command, once, with the text
+    (a post that only reported a status never read the tag). True when something was shown"""
+    path = room.dir / f'missed_{name}.json'
+    ns = read_json(path, [])
+    path.unlink(missing_ok=True)
+    cur = room.cursor(name)
+    again = [m for m in room.messages() if m['n'] in ns and m['n'] > cur]
+    for m in again:
+        print(say('chat.say.missed_again', n=m['n'], from_=m['from'], text=' '.join(m.get('text', '').split())[:400]))
+    return bool(again)
+
+
 def print_alert(room, author, n, text, images=()):
     """the ping the author must send: everyone not idle, plus the idle ones this message wakes"""
     items = room.messages()
@@ -1704,6 +1717,7 @@ def cmd_post(room, a, text=None):
                 flags = {'after_read': True}  # it read the others' positions first: information for the lead, not a refusal
     if missed:                                        # the numbers it did not read go with the message: the office shows them over its figure
         flags = {**(flags or {}), 'missed': missed[:8]}
+        write_atomic(room.dir / f'missed_{a.name}.json', json.dumps(missed[:8]))   # a typed post went through: its next command brings them again
     n = room.append(a.name, text, kind or False, images, state=state, flags=flags)
     if n is None:
         for rel in images:                    # nothing was posted: do not leave the copied pictures behind
@@ -5968,6 +5982,8 @@ def main():
                     'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
                     'lessons': cmd_lessons, 'preview': cmd_preview}
         if a.command in commands:
+            if a.command in ('task', 'board', 'notebook') and getattr(a, 'name', None):
+                redeliver_missed(room, a.name)            # the commands of an agent at work: what its status missed comes again
             return commands[a.command](room, a)
     except ValueError as exc:
         sys.exit(say('chat.err.main.error', exc=exc))
@@ -6009,6 +6025,8 @@ def main():
         room.mark_delivered(a.name, a.upto)
         return
     room.count(a.name, a.command)
+    if a.command == 'wait' and redeliver_missed(room, a.name):
+        return                                            # a tag it had not read: that is what a wait would return for
     if a.command == 'post':
         return cmd_post(room, a)
     if a.command == 'read':
