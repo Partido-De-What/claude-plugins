@@ -5946,6 +5946,8 @@ def main():
     p.add_argument('--provenance', dest='provenance', action='store_const', const=True, default=None,
                    help='research init/amend: every measure must print "built: <CHATROOM_PROGRAM_SHA>" (the build of this run)')
     p.add_argument('--no-provenance', dest='provenance', action='store_const', const=False)
+    p.add_argument('--info', action='append', help='research amend: NAME,... numbers the evaluator prints ("NAME: value"), recorded and shown with every run, never judged: the absolute values behind a ratio')
+    p.add_argument('--reference', help='research amend: the --info number that is the reference arm measured in every run; a run whose reference moved since the one it competes with says so')
     p.add_argument('--min-gain', dest='min_gain', help='research init/amend: how much a keep must beat the best by (a number or N%%)')
     p.add_argument('--idea', help='research assign/evaluate: the idea (I-number) a cycle or a run works on')
     p.add_argument('--parent', help='research assign: base, best or att-N: where the cycle starts')
