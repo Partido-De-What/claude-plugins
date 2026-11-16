@@ -174,7 +174,7 @@ IMAGE_MAX_BYTES = 20 * 1024 * 1024
 IMAGE_NAME = re.compile(r'^[A-Za-z0-9_.-]+$')
 STATUS_KINDS = ('status', 'stato', 'board', 'finding')   # 'stato': older rooms' statuses; 'board': a change of the task board
 STATE_KEYS = {'task': str, 'step': str, 'pct': int, 'files': list, 'blocked_by': str, 'next': str, 'needs': str,
-              'done': str, 'evidence': list, 'risks': str, 'free_min': int}
+              'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str}
 IDLE = 'idle'
 SETUP_KINDS = ('choice', 'mode')   # the mode card of init --ask-mode and the choice made on it: for the lead only
 PERCENT = re.compile(r'\d[^\S\n]?%')
@@ -481,10 +481,13 @@ def waits_for_lead(room, items=None, only=None, now=None):
         m = next((x for x in reversed(items) if x['from'] == k and x.get('kind') != 'board'), None)
         if k in c.get('left', []) or not m or m.get('kind') not in (None, IDLE):
             continue
-        text = m.get('text', '')
-        if not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
+        text, on = m.get('text', ''), (m.get('state') or {}).get('waits_on')
+        if on:                                        # structured: who it waits for says it, the text is not guessed at
+            if not any(names(str(on), n) for n in leads):
+                continue
+        elif not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
             continue                                  # a report to the lead is no question: 49 of 55 such CHECKs were noise
-        if any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
+        elif any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
             continue                                  # written to another agent, the lead only named in it
         said = [x.get('text', '') for x in items if x['n'] > m['n'] and x['from'] in users and not x.get('kind')]
         if not any(tags(t, k) or tags_everyone(t) or not re.search(r'(?<![\w.])@\w', t) for t in said):
@@ -493,6 +496,7 @@ def waits_for_lead(room, items=None, only=None, now=None):
 
 
 UNTIL_CMD_EVERY = 10      # seconds between two tries of a wait's --until-cmd, and the most one try may take
+STATE_OLD_MIN = 20       # minutes: a task command of an agent whose notebook state is older says to rewrite it (S5)
 READ_MAX = 40             # new messages past which a plain read gives the digest (155k characters re-read by a lead after a compaction)
 LEAD_CTX = 300_000        # tokens of the lead's context: past this, recap and a fresh start cost less than every turn
 
@@ -735,6 +739,16 @@ def gone_agent(room, k, items):
     got = read_json(room.dir / 'gone.json', {}).get(k)
     n = got.get('n', 0) if isinstance(got, dict) else got
     return n is not None and max((m['n'] for m in items if m['from'] == k), default=0) <= n
+
+
+def used_tools_since_gone(room, k):
+    """its transcript moved after gone.json was written: it works with its tools and has posted nothing, it did not leave
+    (gone.json holds all the agents, so a later exit of another one only makes this answer False: the old behaviour)"""
+    path = agent_file(room.roster().get(k))
+    try:
+        return path is not None and path.stat().st_mtime > (room.dir / 'gone.json').stat().st_mtime + 2
+    except OSError:
+        return False
 
 
 def redeliver_missed(room, name):
@@ -1017,6 +1031,16 @@ class Room:
         except (OSError, ValueError, TypeError):
             pass
         self.note_session(name)
+        self.came_back(name)
+
+    def came_back(self, name):
+        """a command of an agent whose stop hook left it in gone.json: it is back at work, so it is no longer gone (the entry
+        stayed for ever, and the room went on calling a working agent closed)"""
+        path = self.dir / 'gone.json'
+        got = read_json(path, {})
+        if name in got:
+            got.pop(name)
+            write_atomic(path, json.dumps(got))
 
     def note_session(self, name):
         """the Claude Code session of the lead or the user, from their own calls (CLAUDE_CODE_SESSION_ID in the shell or
@@ -1848,7 +1872,7 @@ def state_line(st):
     line = line.lstrip()
     if st.get('files'):
         line += ' · ' + ', '.join(st['files'])
-    for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs'):
+    for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs', 'waits_on'):
         if st.get(key):
             line += f" · {say('chat.word.lbl.' + key)}: " + ('; '.join(st[key]) if key == 'evidence' else str(st[key]))
     if st.get('free_min'):
@@ -2617,6 +2641,19 @@ class Board:
         return '\n'.join(lines)
 
 
+def state_note(room, name, act):
+    """a decision that concerns the agent (a task taken, done, handed over, a rule of the room) while its notebook state is older than
+    STATE_OLD_MIN minutes, or missing: said once with the age. The state is what a compaction or a rotation leaves it"""
+    if act not in ('take', 'done', 'handoff', 'help', 'giveback', 'accept', 'decide') or name in room.user_names():
+        return
+    try:
+        age = (time.time() - (room.dir / 'notes' / f'{name}.state.md').stat().st_mtime) / 60
+    except OSError:
+        return print(say('chat.say.state_old_none'))
+    if age >= STATE_OLD_MIN:
+        print(say('chat.say.state_old', minutes=int(age)))
+
+
 def cmd_task(room, a):
     """task add TITLE | take ID | done ID | drop ID | note ID TEXT | fact TEXT: change the board, and say it in the chat"""
     if not a.name:
@@ -2625,6 +2662,7 @@ def cmd_task(room, a):
         sys.exit(say('chat.err.cmd_task.task_add_title_deps'))
     act, rest, b = a.pairs[0], a.pairs[1:], Board(room)
     b.by = a.name
+    state_note(room, a.name, act)
     if getattr(a, 'expect_version', None) is not None and rest and act not in ('add', 'fact', 'decide', 'retire'):
         b.expect = (rest[0], a.expect_version)
     split = lambda v: [x.strip() for x in (v or '').split(',') if x.strip()]
@@ -3128,7 +3166,9 @@ def failures(room, now=None):
                 out.append((f'lead:{k}:{n}:{int(minutes) // 30}', say('chat.check.waits_lead', k=k, n=n, minutes=int(minutes), text=text)))
         for k, got in read_json(room.dir / 'gone.json', {}).items():    # hold.py: it left with the room open, and says what it still held
             n, why, held, procs = (got.get('n', 0), got.get('why', ''), got.get('tasks', []), got.get('procs', [])) if isinstance(got, dict) else (got, '', [], [])   # 0.19.0 wrote the number only
-            if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n and not voted_latest(room, k, items):
+            if isinstance(got, dict) and not held and not procs and why in ('', 'idle'):
+                continue                              # it finished or waited with nothing in hand: a normal end of turn, not a fall (a tag for it: gonetag)
+            if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n and not voted_latest(room, k, items) and not used_tools_since_gone(room, k):
                 text = (say('chat.check.gone_task', k=k, n=n, ids=', '.join(held)) if held else say('chat.check.gone_idle', k=k, n=n, why=why) if why
                         else say('chat.check.gone', k=k, n=n))
                 out.append((f'gone:{k}:{n}', text + (say('chat.check.gone_procs', procs='; '.join(procs)) if procs else '')))
@@ -3260,7 +3300,7 @@ MCP_TOOLS = [
          'external': {'type': 'boolean'}, 'file': {'type': 'string', 'description': 'a path: the message carries its name and sha256, the version you mean'},
          'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
                                                                                    'blocked_by, next, needs, done, evidence, risks, '
-                                                                                   'free_min (minutes you expect to wait still)'}}}},
+                                                                                   'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead)'}}}},
     {'name': 'chat_wait', 'description': 'Wait for someone to write (up to 110 s; while idle 270 s, 540 s with config cache_ttl=1h). focus=true (default): what '
                                          'arrives is shown as chat_read shows it.',
      'inputSchema': {'type': 'object', 'properties': {'timeout': {'type': 'integer'}, 'focus': {'type': 'boolean'},
@@ -3350,6 +3390,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
         name = resolve_name(room, name)
     except ValueError as exc:
         return f'error: {exc}', True
+    room.came_back(name)                          # any tool of the room, board and task too, is a sign of life
     known = next((t['inputSchema']['properties'] for t in MCP_TOOLS if t['name'] == tool), args)
     unknown = sorted(set(args) - set(known) - {'verify', 'merge_into', 'cwd'})   # those three have their own answer in `task`
     if unknown:
@@ -3374,6 +3415,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
         room.count(name, tool[5:])
     try:
         with capture():
+            if tool in ('board', 'task', 'notebook'):
+                redeliver_missed(room, name)          # as the shell commands do: what its status missed comes again
             if tool == 'chat_read':
                 if args.get('ack'):
                     ns.pairs = [str(args['ack'])]
@@ -3394,6 +3437,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                     ns.status = True
                 cmd_post(room, ns, text)
             elif tool == 'chat_wait':
+                if redeliver_missed(room, name):
+                    return out.getvalue().strip(), False   # a tag it had not read: that is what a wait would return for
                 timeout = int(args.get('timeout', 100))
                 if wait_cap and timeout > wait_cap:
                     timeout = wait_cap                # under the client's own limit: the answer always arrives
@@ -4572,8 +4617,9 @@ def cmd_status(room, a):
     calls = {k: sum(v.values()) for k, v in room.counters().items()}
     gone = {k: g.get('n', 0) if isinstance(g, dict) else g for k, g in read_json(room.dir / 'gone.json', {}).items()}   # 0.19.0 wrote the number alone
     roster = room.roster()
-    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) else 'waiting' if room.in_wait(k)
-            else 'stopped' if agent_ended(roster.get(k)) else 'working' for k in idle}      # stopped: its run ended and no hold keeps it (it is not working)
+    ended = {k: agent_ended(roster.get(k)) for k in idle}
+    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) and not used_tools_since_gone(room, k)
+            else ('held' if ended[k] else 'waiting') if room.in_wait(k) else 'stopped' if ended[k] else 'working' for k in idle}      # stopped: its run ended and no hold keeps it; held: its run ended and the hold keeps it (it waits for nothing itself)
     lead = [{'name': k, 'message': n, 'minutes': int(minutes), 'text': text} for k, n, minutes, text in waits_for_lead(room, items)]
     w = winding(room, items)
     closing_ = {'voted': [k for k in idle if any(m['from'] == k and m['n'] > w and not m.get('kind') for m in items)],
