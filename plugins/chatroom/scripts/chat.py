@@ -3304,6 +3304,22 @@ def cmd_resume(room, a):
             print(say('chat.say.cmd_resume.relaunch', name=k, prompt=room.dir / 'prompts' / f'{k}.md', state=room.dir / 'notes' / f'{k}.state.md'))
 
 
+STATE_WARN_CTX = 150_000    # tokens: a room agent compacts by itself at 200k; from here an old notebook state is the lead's to hear, not only the agent's
+
+
+def state_gap(room, k, items, now):
+    """how old the notebook state of k is, for the lead: (minutes, 'HH:MM' it was written, messages k posted since), or (None, '-', all of its
+    messages) when it has none; None while it is younger than STATE_OLD_MIN minutes"""
+    try:
+        at = (room.dir / 'notes' / f'{k}.state.md').stat().st_mtime
+    except OSError:
+        return None, '-', sum(1 for m in items if m.get('from') == k)
+    minutes = (now - at) / 60
+    if minutes < STATE_OLD_MIN:
+        return None
+    return int(minutes), time.strftime('%H:%M', time.localtime(at)), sum(1 for m in items if m.get('from') == k and m.get('ts', 0) > at)
+
+
 def failures(room, now=None):
     """the commonest ways a multi-agent chat goes wrong, seen in the room: [(key, text)]. Tasks closed without an artifact
     or with gaps, one file in two agents' statuses, tags left unanswered, stalls and loops, votes flipped without evidence,
@@ -3486,6 +3502,10 @@ def failures(room, now=None):
                 out.append((f"ctx:{k}:{ctx // 100_000}:{last}", say('chat.check.rotate_now', k=k, ctx=ctx // 1000, done=last, cmd=cmd)))
             else:
                 out.append((f"ctx:{k}:{ctx // 100_000}", say('chat.check.context_high', k=k, ctx=ctx // 1000)))
+        gap = state_gap(room, k, items, now) if ctx and ctx >= STATE_WARN_CTX else None      # its context is near a compaction: is its state old?
+        if gap:
+            args = dict(k=k, ctx=ctx // 1000, minutes=gap[0], when=gap[1], n=gap[2])
+            out.append((f'oldstate:{k}:{ctx // 50_000}', say('chat.check.state_none', **args) if gap[0] is None else say('chat.check.state_old', **args)))
     budget = call_budget(room, config)
     for k, v in room.counters().items():
         used = sum(v.values())

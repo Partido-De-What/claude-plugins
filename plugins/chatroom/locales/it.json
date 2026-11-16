@@ -2484,6 +2484,8 @@
  "kernel._phase_next.phase_2_open": "▶ fase 2 aperta: cicli e corse possono partire",
  "kernel.status.run_time": "\ntempo per corsa: {median} min misurati (mediana delle ultime {n} corse, build e ripetizioni comprese); il contratto dà {budget} min di misure, al massimo {longest} min a corsa",
  "chat.say.print_alert.in_wait_no_ping": "ALERT nessun ping per {names}: sono in wait, lo vedono dalla chat",
+ "chat.check.state_old": "{k} ha {ctx}k token di contesto e il suo stato nel notebook ha {minutes} minuti (scritto alle {when}, suoi messaggi da allora: {n}): una compattazione gli lascia quello. Digli: @{k} scrivi ora il tuo stato nel notebook (notebook state=true: obiettivo | fatto | file | in sospeso | prossimo), poi prosegui.",
+ "chat.check.state_none": "{k} ha {ctx}k token di contesto e nessuno stato nel notebook (suoi messaggi finora: {n}): una compattazione non gli lascia nulla da leggere. Digli: @{k} scrivi ora il tuo stato nel notebook (notebook state=true: obiettivo | fatto | file | in sospeso | prossimo), poi prosegui.",
  "chat.check.context_high": "{k} porta {ctx}k token di contesto, riletti a ogni turno: ruotalo (rotate {k}: scrive il quaderno; poi rotate {k} --now dà il suo prompt nuovo)",
  "chat.check.context_high_task": "{k} porta {ctx}k token di contesto, riletti a ogni turno, ed è a metà di {ids}: non ruotarlo adesso. Ruotalo alla consegna di {ids}: quando chiude il task arriva una riga con i comandi",
  "chat.check.rotate_now": "{k} ha consegnato {done} e porta {ctx}k token di contesto: ruotalo adesso, non ha nulla a metà. Esegui: {cmd} (scrive il quaderno), poi, quando dice di essere pronto, lo stesso comando con --now (il suo prompt nuovo)",

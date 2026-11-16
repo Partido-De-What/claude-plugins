@@ -2484,6 +2484,8 @@
  "kernel._phase_next.phase_2_open": "▶ phase 2 open: cycles and runs may start",
  "kernel.status.run_time": "\nrun time: {median} min measured (median of the last {n} runs, build and repeats included); the contract gives {budget} min of measures, at most {longest} min a run",
  "chat.say.print_alert.in_wait_no_ping": "ALERT no ping for {names}: in wait, they see it from the chat",
+ "chat.check.state_old": "{k} carries {ctx}k tokens of context and its notebook state is {minutes} minutes old (written at {when}, its messages since then: {n}): a compaction leaves it that one. Tell it: @{k} write your notebook state now (notebook state=true: goal | done | files | pending | next), then go on.",
+ "chat.check.state_none": "{k} carries {ctx}k tokens of context and has no notebook state (its messages so far: {n}): a compaction leaves it nothing to read. Tell it: @{k} write your notebook state now (notebook state=true: goal | done | files | pending | next), then go on.",
  "chat.check.context_high": "{k} carries {ctx}k tokens of context, read again at every turn: rotate it (rotate {k}: it writes its notebook; then rotate {k} --now gives its fresh prompt)",
  "chat.check.context_high_task": "{k} carries {ctx}k tokens of context, read again at every turn, and is in the middle of {ids}: do not rotate it now. Rotate it at its delivery of {ids}: a line with the commands comes when it closes the task",
  "chat.check.rotate_now": "{k} delivered {done} and carries {ctx}k tokens of context: rotate it now, nothing of it is in flight. Run: {cmd} (it writes its notebook), then, when it says it is ready, the same command with --now (its fresh prompt)",
