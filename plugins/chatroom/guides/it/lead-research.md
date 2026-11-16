@@ -103,6 +103,11 @@ controllo fallito rifiuta la corsa e non conta nulla. Mettici fin dall'inizio le
 una corsa persa. `--final-dry` è un comando lanciato al sigillo: carica i dati tenuti da parte e i loro riferimenti e non
 misura nulla, così un finale rotto si vede subito e non in fase 4 (una notte ha perso così una build da 16 minuti e un'ora
 di GPU); senza, il sigillo avvisa soltanto.
+`research final --dry` la rifà in qualunque momento dalla fase 2 (prima impostala con `amend --final-dry`; `research
+status` te lo ricorda finché il finale non ne ha una). `--artifacts out/,clips/` (init o amend) indica file o cartelle che
+il valutatore scrive (audio, grafici, dump): dopo ogni corsa il kernel copia ciò che la corsa ha scritto in
+`runs/N/artifacts/`, così la corsa dopo non lo sovrascrive; restano le ultime 10 corse e ogni keep, e una corsa si copia
+fino a 500 MB.
 
 Un contratto per kernel GPU (o qualsiasi misura di tempi): il tempo in un processo a parte, non in quello del programma;
 input freschi a ogni iterazione (un harness che riusava gli input ha riportato speedup di 1000x); niente stream laterali

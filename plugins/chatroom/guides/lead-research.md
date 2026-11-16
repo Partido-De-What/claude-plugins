@@ -99,6 +99,10 @@ python CHAT research init --room ROOM --as LEAD --repo <repository> --program <f
 the run and counts nothing. Put a rule the machine needs there from the start, not after a lost run. `--final-dry` is
 a command run at the seal: it loads the held-out data and their references and measures nothing, so a broken final shows
 now and not in phase 4 (one night lost a 16-minute build and an hour of GPU to it); without it the seal only warns.
+`research final --dry` runs it again at any time from phase 2 (set it first with `amend --final-dry`; `research status`
+reminds you while the final has none). `--artifacts out/,clips/` (init or amend) names files or folders the evaluator
+writes (audio, plots, dumps): after every run the kernel copies what the run wrote to `runs/N/artifacts/`, so the next run
+does not overwrite it; the newest 10 runs and every keep are kept, a run is copied up to 500 MB.
 
 A contract for GPU kernels (or any timing): time in a process of its own, not in the program's; fresh inputs at every
 iteration (a harness that reused its inputs reported 1000x speedups); no side streams or work left running after the
