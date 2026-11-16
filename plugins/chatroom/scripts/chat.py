@@ -269,6 +269,13 @@ def votes_in(text):
 def broadcast(text):
     """a plan, a vote or a closing concerns everyone: it wakes idle participants like a tag to all"""
     return plan_version(text) is not None or closing(text)[0] or bool(votes_in(text))
+DECISION_RE = re.compile(r'(?:DECISION|DECISIONE)\s*:')
+
+
+def decision_for_all(text):
+    """a heading DECISION: / DECISIONE: in capitals: what is decided is for every role that is alive, tagged or not (DECIDE: stays a
+    message to whoever it tags)"""
+    return any(DECISION_RE.match(h) for h in heads(text))
 PLAN_MAX = 3              # after PLAN v3 only the lead (or the user) posts a new version: the lead reviews and decides
 EVERYONE = ('all', 'tutti', 'everyone')   # @all, @tutti, @everyone tag every participant
 from limits import WAIT_MAX, IDLE_WAIT as IDLE_WAIT_MAX, IDLE_WAIT_LONG, MONITOR_MAX, HOLD_WAIT   # every wait under a limit of the harness (limits.py)
@@ -1375,6 +1382,10 @@ class Room:
         own = [m for m in (items if items is not None else self.messages()) if m.get('from') == name]
         return own[-1] if own and own[-1].get('kind') == IDLE else None
 
+    def waits_on_of(self, name):
+        """who an idle `name` said it waits for (waits_on of its idle line), '' when it is not idle or said nothing"""
+        return str(((self.idle_entry(name) or {}).get('state') or {}).get('waits_on') or '')
+
     def wakes(self, m, name, users=None):
         """True if message m wakes the idle participant `name`: a tag to it or to everyone, the user (or the lead)
         writing, or a plan, a vote or a closing, which concern everyone"""
@@ -1386,6 +1397,10 @@ class Room:
         text = m.get('text', '')
         if m.get('from') in users and not m.get('kind') and (closing_call(text) or closing(text)[0]):
             return True                                 # a closing concerns everyone, whoever else it tags
+        if not m.get('kind') and decision_for_all(text):
+            return True                                 # a decision is for whoever has to apply it, tagged or not
+        if m.get('kind') not in (IDLE, *STATUS_KINDS) and names(self.waits_on_of(name), m.get('from', '')):
+            return True                                 # what the idle agent said it waits for has come
         if m.get('from') in users and m.get('from') in self.config().get('self_names', []):
             if m.get('kind') == 'board':                # the kernel's lines go out under the lead's name: only who they name
                 return bool(names(text, name))
