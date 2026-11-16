@@ -351,7 +351,7 @@ def _better(c, value, than):
 # ---------------------------------------------------------------------------------------------------------- contract
 def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, max_evals=100, repo='.', sealed=(), tag=None,
          result_file=False, keep=(), draft=False, final=None, build=None, build_min=None, repeats=1, min_gain=None, guards=None,
-         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None):
+         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None, artifacts=None):
     """the lead or the user writes the contract: which file changes, how it is built and evaluated, what is sealed, the
     budget, how noise is handled. --draft starts at phase 1 (the evaluator is still being written, sealed later)"""
     if by not in room.user_names():
@@ -397,6 +397,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
     keep = [k.strip().replace('\\', '/').strip('/') + '/' for k in keep if k.strip().strip('/.')]
     if any(k.split('/')[0] in ('..', '.git') or k == rel_prog + '/' for k in keep):
         raise ValueError(say('kernel.init.keep_names_folders_inside'))
+    artifacts = _artifact_paths(artifacts)
     tag = tag or time.strftime('r%m%d-%H%M')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', tag):
         raise ValueError(say('kernel.init.tag_letters_digits_dot'))
@@ -428,7 +429,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
                 'build': build or '', 'build_s': max(1, int(float(build_min) * 60)) if build_min else 0,
                 'repeats': int(repeats or 1), 'min_gain': str(min_gain) if min_gain is not None else '', 'roles': {}, 'guards': guards, 'provenance': bool(provenance),
                 'precheck': precheck or '', 'build_dir': _build_dir(room, build_dir), 'final_dry': final_dry or '', 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'round_max': int(round_max or ROUND_MAX)}
+                'round_max': int(round_max or ROUND_MAX), 'artifacts': artifacts}
     _save(room, 'contract.json', contract)
     st = _migrate(contract, {'evals': 0, 'best': None, 'head': base, 'pending': None, 'phase': 1 if draft else 2})
     _save(room, 'state.json', st)
@@ -449,7 +450,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
 
 def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=None, build=None, build_min=None,
           repeats=None, min_gain=None, final=None, guards=None, reason=None, provenance=None, precheck=None, build_dir=None, final_dry=None,
-          info=None, reference=None):
+          artifacts=None, info=None, reference=None):
     """the lead changes the contract: budgets at any time; what is measured and how only before a baseline is kept (a
     crashed baseline is fixed this way, not by starting over)"""
     if by not in room.user_names():
@@ -523,6 +524,9 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
     if final_dry is not None:                             # it only checks the final can start: at any time
         c['final_dry'] = final_dry.strip()
         said.append(say('kernel.final_dry.set', cmd=c['final_dry'] or '-'))
+    if artifacts is not None:                             # what is copied after a run never judges it: at any time
+        c['artifacts'] = _artifact_paths(artifacts)
+        said.append(say('kernel.artifacts.set', paths=', '.join(c['artifacts']) or '-'))
     if build_dir is not None:                             # where the build lives never judges a run: at any time
         c['build_dir'] = _build_dir(room, build_dir)
         said.append(say('kernel.build_dir.set', path=c['build_dir'] or '-'))
@@ -928,11 +932,56 @@ def stop_early(values, repeats, loses):
     return sum(1 for v in values if loses(v)) >= repeats // 2 + 1
 
 
+ARTIFACT_MAX = 500 * 1024 * 1024                          # per run: what the evaluator wrote past this is not copied
+ARTIFACT_RUNS = 10                                        # numbered runs whose artifacts stay, besides the keeps and the final
+
+
+def _artifact_paths(items):
+    """the contract's artifact paths (files or folders the evaluator writes: audio, plots, dumps) as clean relative paths"""
+    items = items.split(',') if isinstance(items, str) else (items or [])
+    out = [str(i).strip().replace('\\', '/').strip('/') for i in items if str(i).strip().strip('/.')]
+    for p in out:
+        if re.match(r'^[A-Za-z]:', p) or p.split('/')[0] in ('..', '.git') or '..' in p.split('/'):
+            raise ValueError(say('kernel.artifacts.bad', path=p))
+    return out
+
+
+def _keep_artifacts(c, work, d, n, since):
+    """after a run: what the evaluator wrote (since its start) in the contract's artifact paths is copied to
+    runs/<n>/artifacts, so the next run's overwrite or clean does not lose it. A run already copied is not overwritten
+    (a replica); it never fails a run"""
+    dest, total = Path(d) / 'runs' / str(n) / 'artifacts', 0
+    if not c.get('artifacts') or dest.exists():
+        return
+    try:
+        for rel in c['artifacts']:
+            src = Path(work) / rel
+            for f in ([src] if src.is_file() else sorted(src.rglob('*')) if src.is_dir() else []):
+                if f.is_symlink() or not f.is_file() or f.stat().st_mtime < since - 1:
+                    continue
+                total += f.stat().st_size
+                if total > ARTIFACT_MAX:
+                    return
+                to = dest / f.relative_to(work)
+                to.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, to)
+        keep = {r.split('\t')[0] for r in (Path(d) / 'results.tsv').read_text(encoding='utf-8').splitlines()[1:] if r.split('\t')[3:4] == ['keep']}
+        old = sorted((p for p in (Path(d) / 'runs').glob('*/artifacts') if p.parent.name.isdigit()), key=lambda p: p.stat().st_mtime)
+        for p in old[:-ARTIFACT_RUNS]:                    # the newest runs and every keep stay; the rest is pruned
+            if p.parent.name not in keep:
+                shutil.rmtree(p, ignore_errors=True)
+    except OSError:
+        pass
+
+
 def _measure(c, work, d, n, env, log, on_start=None, enough=None):
     """_measure_free under the machine's lock: another room's build or test must not run beside a measure"""
     from machine import machine_lock
+    since = time.time()
     with machine_lock(f'research run {n} in {work}'):
-        return _measure_free(c, work, d, n, env, log, on_start, enough)
+        out = _measure_free(c, work, d, n, env, log, on_start, enough)
+    _keep_artifacts(c, work, d, n, since)                 # a crash too: its output is what the failure is read from
+    return out
 
 
 def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
@@ -1028,13 +1077,34 @@ def _diff_kinds(work, parent, head, program):
     return added, removed, tuning
 
 
+def env_pairs(text):
+    """K=V,K2=V2 (or a dict) as a dict: the environment a probe or an explore run is registered with"""
+    if isinstance(text, dict):
+        return {str(k): str(v) for k, v in text.items()}
+    return dict(p.split('=', 1) for p in (text or '').split(',') if '=' in p)
+
+
+def _check_env(kind, extra_env):
+    """a registered environment goes with a probe or an explore run (a planned ablation sets its own through plan): never
+    the kernel's own variables, a secret, or a value that is not short text"""
+    if not extra_env:
+        return
+    if kind not in ('probe', 'explore', *AUX_KINDS):
+        raise ValueError(say('kernel.evaluate.env_kind'))
+    for k, v in (extra_env.items() if kind in ('probe', 'explore') else ()):   # a planned ablation's own switches stay as the lead wrote them
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}', k) or k.upper().startswith('CHATROOM_') or k in SECRET_ENV or len(str(v)) > 200:
+            raise ValueError(say('kernel.evaluate.env_name', name=k))
+
+
 def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, extra_env=None):
     """one run: seal and scope checks, commit, build, measure, keep or reset; the result goes to results.tsv and to the
     chat. kind=attempt (phase 2) competes for the best; ablation, baseline, control, repeat (phase 3) only measure;
     smoke (phase 1) checks the evaluator runs"""
     c, st = _state(room)
-    if kind not in ('attempt', 'fix', 'smoke', 'explore', *AUX_KINDS):
+    if kind not in ('attempt', 'fix', 'smoke', 'explore', 'probe', *AUX_KINDS):
         raise ValueError(say('kernel.evaluate.kind_attempt_fix_smoke', AUX_KINDS=", ".join(AUX_KINDS)))
+    extra_env = env_pairs(extra_env) or None
+    _check_env(kind, extra_env)
     _need(room, c, name, 'WORKER')
     if st.get('wait_go') and kind in ('attempt', 'fix'):
         raise ValueError(say('kernel._seal.waits_for_go'))
@@ -1198,6 +1268,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     explore = kind == 'explore'                           # outside the seal (another build, a sealed file changed): measured, never official
     if explore and phase != 2:
         raise ValueError(say('kernel.evaluate.explore_phase'))
+    if kind == 'probe' and phase != 2:                    # a service measure of the sealed state: never counted, never the best
+        raise ValueError(say('kernel.evaluate.probe_phase'))
     if not c.get('evaluate'):
         raise ValueError(say('kernel._evaluate.the_contract_has_no'))
     key, wk = _worker(st, name)
@@ -1254,14 +1326,16 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     if kind in AUX_KINDS:
         if not of or not any(f"att-{a['n']}" == of and a['state'] != 'revoked' for a in st['attempts']):
             raise ValueError(say('kernel._evaluate.a_run_says_what', kind=kind))
-    if kind not in AUX_KINDS:                             # an ablation or a control isolates its own idea, not the worker's latest
+    if kind not in (*AUX_KINDS, 'probe'):                 # an ablation or a control isolates its own idea, not the worker's latest
         idea = idea or wk.get('idea')
     if idea and not any(i['id'] == idea for i in st['ideas']):
         raise ValueError(say('kernel._evaluate.no_idea', idea=idea))
     desc = ' '.join((desc or ('baseline' if first else '')).split())[:200]
     if not desc:
         raise ValueError(say('kernel._evaluate.say_what_this_run'))
-    n = (st['evals'] + 1) if kind == 'attempt' else (AUX_BASE + st['aux'] + 1) if kind in (*AUX_KINDS, 'explore') else (SMOKE_BASE + st['aux'] + 1)
+    if kind == 'probe' and extra_env:                     # registered: the line, the table and the commit say what was switched
+        desc += ' [env ' + ','.join(f'{k}={v}' for k, v in extra_env.items()) + ']'
+    n = (st['evals'] + 1) if kind == 'attempt' else (AUX_BASE + st['aux'] + 1) if kind in (*AUX_KINDS, 'explore', 'probe') else (SMOKE_BASE + st['aux'] + 1)
     tag = f"{c['branch']}/att-{n}"
     if _git(work, 'tag', '--list', tag):
         raise ValueError(say('kernel._evaluate.tag_already_exists_while', tag=tag))
@@ -1328,6 +1402,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         status, why = 'smoke', say('kernel._evaluate.the_evaluator_runs_and')
     elif kind in AUX_KINDS:
         status, why = kind, say('kernel._evaluate.measured_against', of=of)
+    elif kind == 'probe':
+        status, why = 'probe', say('kernel._evaluate.probe', max_evals=c['max_evals'])
     elif explore:
         status, why = 'explore', say('kernel._evaluate.explore')
     else:
@@ -1372,7 +1448,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': kind, 'idea': idea,
                'state': 'committed', 'parent_n': (w.get('best') or {}).get('n'), 'desc': desc, 'lines': lines,
                'added': len(added), 'readded': readded, 'tuning': tuning, 'spread': spread, 'of': of, 'seed': seed,
-               'guards': guards, 'info': info, 'fix': fix, 'env': env_lines, 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
+               'guards': guards, 'info': info, 'fix': fix, 'env': env_lines, **({'env_set': extra_env} if kind == 'probe' and extra_env else {}), 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
         s2['attempts'].append(rec)
         if kind == 'attempt':
             s2['evals'] = n
@@ -2028,6 +2104,8 @@ def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=N
         raise ValueError(say('kernel.queue.desc'))
     if after and not re.fullmatch(r'att-\d+', after):
         raise ValueError(say('kernel.queue.after'))
+    env = env_pairs(env)
+    _check_env(kind or 'attempt', env)                  # refused now, not when the run's turn comes
     entry = {'by': by, 'desc': desc, 'idea': idea, 'kind': kind or 'attempt', 'after': after, 'of': of, 'seed': seed,
              'env': env or {}, 'ts': time.time()}
     mine = (kind or 'attempt') in ('attempt', 'fix')    # a worker's own next attempt replaces its older one; planned runs pile up
@@ -2097,7 +2175,7 @@ def run_queue(room, poll=15):
             def take(q):
                 for x in list(q):
                     late = x.get('after') and int(x['after'][4:]) > c['max_evals'] and x['after'] not in done
-                    wrong = (x.get('kind', 'attempt') in ('attempt', 'fix') and st['phase'] != 2) or \
+                    wrong = (x.get('kind', 'attempt') in ('attempt', 'fix', 'probe') and st['phase'] != 2) or \
                             (x.get('kind') in AUX_KINDS and st['phase'] != 3)
                     if late or wrong:
                         q.remove(x)
@@ -2420,10 +2498,7 @@ def _seal(room, by, sealed, stay=False):
         seals[rel] = _git(work, 'rev-parse', f'{commit}:{rel}')
     dry = ''
     if c.get('final') and c.get('final_dry'):             # the final runs once and only in phase 4: its dry run (data and references load, no measure) finds a broken one now
-        code, _ = _run(c['final_dry'], work, _dir(room) / 'runs' / 'final-dry.log', 600, _env(CHATROOM_KIND='final-dry'))
-        if code != 0:
-            tail = (_dir(room) / 'runs' / 'final-dry.log').read_text(encoding='utf-8', errors='replace').strip().splitlines()[-5:]
-            raise ValueError(say('kernel.final_dry.failed', code=code, tail=' | '.join(tail)[:300]))
+        _final_dry(room, c, work)
     elif c.get('final'):
         dry = say('kernel.final_dry.none')
     c['sealed'], c['base_commit'] = seals, commit
@@ -2500,22 +2575,44 @@ def _phase_next(room, by, force):
     return say('kernel._phase_next.research_phase', v1=p + 1, PHASES=phase_name(p + 1)) + (say('kernel._phase_next.degraded_evidence_not_run') if skipped else '')
 
 
-def final(room, by):
-    """phase 4: the final evaluator, once, on the best program, on data nobody used before"""
+def _final_dry(room, c, work):
+    """the final evaluator's dry run (its data and references load, nothing is measured): raises with the log's tail when
+    it fails, else returns its seconds"""
+    log = _dir(room) / 'runs' / 'final-dry.log'
+    code, secs = _run(c['final_dry'], work, log, 600, _env(CHATROOM_KIND='final-dry'))
+    if code != 0:
+        tail = log.read_text(encoding='utf-8', errors='replace').strip().splitlines()[-5:]
+        raise ValueError(say('kernel.final_dry.failed', code=code, tail=' | '.join(tail)[:300]))
+    return secs
+
+
+def final(room, by, dry=False):
+    """phase 4: the final evaluator, once, on the best program, on data nobody used before. dry: only its dry run, at any
+    time from phase 2 (the seal runs it too, when the contract has one)"""
     if by not in room.user_names():
         raise ValueError(say('kernel.final.only_the_lead_or'))
     c, st = _state(room)
-    if st['phase'] != 4:
+    if st['phase'] != 4 and not dry:
         raise ValueError(say('kernel.final.the_final_evaluation_belongs'))
     if st.get('final'):
         raise ValueError(say('kernel.final.the_final_evaluation_ran'))
     if not c.get('final'):
         raise ValueError(say('kernel.final.the_contract_has_no'))
-    if not st['best']:
+    if dry and st['phase'] < 2:
+        raise ValueError(say('kernel.final_dry.phase'))
+    if dry and not c.get('final_dry'):
+        raise ValueError(say('kernel.final_dry.no_command'))
+    if not st['best'] and not dry:
         raise ValueError(say('kernel.final.no_best_program_to'))
     held = _gpu_hold(room)
     if held and held['by'] != by:
         raise ValueError(say('kernel.final.the_gpu_is_held', by=held['by'], reason=held['reason']))
+    if dry:
+        def dry_run():
+            secs = _final_dry(room, c, _check_work(c, {'work': c['work'], 'branch': c['branch']}))
+            _log(room, by, 'final-dry', {'secs': round(secs)})
+            return say('kernel.final_dry.ok', secs=f'{secs:.0f}')
+        return _locked(room, c, by, dry_run)
     return _locked(room, c, by, lambda: _final(room, by))
 
 
@@ -2762,6 +2859,8 @@ def _next_constraints(c, st):
             out.append(say('kernel.status.next_family', items=', '.join(recent)))
     if phase == 3:
         out.append(say('kernel.status.next_kinds', kinds=', '.join(AUX_KINDS)))
+    if c.get('final') and phase in (2, 3, 4) and not st.get('final'):
+        out.append(say('kernel.status.next_dry_set') if c.get('final_dry') else say('kernel.status.next_dry_none'))
     if phase in (1, 2):
         out.append(say('kernel.status.next_amend_open') if st.get('best') is None else say('kernel.status.next_amend_closed'))
     return say('kernel.status.next_title') + '\n' + '\n'.join('- ' + x for x in out) if out else ''
@@ -3007,7 +3106,8 @@ def _cmd(room, a):
                          bool(getattr(a, 'draft', False)), getattr(a, 'final', None), getattr(a, 'build', None),
                          getattr(a, 'build_min', None), getattr(a, 'repeats', None) or 1, getattr(a, 'min_gain', None),
                          getattr(a, 'guard', None), getattr(a, 'provenance', None), getattr(a, 'precheck', None),
-                         getattr(a, 'build_dir', None), getattr(a, 'final_dry', None), getattr(a, 'round', None)))
+                         getattr(a, 'build_dir', None), getattr(a, 'final_dry', None), getattr(a, 'round', None),
+                         getattr(a, 'artifacts', None)))
     if act == 'round' and rest[:1] == ['open']:
         return post(round_open(room, a.name, getattr(a, 'round', None), a.text or a.desc or ''))
     if act == 'round' and rest[:1] == ['close']:
@@ -3019,7 +3119,7 @@ def _cmd(room, a):
                           getattr(a, 'build_min', None), getattr(a, 'repeats', None), getattr(a, 'min_gain', None),
                           getattr(a, 'final', None), getattr(a, 'guard', None), getattr(a, 'reason', None),
                           getattr(a, 'provenance', None), getattr(a, 'precheck', None), getattr(a, 'build_dir', None),
-                          getattr(a, 'final_dry', None), info=getattr(a, 'info', None), reference=getattr(a, 'reference', None)))
+                          getattr(a, 'final_dry', None), getattr(a, 'artifacts', None), info=getattr(a, 'info', None), reference=getattr(a, 'reference', None)))
     if act == 'roles':
         return post(roles(room, a.name, rest))
     if act == 'allow-fix' and rest:
@@ -3035,7 +3135,7 @@ def _cmd(room, a):
                            getattr(a, 'type', None) or 'explorer', a.force))
     if act == 'queue':
         return post(queue(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None), getattr(a, 'after', None),
-                          getattr(a, 'of', None), getattr(a, 'seed', None)))
+                          getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None)))
     if act == 'plan' and rest[:1] == ['add']:
         return post(plan(room, a.name, getattr(a, 'of', None), getattr(a, 'env', None), a.desc, getattr(a, 'worker', None),
                          getattr(a, 'kind', None) or 'ablation', getattr(a, 'idea', None)))
@@ -3047,7 +3147,7 @@ def _cmd(room, a):
         if not a.name:
             sys.exit(say('kernel._cmd.as_name_required'))
         return print(evaluate(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None) or ('smoke' if _state(room)[1]['phase'] == 1 else 'attempt'),
-                              getattr(a, 'of', None), getattr(a, 'seed', None)))
+                              getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None)))
     if act == 'reanchor':
         return post(reanchor(room, a.name, _json_arg(a)))
     if act == 'resume' and rest:
@@ -3081,7 +3181,7 @@ def _cmd(room, a):
         c, st = _state(room)
         return print(say('kernel.word.phase_line', phase=st['phase'], name=phase_name(st['phase'])))
     if act == 'final':
-        return print(final(room, a.name))
+        return print(final(room, a.name, bool(getattr(a, 'dry', False))))
     if act == 'checklist':
         return print(checklist(room))
     if act == 'report':

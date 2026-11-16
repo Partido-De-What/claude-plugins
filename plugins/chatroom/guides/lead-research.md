@@ -99,6 +99,10 @@ python CHAT research init --room ROOM --as LEAD --repo <repository> --program <f
 the run and counts nothing. Put a rule the machine needs there from the start, not after a lost run. `--final-dry` is
 a command run at the seal: it loads the held-out data and their references and measures nothing, so a broken final shows
 now and not in phase 4 (one night lost a 16-minute build and an hour of GPU to it); without it the seal only warns.
+`research final --dry` runs it again at any time from phase 2 (set it first with `amend --final-dry`; `research status`
+reminds you while the final has none). `--artifacts out/,clips/` (init or amend) names files or folders the evaluator
+writes (audio, plots, dumps): after every run the kernel copies what the run wrote to `runs/N/artifacts/`, so the next run
+does not overwrite it; the newest 10 runs and every keep are kept, a run is copied up to 500 MB.
 
 A contract for GPU kernels (or any timing): time in a process of its own, not in the program's; fresh inputs at every
 iteration (a harness that reused its inputs reported 1000x speedups); no side streams or work left running after the
@@ -142,8 +146,8 @@ research; answer every checkpoint). `constraints` and `closing` in the brief rea
 Plan with the rules the kernel enforces: `research status` prints them as "next constraints", with where the room stands.
 Seal: a smoke run that printed the metric and every guard, the auditor's pass after the LAST smoke, HEAD equal to that smoke.
 Runs: only attempts and fixes count in `max_evals` (crashes too; smoke, explore and phase 3 kinds do not). A round holds
-`round_max` attempts, then the lead closes it. A worker with 5 attempts and no evidence is stopped. Four cycles in a row
-of one family are refused without `--force`. Amend: before a baseline anything; after it only budgets, and min_gain,
+`round_max` attempts, then the lead closes it. A worker with 5 attempts and no evidence is stopped. After four cycles in a row
+on one family, a fifth is refused without `--force`. Amend: before a baseline anything; after it only budgets, and min_gain,
 guards, provenance with `--reason`; a relative guard needs a baseline value, `abs=X` does not. Generate a worker's prompt after its `assign`, so it names its own worktree.
 Spawn the workers as `chatroom:room-agent-long` and the other roles as `chatroom:room-agent` (1-hour cache, compacting at
 300k / 200k tokens), each with its model and effort.
@@ -185,6 +189,9 @@ Phase 2 goes by short rounds, never by a big budget decided before (`--max-evals
 The first round opens by itself at the first attempt; the kernel refuses an attempt past the round's runs, and `phase next`
 while a round with runs is open. `research status` prints the round and its step. Give the first answer within a few hours.
 A change outside the seal (another build, OpenCL, a sealed file): `research evaluate --kind explore`, measured, never official.
+A service measure in phase 2 that must not count (another input, a flag in the environment): `research evaluate --kind probe
+--env K=V,K2=V2 --desc "..."` (also `research queue --kind probe --env ...`, and the MCP `research` tool with `env`): the sealed
+state as it is, never counted in `max_evals`, never the best, the environment registered in its line and in the record.
 After a stop of your session (the network, a crash): `research relaunch` lists who to spawn again, with which prompt.
 Repeats in one place: the contract's `--repeats` or the evaluator's own, never both (3 x 4 made 30-minute runs); the
 kernel says how long a smoke and the baseline took. A device several agents use (a headset, a board): a shared lock,

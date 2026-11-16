@@ -3424,6 +3424,7 @@ MCP_TOOLS = [
          'drop': {'type': 'string'}, 'gate': {'type': 'string'}, 'trigger': {'type': 'string'}, 'reason': {'type': 'string'},
          'phase': {'type': 'integer'}, 'outcome': {'type': 'string'}, 'next_intent': {'type': 'string'}, 'minutes': {'type': 'number'},
          'after': {'type': 'string'}, 'draft': {'type': 'boolean'},
+         'env': {'type': 'string', 'description': 'evaluate, queue with kind probe or explore: K=V,K2=V2, the environment of that run (registered in its line)'},
          'for': {'type': 'string', 'description': 'hold: a participant to reserve the next GPU turn for (or another room, for a window)'},
          'json': {'description': 'propose-idea, direction, verdict: the object'}}}},
     {'name': 'notebook', 'description': 'Your own notes, which survive a compacted context: with text adds a line (rule=true: a rule kept word for word and shown first; state=true: where you are now, as goal | done | files | pending | next, replacing the previous state), without reads them; read it first after a compaction.',
@@ -3557,7 +3558,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 if args.get('id'):
                     ns.pairs.append(str(args['id']))
                 for k in ('idea', 'kind', 'of', 'seed', 'text', 'source', 'accept', 'reject', 'drop', 'gate', 'trigger', 'reason',
-                          'outcome', 'next_intent', 'minutes', 'after', 'draft'):
+                          'outcome', 'next_intent', 'minutes', 'after', 'draft', 'env'):
                     setattr(ns, k, args.get(k))
                 ns.phase, ns.for_room = args.get('phase'), args.get('for')
                 ns.json =json.dumps(args['json']) if isinstance(args.get('json'), (dict, list)) else args.get('json')
@@ -6085,14 +6086,14 @@ def _main():
     p.add_argument('--idea', help='research assign/evaluate: the idea (I-number) a cycle or a run works on')
     p.add_argument('--parent', help='research assign: base, best or att-N: where the cycle starts')
     p.add_argument('--type', help='research assign: explorer (a fresh agent, one new idea) or optimizer (the same agent refines)')
-    p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), ablation, baseline, control or repeat; lessons propose: improvement, bug or plugin')
+    p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), probe (a service measure in phase 2: never counted, never the best; --env), ablation, baseline, control or repeat; lessons propose: improvement, bug or plugin')
     p.add_argument('--score', type=int, help='lessons propose: 1 to 5 (4 and 5 are applied by themselves, 1 to 3 wait for the closing)')
     p.add_argument('--reach', help='lessons add / propose: local (this machine) or general (the harness for anyone)')
     p.add_argument('--round', type=int, help='research init: attempts per round (default 10); research round open/close: this round\'s')
     p.add_argument('--decision', help='research round close: more (the next round opens) or done (phase 3 may follow)')
     p.add_argument('--of', help='research evaluate: what an ablation or baseline is measured against (att-N)')
     p.add_argument('--seed', help='research evaluate: a seed handed to the evaluator as CHATROOM_SEED')
-    p.add_argument('--env', help='research plan add: K=V,K2=V2, the environment a planned ablation switches')
+    p.add_argument('--env', help='research plan add: K=V,K2=V2, the environment a planned ablation switches; research evaluate/queue with --kind probe or explore: the environment of that run, registered in its line')
     p.add_argument('--worker', help='research plan add: the worktree to run it in (default: the one that made --of)')
     p.add_argument('--text', help='research propose-evidence/conclude: the text')
     p.add_argument('--source', help='research propose-evidence: att-N, E-number or a link, comma separated')
@@ -6119,6 +6120,8 @@ def _main():
     p.add_argument('--after', help='research queue: start the run only after this one (att-N) is recorded')
     p.add_argument('--for', dest='for_room', help='research hold: the GPU window is for this other room (its title or folder)')
     p.add_argument('--final-dry', dest='final_dry', help='research init/amend: a dry run of the final evaluator, run at the seal: it loads the held-out data and its references, measures nothing, exits 0')
+    p.add_argument('--dry', action='store_true', help='research final: only the final evaluator\'s dry run (--final-dry), at any time from phase 2')
+    p.add_argument('--artifacts', help='research init/amend: files or folders of the worktree the evaluator writes (audio, plots); each run\'s are copied to runs/N/artifacts, comma separated')
     p.add_argument('--build-dir', dest='build_dir', nargs='?', const='shared',
                    help='research init/amend: one stable build folder for every worktree (a path, or nothing for one beside them; off clears it): the build script finds it in CHATROOM_BUILD_DIR')
     p.add_argument('--precheck', help='research init/amend: a command that must exit 0 before each run (idle VRAM, no stray server)')
