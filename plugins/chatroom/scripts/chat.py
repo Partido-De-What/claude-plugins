@@ -164,7 +164,7 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
-             'heartbeat': int, 'lead_pace': int, 'lead_pace_runs': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
+             'heartbeat': int, 'lead_pace': int, 'lead_pace_runs': int, 'topic_profile': str, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
              'cache_ttl': str, 'thumbs': int, 'vision': int, 'idlefree': str}
 CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h'), 'idlefree': ('on', 'off')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
@@ -4176,7 +4176,7 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
         values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.tests', dirs=data['tests'])
     if data.get('lessons') != 'off':                  # what earlier rooms taught and the user kept (brief lessons=trial: the ones on trial too)
         import lessons
-        kept = lessons.for_prompt(data.get('lessons') == 'trial')
+        kept = lessons.for_prompt(data.get('lessons') == 'trial', lessons.topic_of(room))
         if kept:
             values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.lessons') + '\n' + '\n'.join(kept)
             lessons.used(room.dir, data.get('lessons') == 'trial')
@@ -6196,7 +6196,9 @@ def _main():
     p.add_argument('--type', help='research assign: explorer (a fresh agent, one new idea) or optimizer (the same agent refines)')
     p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), probe (a service measure in phase 2: never counted, never the best; --env), ablation, baseline, control or repeat; lessons propose: improvement, bug or plugin')
     p.add_argument('--score', type=int, help='lessons propose: 1 to 5 (4 and 5 are applied by themselves, 1 to 3 wait for the closing)')
-    p.add_argument('--reach', help='lessons add / propose: local (this machine) or general (the harness for anyone)')
+    p.add_argument('--reach', help='lessons add / propose: local (this machine), general (the harness for anyone) or topic (the profile of this room\'s topic)')
+    p.add_argument('--expect', help='lessons propose --reach topic: what the lesson should improve; the next room on the topic checks it')
+    p.add_argument('--confirmed', action='store_true', help='lessons topic use SLUG: the user said yes to this topic for this room')
     p.add_argument('--round', type=int, help='research init: attempts per round (default 10); research round open/close: this round\'s')
     p.add_argument('--decision', help='research round close: more (the next round opens) or done (phase 3 may follow)')
     p.add_argument('--of', help='research evaluate: what an ablation or baseline is measured against (att-N)')

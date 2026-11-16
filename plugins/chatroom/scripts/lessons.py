@@ -28,7 +28,7 @@ from pathlib import Path
 import layers
 from i18n import say
 
-REACH = ('local', 'general')
+REACH = ('local', 'general', 'topic')
 KINDS = ('improvement', 'bug', 'plugin')
 CAP = 8               # active and trial lessons together: every one is read at every request of every agent
 LONG = 300            # characters of a rule: a lesson is one instruction, not a page
@@ -145,10 +145,11 @@ def gate(text, data):
     return None
 
 
-def for_prompt(trial=False):
-    """the lines a prompt carries: the active lessons, and the ones on trial when the room's brief asks for them"""
+def for_prompt(trial=False, topic=''):
+    """the lines a prompt carries: the active lessons, the ones on trial when the room's brief asks for them, and the lessons
+    of the room's topic profile"""
     want = ('active', 'trial') if trial else ('active',)
-    return [f"- {x['text']}" + (f" ({x['when']})" if x.get('when') else '') for x in load()['lessons'] if x.get('status') in want]
+    return [f"- {x['text']}" + (f" ({x['when']})" if x.get('when') else '') for x in load()['lessons'] if x.get('status') in want] + topic_lines(topic)
 
 
 def used(room_dir, trial=False):
@@ -162,6 +163,135 @@ def used(room_dir, trial=False):
                 changed = True
         if changed:
             save(data)
+
+
+# ------------------------------------------------------------------------------------------------------- topic profiles
+TOPIC_CAP = 8             # live lessons of one topic: they are read at every request of every agent of its rooms
+TOPIC_VERSIONS = 20       # saved versions of a topic's store kept for `lessons topic back`
+SLUG = re.compile(r'[a-z0-9][a-z0-9-]{1,40}')
+
+
+def topic_of(room):
+    """the topic profile this room is bound to ('' when none): the lead binds it with the user's yes (lessons topic use)"""
+    try:
+        return str(room.config().get('topic_profile') or '')
+    except (OSError, ValueError, AttributeError):
+        return ''
+
+
+def topic_dir(slug):
+    return home() / 'topics' / slug
+
+
+def load_topic(slug):
+    """a topic's store: its lessons and what it is (format, the core it was born under, the rooms that used it). It lives in
+    the user's chatroom folder, which no update of the plugin touches"""
+    try:
+        data = json.loads((topic_dir(slug) / 'lessons.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        data = {}
+    if not isinstance(data.get('lessons'), list):
+        data['lessons'] = []
+    data.setdefault('meta', {})
+    return data
+
+
+def save_topic(slug, data):
+    """write the store and keep this version beside it: every change of a profile can be taken back (lessons topic back)"""
+    d = topic_dir(slug)
+    (d / 'versions').mkdir(parents=True, exist_ok=True)
+    text = json.dumps(data, indent=1, ensure_ascii=False) + '\n'
+    tmp = d / f'lessons.json.{os.getpid()}.tmp'
+    tmp.write_text(text, encoding='utf-8')
+    os.replace(tmp, d / 'lessons.json')
+    old = sorted((d / 'versions').glob('*.json'))
+    n = int(old[-1].stem) + 1 if old else 1
+    (d / 'versions' / f'{n:05d}.json').write_text(text, encoding='utf-8')
+    for f in old[:max(0, len(old) + 1 - TOPIC_VERSIONS)]:
+        f.unlink(missing_ok=True)
+
+
+def topic_lines(slug):
+    """what the prompts of a room on this topic carry: its active lessons and the ones on trial (a topic's trial runs in its own rooms)"""
+    if not slug:
+        return []
+    return [f"- {x['text']}" + (f" ({x['when']})" if x.get('when') else '') for x in load_topic(slug)['lessons'] if x.get('status') in ('trial', 'active')]
+
+
+def topic_propose(room, a, text, p):
+    """a lesson for this room's topic only: it needs when it applies and what it should improve (the next room checks that),
+    it enters on trial with where it came from, and a low score is kept without reaching the prompts"""
+    slug = topic_of(room)
+    if not slug:
+        raise ValueError(say('lessons.topic.none'))
+    when, expect = ' '.join((getattr(a, 'scope', None) or '').split()), ' '.join((getattr(a, 'expect', None) or '').split())
+    if not when or not expect:
+        raise ValueError(say('lessons.topic.need'))
+    data = load_topic(slug)
+    live = [x for x in data['lessons'] if x.get('status') in ('trial', 'active')]
+    refusal = (say('lessons.gate.long', n=len(text), max=LONG) if len(text) > LONG else
+               say('lessons.gate.same') if any(x['text'].casefold() == text.casefold() for x in live) else
+               say('lessons.gate.cap', cap=TOPIC_CAP, ids=', '.join(x['id'] for x in live)) if p['score'] >= 4 and len(live) >= TOPIC_CAP else None)
+    if refusal:
+        raise ValueError(refusal)
+    tid = f"T{max([int(x['id'][1:]) for x in data['lessons']] or [0]) + 1}"
+    data['lessons'].append({'id': tid, 'text': text, 'when': when, 'expect': expect, 'evidence': p['note'], 'reach': 'topic', 'score': p['score'],
+                            'kind': p['kind'], 'status': 'trial' if p['score'] >= 4 else 'proposed', 'rooms': [str(Path(room.dir).resolve())],
+                            'ts': p['ts'], 'by': p['by']})
+    save_topic(slug, data)
+    print(say('lessons.topic.applied', id=tid, slug=slug, score=p['score']) if p['score'] >= 4 else say('lessons.topic.kept', id=tid, slug=slug, score=p['score']))
+
+
+def topic_command(room, a, rest):
+    """lessons topic use SLUG --confirmed | list | show [SLUG] | back SLUG"""
+    act, slug = (rest[0].lower() if rest else 'show'), (rest[1].lower() if len(rest) > 1 else '')
+    if act == 'list':
+        found = sorted(p.name for p in (home() / 'topics').glob('*') if (p / 'lessons.json').is_file()) if (home() / 'topics').is_dir() else []
+        for s in found:
+            d = load_topic(s)
+            live = sum(1 for x in d['lessons'] if x.get('status') in ('trial', 'active'))
+            print(say('lessons.topic.row', slug=s, live=live, all=len(d['lessons']), rooms=len(d['meta'].get('rooms', []))))
+        return print(say('lessons.topic.none_yet')) if not found else None
+    if act == 'use':
+        if not SLUG.fullmatch(slug):
+            raise ValueError(say('lessons.topic.slug'))
+        if not getattr(a, 'confirmed', False):                # the choice of a topic is the user's: a wrong profile bends a whole room
+            raise ValueError(say('lessons.topic.confirm', slug=slug))
+        data, key = load_topic(slug), str(Path(room.dir).resolve())
+        new = not (topic_dir(slug) / 'lessons.json').is_file()
+        meta = data['meta']
+        if new:
+            meta.update(format=1, topic=slug, born=int(time.time()), core=core_version())
+        if key not in meta.setdefault('rooms', []):
+            meta['rooms'].append(key)
+        save_topic(slug, data)
+        room.update_config(settings={'topic_profile': slug})
+        live = sum(1 for x in data['lessons'] if x.get('status') in ('trial', 'active'))
+        return print(say('lessons.topic.new', slug=slug) if new else say('lessons.topic.reused', slug=slug, live=live, rooms=len(meta['rooms'])))
+    slug = slug or topic_of(room)
+    if not slug or not (topic_dir(slug) / 'lessons.json').is_file():
+        raise ValueError(say('lessons.topic.none'))
+    if act == 'back':
+        old = sorted((topic_dir(slug) / 'versions').glob('*.json'))
+        if len(old) < 2:
+            raise ValueError(say('lessons.topic.no_version', slug=slug))
+        data = json.loads(old[-2].read_text(encoding='utf-8'))
+        save_topic(slug, data)                                 # the return is a version too: it can be taken back in its turn
+        return print(say('lessons.topic.back', slug=slug, n=int(old[-2].stem), live=sum(1 for x in data['lessons'] if x.get('status') in ('trial', 'active'))))
+    if act == 'show':
+        data = load_topic(slug)
+        print(say('lessons.topic.head', slug=slug, core=data['meta'].get('core', '?'), rooms=len(data['meta'].get('rooms', []))))
+        for x in data['lessons']:
+            print(f"  {x['id']} [{x.get('status')}] {x['text']} ({x.get('when', '')}) -> {x.get('expect', '')} · {say('lessons.rooms', n=len(x.get('rooms', [])))} · {x.get('by', '')}")
+        return print('  -') if not data['lessons'] else None
+    raise ValueError(say('lessons.topic.usage'))
+
+
+def core_version():
+    try:
+        return json.loads((Path(__file__).resolve().parents[1] / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8')).get('version', '?')
+    except (OSError, ValueError):
+        return '?'
 
 
 def creator():
@@ -186,6 +316,8 @@ def propose(room, a, rest, data):
         raise ValueError(say('lessons.propose.usage'))
     p = {'text': text, 'score': score, 'reach': reach, 'kind': kind, 'note': (getattr(a, 'note', None) or '')[:300],
          'by': a.name or '', 'ts': int(time.time())}
+    if reach == 'topic' and kind != 'plugin':             # what holds for this kind of work only: the topic's own store
+        return topic_propose(room, a, text, p)
 
     def keep():                                   # the id is taken inside the lock: two proposals together never share one
         got = proposals(room)
@@ -240,7 +372,7 @@ def closing(room):
 
 
 def command(room, a):
-    if (a.pairs[:1] or [''])[0].lower() in ('propose', 'add', 'accept', 'retire'):
+    if (a.pairs[:1] or [''])[0].lower() in ('propose', 'add', 'accept', 'retire', 'topic'):
         with lessons_lock():
             return _command(room, a)
     return _command(room, a)
@@ -253,6 +385,17 @@ def _command(room, a):
         return propose(room, a, rest, data)
     if act == 'close':
         return print('\n'.join(closing(room)))
+    if act == 'topic':
+        return topic_command(room, a, rest)
+    if act in ('accept', 'retire') and rest and rest[0][:1].upper() == 'T' and rest[0][1:].isdigit():   # a lesson of the room's topic
+        slug = topic_of(room)
+        tdata = load_topic(slug) if slug else {'lessons': []}
+        x = next((x for x in tdata['lessons'] if x['id'].lower() == rest[0].lower()), None)
+        if not x:
+            raise ValueError(say('lessons.none', id=rest[0]))
+        x.update(status='active' if act == 'accept' else 'retired', changed=int(time.time()))
+        save_topic(slug, tdata)
+        return print(say('lessons.accepted', id=x['id']) if act == 'accept' else say('lessons.retired', id=x['id']))
     if act == 'add':
         text = ' '.join(' '.join(rest).split())
         if not text:
