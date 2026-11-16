@@ -166,12 +166,12 @@ Kernel `chat.py research`: agents propose, the kernel checks, writes `state.json
 | Keep rule | Against the worker's best, or the baseline if none; global best = best of all lines. First run gets `CHATROOM_BASELINE=1`. |
 | Fix runs | `allow-fix W` (auditor/lead), then `evaluate --kind fix`: kept if not worse than the best by more than `--min-gain`; replaces the best it corrects. |
 | Evaluator lock | One run at a time (`eval.lock`); concurrent run refused, not queued; dead lock taken by one caller, its evaluator killed. |
-| GPU hold | `research hold --minutes M --reason` / `release`: GPU work outside the runs (agents up to 120 min, lead 720); only the holder may evaluate meanwhile. |
+| GPU hold | `research hold --minutes M --reason` / `release`: GPU work outside the runs (agents up to 120 min, lead 720); only the holder may evaluate meanwhile; a held GPU puts the next `hold` in a line (handed over and tagged when free), `hold --for NAME` reserves the next turn. |
 | Prebuild | `research prebuild W`: build detached, no console (survives the session's reaper), log and exit code in `runs/`, shown in status; holds the GPU until it exits. |
 | Build and noise | `--build` + `--build-min`; `--repeats N` median with spread; `--min-gain X\|X%`. |
 | Metric source | `--result-file`: evaluator writes `NAME: value` to `$CHATROOM_RESULT`; else exactly one `NAME:` line in stdout. |
 | Protocol | `protocol: ...` lines fixed at the baseline; an attempt with a different protocol = crash. |
-| Guards | `--guard NAME:min\|max:TOL` (min = lower is better): `NAME: value` in the output or the result file, median of the repeats vs the baseline's; worse than TOL = crash; not applied to the final. |
+| Guards | `--guard NAME:min\|max:TOL` (min = lower is better): `NAME: value` in the output or the result file, median of the repeats vs the baseline's; worse than TOL = crash (`--guard` repeats; TOL `abs=X` = a fixed limit, not relative to the baseline); not applied to the final. |
 | Seals | Git blob ids; worktrees checked out with `core.autocrlf=false`, `core.eol=lf`: line endings never break a seal. |
 | Seal and scope | Refused: sealed file changed, other tracked file changed, new untracked file (except caches, `--keep`), program already run. |
 | Commit and clean | Kernel identity, no repo hooks, no signing; tag `research/<tag>/att-N`; `git clean -ffdx` except `--keep`, submodules too. |

@@ -79,7 +79,9 @@ l'addestramento, un budget fisso di tempo o di step dentro il valutatore e il se
 secondari che non devono peggiorare (velocità di prefill, memoria, accuratezza) sono guardie: il valutatore scrive
 `NOME: valore` a ogni misura (nel suo output, o in `$CHATROOM_RESULT` con `--result-file`), e `--guard NOME:min|max:TOL`
 confronta la loro mediana con quella della baseline (un singolo campione a freddo fa crash falsi). `min` vuol dire che
-più basso è meglio, come per `--direction`: una velocità è `max` (`--guard prefill_tps:max:3%`), una memoria `min`. Il
+più basso è meglio, come per `--direction`: una velocità è `max` (`--guard prefill_tps:max:3%`), una memoria `min`. `--guard` si ripete
+(una per guardia) e TOL può essere `abs=X`: la mediana non deve superare X, qualunque cosa abbia misurato la baseline
+(`--guard peak_mb:min:abs=9000`). `seal` rifiuta una guardia che l'ultima smoke non ha mai stampato. Il
 valutatore finale non viene controllato dalle guardie.
 
 Chiedi in fase 0: il valutatore (e ogni guardia) esercita i percorsi di codice che il programma cambierà? Un controllo
@@ -143,7 +145,13 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 ```
 
 `max` nel brief è il checkpoint: ogni N messaggi un agente ti chiede se continuare (impostalo alto per una ricerca
-lunga; rispondi a ogni checkpoint). Genera il prompt di un worker dopo il suo `assign`, così nomina il proprio worktree.
+lunga; rispondi a ogni checkpoint). `constraints` e `closing` del brief arrivano anche ai prompt di ricerca.
+Pianifica con le regole che il kernel applica: `research status` le stampa come "prossimi vincoli", con a che punto è la stanza.
+Sigillo: una smoke che ha stampato la metrica e ogni guardia, il via dell'auditor dopo l'ULTIMA smoke, HEAD uguale a quella smoke.
+Corse: in `max_evals` contano solo tentativi e fix (anche i crash; smoke, explore e i tipi della fase 3 no). Un round tiene
+`round_max` tentativi, poi lo chiude il lead. Un worker con 5 tentativi senza evidenze si ferma. Quattro cicli di fila della
+stessa famiglia sono rifiutati senza `--force`. Amend: prima di una baseline tutto; dopo solo i budget, e min_gain, guardie,
+provenienza con `--reason`; una guardia relativa vuole un valore nella baseline, `abs=X` no. Genera il prompt di un worker dopo il suo `assign`, così nomina il proprio worktree.
 Lancia i worker come `chatroom:room-agent-long` e gli altri ruoli come `chatroom:room-agent` (cache di 1 ora, compattano a
 300k / 200k token), ciascuno con il suo modello ed effort.
 
@@ -165,6 +173,11 @@ e poi `research release`. Mentre il blocco della GPU è attivo, solo chi lo tien
 prenderlo, e `research status` lo mostra. Un agente lo tiene al massimo 120 minuti, il lead 720. Due stanze research su una
 GPU: `--for STANZA` dà una finestra all'altra stanza (le corse di questa aspettano), e `research status` elenca corse e
 blocchi delle altre stanze.
+Se la GPU è già tenuta, `research hold` non rifiuta: ti mette in fila (un posto per agente, ordinata per tempo insieme alle
+corse in coda) e il kernel ti dà la GPU quando è libera e ti tagga sulla board, quindi non richiederla; `research release`
+mentre aspetti ti toglie dalla fila. `research hold --for NOME` (NOME un partecipante) riserva il turno dopo a NOME: passa
+a lui al tuo release, prima della fila, o subito se la GPU è libera, e aspetta 15 minuti che lo prenda con il suo
+`research hold`.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 

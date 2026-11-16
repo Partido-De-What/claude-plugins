@@ -77,7 +77,9 @@ fixed time or step budget inside the evaluator and the seed from `CHATROOM_SEED`
 worse (prefill speed, memory, accuracy) are guards: the evaluator writes `NAME: value` on every measure (in its output,
 or in `$CHATROOM_RESULT` with `--result-file`), and `--guard NAME:min|max:TOL` compares their median with the baseline's
 (a single cold sample makes false crashes). `min` means lower is better, as for `--direction`: a speed is `max`
-(`--guard prefill_tps:max:3%`), a memory `min`. The final evaluator is not checked for guards.
+(`--guard prefill_tps:max:3%`), a memory `min`. `--guard` repeats (one per guard) and TOL can be `abs=X`: the median
+must not pass X itself (`--guard peak_mb:min:abs=9000`), whatever the baseline measured. `seal` refuses a guard the last smoke
+run never printed. The final evaluator is not checked for guards.
 
 Ask in phase 0: does the evaluator (and each guard) exercise the code paths the program will change? A gate that runs
 only the prefill does not check a change to the decoding kernels.
@@ -136,7 +138,13 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 ```
 
 `max` in the brief is the checkpoint: every N messages an agent asks you whether to continue (set it high for a long
-research; answer every checkpoint). Generate a worker's prompt after its `assign`, so it names its own worktree.
+research; answer every checkpoint). `constraints` and `closing` in the brief reach every research prompt too.
+Plan with the rules the kernel enforces: `research status` prints them as "next constraints", with where the room stands.
+Seal: a smoke run that printed the metric and every guard, the auditor's pass after the LAST smoke, HEAD equal to that smoke.
+Runs: only attempts and fixes count in `max_evals` (crashes too; smoke, explore and phase 3 kinds do not). A round holds
+`round_max` attempts, then the lead closes it. A worker with 5 attempts and no evidence is stopped. Four cycles in a row
+of one family are refused without `--force`. Amend: before a baseline anything; after it only budgets, and min_gain,
+guards, provenance with `--reason`; a relative guard needs a baseline value, `abs=X` does not. Generate a worker's prompt after its `assign`, so it names its own worktree.
 Spawn the workers as `chatroom:room-agent-long` and the other roles as `chatroom:room-agent` (1-hour cache, compacting at
 300k / 200k tokens), each with its model and effort.
 
@@ -155,6 +163,11 @@ The GPU outside the runs (a profile, a microbenchmark, the auditor's check): `re
 then `research release`; while it holds, only the holder may evaluate. Any agent can take it, and `research status`
 shows it. An agent holds it at most 120 minutes, the lead 720. Two research rooms on one GPU: `--for ROOM` gives the other
 room a window (this room's runs wait), and `research status` lists the runs and holds of the other rooms.
+When the GPU is already held, `research hold` does not refuse: it puts you in a line (one place per agent, ordered with
+the queued runs by time) and the kernel gives you the GPU when it is free and tags you on the board, so do not ask again;
+`research release` while waiting leaves the line. `research hold --for NAME` (NAME a participant) reserves the next turn
+for NAME: it passes to them at your release, ahead of the line, or at once when the GPU is free, and waits 15 minutes
+for them to claim it with their own `research hold`.
 
 ## 4. Phase 2: investigation, the loop you run
 

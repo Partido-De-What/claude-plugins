@@ -424,6 +424,25 @@ def note_event(room, kind, key, name='', task='', detail=''):
         pass
 
 
+CALL = {}                # the room and the arguments of this process's command: a refusal on its way out is recorded once (main)
+LEAD_ACTS = ('rotate', 'retire', 'reopen', 'roster', 'add', 'remove')   # what a lead does by hand to keep a room going: the remedies
+
+
+def call_key(a):
+    """the command as an event key: `task:done`, `lock:acquire`, `post`"""
+    sub = (getattr(a, 'pairs', None) or [''])[0] if a.command in ('task', 'lock', 'lessons', 'notebook') else ''
+    return f"{a.command}:{sub}".rstrip(':')
+
+
+def note_refusal(code):
+    """a command that ends on a message instead of doing its work: who, which command, and the message's first line.
+    The kernel's refusals are recorded by the kernel (research._log), with the action's own name"""
+    room, a = CALL.get('room'), CALL.get('a')
+    if room is None or a is None or not isinstance(code, str) or a.command == 'research' or not room.dir.is_dir():
+        return
+    note_event(room, 'refusal', call_key(a), getattr(a, 'name', None) or '', detail=' '.join(code.split())[:200])
+
+
 def check_event(room, key):
     """a CHECK that fired, as an event: its type (cost: has two parts), the agent and the task its key names, and the whole key.
     A key without an agent (gone, silent) gets the agent's taken tasks from note_event"""
@@ -495,6 +514,8 @@ def waits_for_lead(room, items=None, only=None, now=None):
     return out
 
 
+UNTIL_CMD_EVERY = 10      # seconds between two tries of a wait's --until-cmd
+UNTIL_CMD_TRY = 30        # the most one try may take: on a loaded machine a command that starts python takes seconds
 STATE_OLD_MIN = 20       # minutes: a task command of an agent whose notebook state is older says to rewrite it (S5)
 READ_MAX = 40             # new messages past which a plain read gives the digest (155k characters re-read by a lead after a compaction)
 LEAD_CTX = 300_000        # tokens of the lead's context: past this, recap and a fresh start cost less than every turn
@@ -1492,9 +1513,10 @@ class Room:
                 if not m.get('kind') and PLAN_WORD.search(m.get('text', '')):
                     print(f"  #{m['n']} {m['from']}: {m['text'].strip().splitlines()[0][:160]}", flush=True)
 
-    def wait(self, name, timeout, focus=False, cancel=None, until=None):
+    def wait(self, name, timeout, focus=False, cancel=None, until=None, until_cmd=None):
         """wait, marked as waiting meanwhile: a message for an agent in wait needs no ping (it sees the chat file);
-        until: a path, the wait ends when it appears or changes"""
+        until: a path, the wait ends when it appears or changes; until_cmd: a shell command, the wait ends when it exits 0
+        (a run finished, a device back on power): agents built polling scripts of their own for this"""
         if name not in self.user_names():
             budget, used = call_budget(self), sum(self.counters().get(name, {}).values())
             if budget and used >= 1.5 * budget:
@@ -1505,7 +1527,7 @@ class Room:
         except OSError:
             pass
         try:
-            return self._wait(name, timeout, focus, cancel, until)
+            return self._wait(name, timeout, focus, cancel, until, until_cmd)
         finally:
             try:
                 mark.unlink()
@@ -1521,7 +1543,7 @@ class Room:
         except (OSError, ValueError):
             return False
 
-    def _wait(self, name, timeout, focus=False, cancel=None, until=None):
+    def _wait(self, name, timeout, focus=False, cancel=None, until=None, until_cmd=None):
         """focus: what wakes it is shown as read --focus shows it (in full only what concerns you); cancel: an Event the
         MCP server sets when the client gives up on the call, so the messages are not consumed by an answer nobody reads"""
         items = self.messages()
@@ -1529,9 +1551,18 @@ class Room:
         timeout = max(1, min(timeout, self.idle_wait_max(name) if idle else WAIT_MAX))
         start, limit, users = time.time(), self.heartbeat(), self.user_names()
         was = _stamp(Path(until)) if until else None
+        tried = 0.0
         while True:
             if cancel is not None and cancel.is_set():
                 return
+            if until_cmd and time.time() - tried >= UNTIL_CMD_EVERY:
+                tried = time.time()
+                try:
+                    got = subprocess.run(until_cmd, shell=True, capture_output=True, text=True, errors='replace', timeout=UNTIL_CMD_TRY)
+                except (OSError, subprocess.SubprocessError):
+                    got = None
+                if got is not None and got.returncode == 0:
+                    return print(say('chat.say.wait.cmd_true', cmd=until_cmd, out=(got.stdout or '').strip()[-600:]))
             if until and _stamp(Path(until)) != was:
                 return print(say('chat.say.wait.path_changed', path=until))
             cursor = self.cursor(name)
@@ -1557,11 +1588,16 @@ class Room:
             if cancel is None:
                 time.sleep(2)
             items = self.messages()
+        if until_cmd:                                     # its condition is not there yet: it waits again, it does not end here
+            return print(say('chat.say.wait.cmd_not_yet', cmd=until_cmd, timeout=timeout))
         if idle:
+            import hold                              # the stop hook's rule: a device held is work going, not an empty wait
+            held = hold.device_hold(self, name)
             unread = len([m for m in items if m['n'] > self.cursor(name) and m['from'] != name])
             print(say('chat.say.wait.you_are_idle_since', n=idle["n"], timeout=timeout)
                   + (say('chat.say.wait.new_message_s_not', unread=unread) if unread else '')
-                  + say('chat.say.wait.this_is_not_an', IDLE_WAIT_MAX=self.idle_wait_max(name)))
+                  + (say('chat.say.wait.you_hold_device', left=held) if held else
+                     say('chat.say.wait.this_is_not_an', IDLE_WAIT_MAX=self.idle_wait_max(name))))
         else:
             unread = len([m for m in items if m['n'] > self.cursor(name) and m['from'] != name])
             print(say('chat.say.wait.nothing_for_you_in', timeout=timeout) + (say('chat.say.wait.message_s_for_nobody', unread=unread) if unread else '')
@@ -1991,10 +2027,15 @@ def user_env(env=None):
     """the user's environment for the commands the room runs for them (a task's verify, a role's shell, a research build):
     without the plugin's uv environment, so `python` and `pytest` there are the user's (a prebuild found no psutil)"""
     env = dict(os.environ if env is None else env)
-    venv = env.pop('VIRTUAL_ENV', None)
-    if venv:
+    own = [env.pop('VIRTUAL_ENV', None)]
+    uv_py = {'uv', 'python'} <= set(os.path.normcase(sys.base_prefix).replace('\\', '/').split('/'))   # a uv-managed python, put on PATH by `uv run`
+    if sys.prefix != sys.base_prefix or uv_py:                # this process runs in a venv (or in uv's own python): VIRTUAL_ENV may be unset
+        own += [sys.prefix, sys.exec_prefix] + ([sys.base_prefix] if uv_py else [])
+    own = [os.path.normcase(os.path.realpath(p)) for p in own if p] + [os.path.normcase(p) for p in own if p]
+    if own:
         key = next((k for k in env if k.upper() == 'PATH'), 'PATH')
-        env[key] = os.pathsep.join(p for p in env.get(key, '').split(os.pathsep) if not os.path.normcase(p).startswith(os.path.normcase(venv)))
+        env[key] = os.pathsep.join(p for p in env.get(key, '').split(os.pathsep)
+                                   if not p or not (os.path.normcase(p).startswith(tuple(own)) or os.path.normcase(os.path.realpath(p)).startswith(tuple(own))))
     for k in ('CHATROOM_RELAUNCHED', 'UV_PROJECT_ENVIRONMENT', 'PYTHONHOME'):
         env.pop(k, None)
     return env
@@ -3382,6 +3423,7 @@ MCP_TOOLS = [
          'drop': {'type': 'string'}, 'gate': {'type': 'string'}, 'trigger': {'type': 'string'}, 'reason': {'type': 'string'},
          'phase': {'type': 'integer'}, 'outcome': {'type': 'string'}, 'next_intent': {'type': 'string'}, 'minutes': {'type': 'number'},
          'after': {'type': 'string'}, 'draft': {'type': 'boolean'},
+         'for': {'type': 'string', 'description': 'hold: a participant to reserve the next GPU turn for (or another room, for a window)'},
          'json': {'description': 'propose-idea, direction, verdict: the object'}}}},
     {'name': 'notebook', 'description': 'Your own notes, which survive a compacted context: with text adds a line (rule=true: a rule kept word for word and shown first; state=true: where you are now, as goal | done | files | pending | next, replacing the previous state), without reads them; read it first after a compaction.',
      'inputSchema': {'type': 'object', 'properties': {'text': {'type': 'string'}, 'rule': {'type': 'boolean'}, 'state': {'type': 'boolean'}}}},
@@ -3516,8 +3558,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 for k in ('idea', 'kind', 'of', 'seed', 'text', 'source', 'accept', 'reject', 'drop', 'gate', 'trigger', 'reason',
                           'outcome', 'next_intent', 'minutes', 'after', 'draft'):
                     setattr(ns, k, args.get(k))
-                ns.phase = args.get('phase')
-                ns.json = json.dumps(args['json']) if isinstance(args.get('json'), (dict, list)) else args.get('json')
+                ns.phase, ns.for_room = args.get('phase'), args.get('for')
+                ns.json =json.dumps(args['json']) if isinstance(args.get('json'), (dict, list)) else args.get('json')
                 ns.force, ns.mcp = False, True
                 if ns.pairs[0] == 'evaluate' and wait_cap:
                     import research
@@ -3539,6 +3581,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 return say('chat.say.mcp_call.unknown_tool', tool=tool), True
     except SystemExit as exc:
         if exc.code not in (None, 0):
+            if isinstance(exc.code, str) and tool != 'research' and room is not None:   # the agents' tools: the same event as the shell command's
+                note_event(room, 'refusal', f"{tool}:{args.get('action', '')}".rstrip(':'), name or '', detail=' '.join(exc.code.split())[:200])
             return (out.getvalue() + str(exc.code)).strip(), True
     except ValueError as exc:
         return (out.getvalue() + f'error: {exc}').strip(), True
@@ -5950,6 +5994,14 @@ def cmd_serve(room, a):
 
 
 def main():
+    try:
+        return _main()
+    except SystemExit as exc:
+        note_refusal(exc.code)
+        raise
+
+
+def _main():
     global TOP_PID, STARTER
     import procs
     STARTER = int(os.environ.pop('CHATROOM_STARTER', 0) or procs.starter_pid())
@@ -6019,11 +6071,13 @@ def main():
     p.add_argument('--build', help='research init/amend: a build command run before each measure, with its own time limit')
     p.add_argument('--build-min', dest='build_min', type=float, help='research init/amend: minutes a build may take')
     p.add_argument('--repeats', type=int, help='research init/amend: measures per run; the median counts')
-    p.add_argument('--guard', help='research init/amend: NAME:min|max:TOL,... secondary numbers the evaluator prints, median against the baseline')
+    p.add_argument('--guard', action='append', help='research init/amend: NAME:min|max:TOL (TOL a number, N%% or abs=X), repeatable or comma-separated: secondary numbers the evaluator prints, median against the baseline (abs=X: against X)')
     p.add_argument('--minutes', type=float, help='research hold: how long the GPU is held')
     p.add_argument('--provenance', dest='provenance', action='store_const', const=True, default=None,
                    help='research init/amend: every measure must print "built: <CHATROOM_PROGRAM_SHA>" (the build of this run)')
     p.add_argument('--no-provenance', dest='provenance', action='store_const', const=False)
+    p.add_argument('--info', action='append', help='research amend: NAME,... numbers the evaluator prints ("NAME: value"), recorded and shown with every run, never judged: the absolute values behind a ratio')
+    p.add_argument('--reference', help='research amend: the --info number that is the reference arm measured in every run; a run whose reference moved since the one it competes with says so')
     p.add_argument('--min-gain', dest='min_gain', help='research init/amend: how much a keep must beat the best by (a number or N%%)')
     p.add_argument('--idea', help='research assign/evaluate: the idea (I-number) a cycle or a run works on')
     p.add_argument('--parent', help='research assign: base, best or att-N: where the cycle starts')
@@ -6055,6 +6109,7 @@ def main():
     p.add_argument('--until-line', action='store_true', help='alerts --follow: return after the first lines (run it as a background shell: its exit wakes the lead)')
     p.add_argument('--top', type=int, help='spawn ping: only the N models highest in the catalog')
     p.add_argument('--vision', action='store_true', help='spawn ping: send a small picture instead (who reads images)')
+    p.add_argument('--until-cmd', dest='until_cmd', help='wait: also end when this shell command exits 0 (checked every 10 s): a run that finished, a device back on power, a process that ended')
     p.add_argument('--until-path', dest='until_path', help='wait: also end when this file appears or changes (the material you wait for)')
     p.add_argument('--stream', action='store_true', help='alerts --follow: never return; what needs the lead comes in one block every --batch s (default 20), the rest as a digest with it (run it under Monitor)')
     p.add_argument('--external', action='store_true', help='post --idle: you wait for something outside the room (a run, a download), so "everyone is idle" is no stall')
@@ -6143,10 +6198,14 @@ def main():
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
                     'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
                     'lessons': cmd_lessons, 'preview': cmd_preview}
+        CALL.update(room=room, a=a)
         if a.command in commands:
             if a.command in ('task', 'board', 'notebook') and getattr(a, 'name', None):
                 redeliver_missed(room, a.name)            # the commands of an agent at work: what its status missed comes again
-            return commands[a.command](room, a)
+            out = commands[a.command](room, a)
+            if a.command in LEAD_ACTS:                    # a remedy by hand: the harness learns from how often it is needed
+                note_event(room, 'lead', a.command, getattr(a, 'name', None) or '', detail=' '.join(getattr(a, 'pairs', None) or [])[:120])
+            return out
     except ValueError as exc:
         sys.exit(say('chat.err.main.error', exc=exc))
     if a.common and a.command in ('post', 'read', 'wait'):
@@ -6194,7 +6253,7 @@ def main():
     if a.command == 'read':
         idle_note(room, a.name)
         return room.read(a.name, a.focus)
-    room.wait(a.name, a.timeout, a.focus, until=getattr(a, 'until_path', None))   # wait caps the timeout: 110 s, or 270 s while idle
+    room.wait(a.name, a.timeout, a.focus, until=getattr(a, 'until_path', None), until_cmd=getattr(a, 'until_cmd', None))   # wait caps the timeout: 110 s, or 270 s while idle
     idle_note(room, a.name)
 
 

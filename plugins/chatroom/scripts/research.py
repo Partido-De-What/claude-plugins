@@ -138,6 +138,12 @@ def _log(room, by, action, detail, ok=True):
                       ensure_ascii=False)
     with open(_dir(room) / 'log.jsonl', 'a', encoding='utf-8') as f:
         f.write(line + '\n')
+    try:                                                  # the room's events too: a refusal seen seven times is a rule to change
+        from chat import note_event
+        what = detail.get('refused') if isinstance(detail, dict) and not ok else ''
+        note_event(room, 'kernel' if ok else 'refusal', action if ok else f'research:{action}', by or '', detail=what or '')
+    except Exception:
+        pass
 
 
 def _old_rows(c):
@@ -243,6 +249,12 @@ def _env(**extra):
     return env
 
 
+def resolved_python():
+    """the interpreter `python` is for a contract command: what the room's environment (no plugin venv) resolves it to"""
+    path = next((v for k, v in _env().items() if k.upper() == 'PATH'), '')
+    return shutil.which('python', path=path) or say('kernel.word.python_not_found')
+
+
 def _submodules(work):
     """a worktree gets the repository's submodules too (CUTLASS, third-party kernels...): '' or a warning"""
     if not (Path(work) / '.gitmodules').is_file():
@@ -252,21 +264,49 @@ def _submodules(work):
 
 
 def parse_guards(text):
-    """--guard prefill_tps:max:3%,vram_mb:min:200 -> [{name, direction, tol}]: a secondary number the evaluator prints
-    ("NAME: value") on every measure; its median may not be worse than the baseline's by more than tol"""
+    """--guard prefill_tps:max:3%,vram_mb:min:200,peak_mb:min:abs=9000 -> [{name, direction, tol}]: a secondary number the
+    evaluator prints ("NAME: value") on every measure; its median may not be worse than the baseline's by more than tol, or
+    (tol abs=X) than X itself. text: one string or the list of every --guard given"""
+    if isinstance(text, (list, tuple)):
+        text = ','.join(x or '' for x in text)
     out = []
     for item in [x.strip() for x in (text or '').split(',') if x.strip()]:
-        m = re.fullmatch(r'([A-Za-z0-9_.-]+):(min|max):(\d+(?:\.\d+)?%?)', item)
+        m = re.fullmatch(r'([A-Za-z0-9_.-]+):(min|max):(\d+(?:\.\d+)?%?|abs=-?\d+(?:\.\d+)?)', item)
         if not m:
             raise ValueError(say('kernel.parse_guards.guard_name_min_max', v1=repr(item)))
         out.append({'name': m.group(1), 'direction': m.group(2), 'tol': m.group(3)})
     return out
 
 
-def _guard_broken(g, value, base):
-    """value is worse than base by more than the guard's tolerance"""
+def _guard_limit(g, base):
+    """the value a guard's median may not pass: the absolute one, or the baseline's moved by the tolerance; None when
+    the guard is relative and the baseline never measured it"""
+    if g['tol'].startswith('abs='):
+        return float(g['tol'][4:])
+    if base is None:
+        return None
     tol = abs(base) * float(g['tol'][:-1]) / 100 if g['tol'].endswith('%') else float(g['tol'])
-    return value > base + tol if g['direction'] == 'min' else value < base - tol
+    return base + tol if g['direction'] == 'min' else base - tol
+
+
+def _guard_broken(g, value, base):
+    """value is worse than the guard's limit (see _guard_limit)"""
+    limit = _guard_limit(g, base)
+    return limit is not None and (value > limit if g['direction'] == 'min' else value < limit)
+
+
+def _guard_line(g, base):
+    """one guard as status shows it: `mem <= 25` (the limit), with the baseline it came from when relative"""
+    limit = _guard_limit(g, base)
+    if limit is None:
+        return f"{g['name']} {g['direction']} {g['tol']} ({say('kernel.status.guard_no_baseline')})"
+    rel = '' if g['tol'].startswith('abs=') else f" (baseline {format(base, '.6g')} {g['tol']})"
+    return f"{g['name']} {'<=' if g['direction'] == 'min' else '>='} {format(limit, '.6g')}{rel}"
+
+
+def _guards_text(guards):
+    """the contract's guards as one line: name direction tolerance"""
+    return ', '.join(f"{g['name']} {g['direction']} {g['tol']}" for g in guards) or say('kernel.word.none')
 
 
 def _rel(top, f):
@@ -408,7 +448,8 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
 
 
 def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=None, build=None, build_min=None,
-          repeats=None, min_gain=None, final=None, guards=None, reason=None, provenance=None, precheck=None, build_dir=None, final_dry=None):
+          repeats=None, min_gain=None, final=None, guards=None, reason=None, provenance=None, precheck=None, build_dir=None, final_dry=None,
+          info=None, reference=None):
     """the lead changes the contract: budgets at any time; what is measured and how only before a baseline is kept (a
     crashed baseline is fixed this way, not by starting over)"""
     if by not in room.user_names():
@@ -423,9 +464,21 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
         raise ValueError(say('kernel.word.amend_needs_reason'))
     if guards is not None and st['best'] is not None:
         measured_g = (st.get('baseline') or {}).get('guards') or {}
-        new = [g['name'] for g in parse_guards(guards) if g['name'] not in measured_g]
+        new = [g['name'] for g in parse_guards(guards) if g['name'] not in measured_g and not g['tol'].startswith('abs=')]   # an absolute limit needs no baseline value
         if new:
             raise ValueError(say('kernel.word.guard_not_in_baseline', names=', '.join(new)))
+    if info is not None:                                  # numbers the evaluator prints, recorded and shown, never judged
+        names = [x.strip() for x in ','.join(info if isinstance(info, (list, tuple)) else [info]).split(',') if x.strip()]
+        bad = [x for x in names if not re.fullmatch(r'[A-Za-z0-9_.-]+', x)]
+        if bad:
+            raise ValueError(say('kernel.amend.info_names', names=', '.join(bad)))
+        c['info'] = names
+        said.append(say('kernel.amend.info', names=', '.join(names) or say('kernel.word.none')))
+    if reference is not None:                             # the info number that is the reference arm measured in every run
+        if reference and reference not in c.get('info', []):
+            raise ValueError(say('kernel.amend.reference_not_info', name=reference))
+        c['reference'] = reference
+        said.append(say('kernel.amend.reference', name=reference or say('kernel.word.none')))
     for key, value, label in (('evaluate', evaluate, say('kernel.word.evaluator')), ('build', build, say('kernel.word.build')), ('final', final, say('kernel.word.final_evaluator'))):
         if value is not None:
             c[key] = value
@@ -439,8 +492,8 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
         c['repeats'] = int(repeats)
         said.append(say('kernel.amend.median_of_measures', repeats=repeats))
     if guards is not None:
-        c['guards'] = parse_guards(guards)
-        said.append(say('kernel.word.guards', names=', '.join(g['name'] for g in c['guards']) or say('kernel.word.none')))
+        old_guards, c['guards'] = c.get('guards', []), parse_guards(guards)
+        said.append(say('kernel.word.guards_changed', old=_guards_text(old_guards), new=_guards_text(c['guards'])))
     if min_gain is not None:
         if not re.fullmatch(r'\d+(\.\d+)?%?', str(min_gain)):
             raise ValueError(say('kernel.amend.min_gain_a_number'))
@@ -821,15 +874,52 @@ def _lines(stat):
     return f"+{add.group(1) if add else 0} -{rem.group(1) if rem else 0}"
 
 
+def _reason(out):
+    """the line of a failed run's output that says why it stopped, for the board line: the last Python exception line, else
+    the first line that names an error, else the last line. '' when the run printed nothing"""
+    lines = [l.strip() for l in (out or '').splitlines() if l.strip() and not l.strip().startswith('File "')]
+    py = [l for l in lines if re.match(r'^[\w.]*(Error|Exception)\b', l)]
+    named = [l for l in lines if re.search(r'\b(error|exception|assert\w*|fail\w*|fatal|invalid|out of memory|oom|refused|cannot|busy)\b', l, re.I)]
+    return ((py[-1:] or named[:1] or lines[-1:]) or [''])[0][:160]
+
+
 def _row(room, n, commit, value, status, secs, lines, name, desc, kind='attempt', idea='', spread=''):
     with open(_dir(room) / 'results.tsv', 'a', encoding='utf-8') as f:
         f.write('\t'.join([str(n), commit, '' if value is None else f'{value:.6g}', status, f'{secs:.0f}', lines, name,
                            ' '.join(desc.split()), kind, idea or '', spread]) + '\n')
 
 
+def _info_of(c, source):
+    """the contract's info numbers found in an evaluator's output ("NAME: value", the last one of each): the absolute values
+    behind a metric that is a ratio. Recorded and shown with the run, never judged; a missing one is simply not there"""
+    out = {}
+    for name in c.get('info') or []:
+        got = re.findall(rf"^\s*{re.escape(name)}\s*:\s*{NUMBER}\s*$", source or '', re.MULTILINE)
+        if got:
+            out[name] = float(got[-1])
+    return out
+
+
+def _info_text(info):
+    return ', '.join(f"{k} {format(v, '.6g')}" for k, v in (info or {}).items())
+
+
+def _drift(c, st, info, than):
+    """how far the reference arm of this run is from the reference of the attempt it is compared with (a fraction), or None.
+    A ratio against a reference that moved between two runs compares two different things"""
+    ref = c.get('reference')
+    old = next((a.get('info') or {} for a in st['attempts'] if than and a['n'] == than.get('n')), {})
+    if not ref or ref not in (info or {}) or not old.get(ref):
+        return None
+    return (info[ref] - old[ref]) / abs(old[ref])
+
+
 def _built_mark(d, work):
     """the sha of the program the last kernel build in this worktree compiled"""
     return Path(d) / 'runs' / f'built-{Path(work).name}.sha'
+
+
+DRIFT_SAY = 0.02          # a reference arm that moved this much since the compared run is said on the run's line
 
 
 def stop_early(values, repeats, loses):
@@ -863,8 +953,8 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         if code == 0:
             mark.write_text(sha, encoding='utf-8')        # the same program next time needs no forced rebuild
         if code != 0:
-            return None, (say('kernel._measure.build_over_s_killed', v1=c.get('build_s') or 2 * c['budget_s']) if code is None else say('kernel._measure.build_exit', code=code)), \
-                secs, '', [], text
+            return None, (say('kernel._measure.build_over_s_killed', v1=c.get('build_s') or 2 * c['budget_s']) if code is None else
+                          say('kernel._measure.build_exit', code=code) + (f': {_reason(text)}' if _reason(text) else '')), secs, '', [], text
     values, protocol, envs, proved, gvals = [], [], [], [], {g['name']: [] for g in c.get('guards', [])}
     c['_env'] = envs                                      # filled as the repeats go: a crash keeps what was printed
     wants = _shas(Path(work) / c['program']) if env.get('CHATROOM_PROGRAM_SHA') else set()
@@ -889,7 +979,7 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         if code is None:
             return None, say('kernel.word.killed_over', s=2 * c['budget_s']), secs, '', protocol, text
         if code != 0:
-            return None, say('kernel.word.exit_code', code=code), secs, '', protocol, text
+            return None, say('kernel.word.exit_code', code=code) + (f': {_reason(out)}' if _reason(out) else ''), secs, '', protocol, text
         built = re.findall(r'^[ \t]*built[ \t]*:[ \t]*([0-9a-fA-F]{8,64})[ \t]*$', out, re.MULTILINE | re.IGNORECASE)
         want = env.get('CHATROOM_PROGRAM_SHA', '')
         bad = [b for b in built if (c.get('provenance') or len(b) == 64) and not any(w.startswith(b.lower()) for w in wants)]
@@ -910,16 +1000,18 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         if v != v or abs(v) == float('inf'):
             return None, say('kernel._measure.the_metric_is_not'), secs, '', protocol, text
         values.append(v)
-        for g in gvals:
-            got = re.findall(rf"^\s*{re.escape(g)}\s*:\s*{NUMBER}\s*$", source, re.MULTILINE)
-            if len(got) != 1:
-                return None, say('kernel._measure.guard_lines_exactly_one', g=g, len_got=len(got)), secs, '', protocol, text
+        gots = {g: re.findall(rf"^\s*{re.escape(g)}\s*:\s*{NUMBER}\s*$", source, re.MULTILINE) for g in gvals}
+        bad_g = [say('kernel._measure.guard_lines_exactly_one', g=g, len_got=len(got)) for g, got in gots.items() if len(got) != 1]
+        if bad_g:                                         # every guard is looked at before the verdict: one report names them all
+            return None, '; '.join(bad_g), secs, '', protocol, text
+        for g, got in gots.items():
             gvals[g].append(float(got[0]))
         if enough and len(values) < c.get('repeats', 1) and stop_early(values, c.get('repeats', 1), enough):
             break                                         # the median can no longer win: the last repeats would only confirm a loss
     value = statistics.median(values)
     spread = f'{min(values):.6g}..{max(values):.6g}' if len(values) > 1 else ''
     c['_guards'] = {g: statistics.median(v) for g, v in gvals.items()}   # read by the caller right after
+    c['_info'] = _info_of(c, source)
     c['_values'] = values
     c['_built'] = (bool(proved) and all(x is True for x in proved)) or next((x for x in proved if isinstance(x, str)), False)
     return value, '', secs, spread, protocol, text
@@ -1214,13 +1306,19 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     _cache_restore(room, c)
     value, why, secs, spread, protocol, text = _measure(c, work, d, n, env, log, started, loses)
     guards = c.pop('_guards', {}) if value is not None else {}
+    info = c.pop('_info', {}) if value is not None else {}
     env_lines, built_ok, values = c.pop('_env', [])[:12], c.pop('_built', False), c.pop('_values', [])
     base_g = (st.get('baseline') or {}).get('guards') or {}
     if value is not None and kind == 'attempt' and not first:
+        broken = []                                       # all the guards, not the first one that breaks
         for g in c.get('guards', []):
-            if g['name'] in base_g and _guard_broken(g, guards[g['name']], base_g[g['name']]):
-                value, why = None, (say('kernel._evaluate.guard_median_worse_than', name=g['name'], v2=format(guards[g['name']], '.6g'), v3=format(base_g[g['name']], '.6g'), tol=g['tol']))
-                break
+            if _guard_broken(g, guards[g['name']], base_g.get(g['name'])):
+                if g['tol'].startswith('abs='):
+                    broken.append(say('kernel._evaluate.guard_beyond_limit', name=g['name'], v2=format(guards[g['name']], '.6g'), limit=g['tol'][4:]))
+                else:
+                    broken.append(say('kernel._evaluate.guard_median_worse_than', name=g['name'], v2=format(guards[g['name']], '.6g'), v3=format(base_g[g['name']], '.6g'), tol=g['tol']))
+        if broken:
+            why, value = '; '.join(broken), None
     proto = ' | '.join(protocol)
     if value is not None and kind == 'attempt' and st.get('protocol') is not None and proto != st['protocol']:
         value, why = None, say('kernel._evaluate.the_evaluation_protocol_changed', proto=proto[:120], protocol=st['protocol'][:120])
@@ -1274,7 +1372,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': kind, 'idea': idea,
                'state': 'committed', 'parent_n': (w.get('best') or {}).get('n'), 'desc': desc, 'lines': lines,
                'added': len(added), 'readded': readded, 'tuning': tuning, 'spread': spread, 'of': of, 'seed': seed,
-               'guards': guards, 'fix': fix, 'env': env_lines, 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
+               'guards': guards, 'info': info, 'fix': fix, 'env': env_lines, 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
         s2['attempts'].append(rec)
         if kind == 'attempt':
             s2['evals'] = n
@@ -1330,6 +1428,11 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     if kind == 'attempt' and status == 'keep' and s3['best']:     # a keep beats the line's best; the global best wants min_gain more
         flags += (say('kernel._evaluate.new_global_best') if s3['best']['n'] == n else
                   say('kernel._evaluate.line_keep', best=s3['best']['n'], metric=f"{s3['best']['metric']:.6g}", gain=c.get('min_gain') or '0'))
+    drift = _drift(c, st, info, line_best) if kind == 'attempt' and not first else None
+    if info:                                              # the absolute values, and a reference that moved since the run it competes with
+        flags += say('kernel._evaluate.info', items=_info_text(info))
+    if drift is not None and abs(drift) >= DRIFT_SAY:
+        flags += say('kernel._evaluate.reference_drift', name=c['reference'], pct=f'{100 * drift:+.1f}', n=line_best['n'])
     line = (say('kernel._evaluate.att_by', n=n, kind=kind, name=name, desc=desc[:100], metric=c['metric'], v6='—' if value is None else f'{value:.6g}')
             + (f' ({spread})' if spread else '') + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
             + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' else ''))
@@ -1747,12 +1850,15 @@ def hold(room, by, minutes, reason, for_room=None):
     if not (0 < minutes <= top):
         raise ValueError(say('kernel.hold.minutes_how_long_more', top=top))
     other = _gpu_hold(room)
-    if other and other['by'] != by:
-        raise ValueError(say('kernel.hold.the_gpu_is_already', by=other['by'], reason=other['reason']))
+    if for_room and for_room in room.config().get('participants', []):   # --for NAME: the next turn on the GPU is NAME's
+        return _hold_reserve(room, by, for_room, other, reason, minutes)
+    if other and other['by'] != by:                       # held by someone else: a place in the line, not a refusal to retry
+        return _hold_enqueue(room, by, minutes, reason, other)
     if _run_alive(room):
         raise ValueError(say('kernel.hold.a_run_is_in'))
     if for_room:                                          # a window for another room on the same GPU: this room's runs wait
         reason = say('kernel.hold.window_for', room=for_room) + reason
+    _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != by]))   # it holds now: no second place in the line
     from inbox import processes
     h = {'by': by, 'reason': reason, 'until': time.time() + minutes * 60, 'pid': None, 'for': for_room,
          'before': sorted(processes())}               # what ran before it: at release, what it left behind is told apart
@@ -1762,18 +1868,122 @@ def hold(room, by, minutes, reason, for_room=None):
     return say('kernel.hold.gpu_held_by_for', by=by, v2=format(minutes, 'g'), reason=reason[:160])
 
 
+HOLD_RESERVE_MIN = 15                                      # how long a reserved turn waits for its agent before the line moves on
+
+
+def _holdq(room):
+    try:
+        return json.loads((_dir(room) / 'holdq.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+
+
+def _holdq_edit(room, fn):
+    """read, change and write the line for the GPU under the room's lock (the same one as the runs' queue)"""
+    from chat import write_atomic
+
+    def run():
+        q = _holdq(room)
+        out = fn(q)
+        write_atomic(_dir(room) / 'holdq.json', json.dumps(q, ensure_ascii=False))
+        return out
+    return room.locked(run)
+
+
+def _hold_enqueue(room, by, minutes, reason, other):
+    """the GPU is held by someone else: by takes a place in the line (one place per agent, its latest ask), and the runner
+    that keeps watching hands it over when it is free; the new holder is tagged on the board"""
+    entry = {'by': by, 'minutes': minutes, 'reason': reason, 'ts': time.time()}
+
+    def add(q):
+        old = next((x for x in q if x['by'] == by), None)
+        if old:
+            entry['ts'] = old['ts']                       # asking again keeps the place
+        q[:] = [x for x in q if x['by'] != by] + [entry]
+        q.sort(key=lambda x: x['ts'])
+        return [x['by'] for x in q].index(by) + 1
+    pos = _holdq_edit(room, add)
+    _log(room, by, 'hold-queued', dict(entry, behind=other['by']))
+    _queue_runner(room)
+    return say('kernel.hold.queued', by=by, pos=pos, holder=other['by'], reason=other['reason'][:80])
+
+
+def _hold_reserve(room, by, name, other, reason, minutes):
+    """hold --for NAME: the next turn on the GPU is NAME's. Free now: NAME's turn starts, kept for HOLD_RESERVE_MIN minutes
+    for NAME to claim; held by `by` (or the lead asks): it passes to NAME at the release, ahead of the line"""
+    if name == by:
+        raise ValueError(say('kernel.hold.reserve_self'))
+    if other and other['by'] != by and by not in room.user_names():
+        raise ValueError(say('kernel.hold.reserve_not_holder', by=other['by']))
+    if other:
+        other['reserve_next'] = name
+        from chat import write_atomic
+        write_atomic(_dir(room) / 'gpu.hold', json.dumps(other))
+        _log(room, by, 'hold-reserve', {'for': name, 'held_by': other['by']})
+        return say('kernel.hold.reserved_next', name=name, holder=other['by'])
+    if _run_alive(room):
+        raise ValueError(say('kernel.hold.a_run_is_in'))
+    _hold_give(room, by, name, reserved=True, reason=reason)
+    return say('kernel.hold.reserved_now', name=name, minutes=HOLD_RESERVE_MIN)
+
+
+def _hold_give(room, giver, name, reserved=False, reason='', minutes=None):
+    """the GPU passes to name: a reserved turn (HOLD_RESERVE_MIN to claim) or the hold name asked for in the line"""
+    from inbox import processes
+    from chat import write_atomic
+    mins = HOLD_RESERVE_MIN if reserved else float(minutes)
+    h = {'by': name, 'reason': say('kernel.hold.reserved_reason', by=giver) if reserved else reason, 'until': time.time() + mins * 60,
+         'pid': None, 'for': None, 'before': sorted(processes()), 'reserved': reserved}
+    write_atomic(_dir(room) / 'gpu.hold', json.dumps(h))
+    _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != name]))
+    _log(room, giver, 'hold-give', {'to': name, 'reserved': reserved, 'minutes': mins})
+    lead = (room.config().get('self_names') or ['LEAD'])[0]
+    room.append(lead, f"@{name} " + say('kernel.hold.yours', minutes=format(mins, 'g'), reserved=say('kernel.word.reserved') if reserved else ''), 'board')
+
+
+def _hold_promote(room):
+    """the GPU is free (no hold, no run): the first in the line takes it, unless a queued run is older and goes first.
+    The name that took it, or ''"""
+    def go(q):
+        if not q or _gpu_hold(room) or _run_alive(room) or _state(room)[1].get('pending'):
+            return ''
+        q.sort(key=lambda x: x['ts'])
+        c, st = _state(room)
+        done = {f"att-{a['n']}" for a in st['attempts']}
+        runs = [x['ts'] for x in _queue(room) if not x.get('after') or x['after'] in done]
+        if runs and min(runs) < q[0]['ts']:
+            return ''
+        return q[0]
+    first = _holdq_edit(room, go)
+    if not first:
+        return ''
+    _hold_give(room, 'KERNEL', first['by'], reason=first['reason'], minutes=first['minutes'])
+    return first['by']
+
+
 def release(room, by):
     h = _gpu_hold(room)
+    if by in [x['by'] for x in _holdq(room)] and not (h and h['by'] == by):   # not the holder, only waiting: it leaves the line
+        _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != by]))
+        _log(room, by, 'hold-left-line', {})
+        return say('kernel.release.left_the_line')
     if not h:
         (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
-        return say('kernel.release.the_gpu_is_free')
+        nxt = _hold_promote(room)
+        return say('kernel.release.the_gpu_is_free') + (say('kernel.release.next', name=nxt) if nxt else '')
     if h['by'] != by and by not in room.user_names():
         raise ValueError(say('kernel.release.the_gpu_is_held', by=h['by']))
     (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
     _log(room, by, 'release', {'held_by': h['by']})
     left = strays(room) + _orphans_since(h.get('before'))
+    nxt = ''
+    if h.get('reserve_next'):
+        _hold_give(room, h['by'], h['reserve_next'], reserved=True)
+        nxt = h['reserve_next']
+    else:
+        nxt = _hold_promote(room)
     return say('kernel.release.gpu_released_by_held', by=by, by_=h['by'], reason=h['reason'][:120]) + (
-        say('kernel.word.strays', items=', '.join(left[:6])) if left else '')
+        say('kernel.word.strays', items=', '.join(left[:6])) if left else '') + (say('kernel.release.next', name=nxt) if nxt else '')
 
 
 def _detach(argv, **kw):
@@ -1893,13 +2103,14 @@ def run_queue(room, poll=15):
                         q.remove(x)
                         room.append(lead, say('kernel.queue.dropped', by=x['by'], desc=x['desc'][:80]), 'board')
                 if not q:
-                    return 'empty'
+                    return None if _holdq(room) else 'empty'   # a line for the GPU keeps the runner: it hands the GPU over, expiries included
                 ready = next((x for x in q if not x.get('after') or x['after'] in done), None)
                 held = _gpu_hold(room)
                 if not ready or _run_alive(room) or st.get('pending') or (held and held['by'] != ready['by']):
                     return None
                 q.remove(ready)
                 return ready
+            _hold_promote(room)
             ready = _queue_edit(room, take)
             if ready == 'empty':
                 return
@@ -2136,6 +2347,38 @@ def seal(room, by, sealed=(), stay=False):
     return _locked(room, c, by, lambda: _seal(room, by, sealed, stay))
 
 
+def reseal(room, by, reason):
+    """the lead reopens the drafting to correct a measuring instrument found faulty after the baseline (a check that kills
+    honest gains, a wrong reference): the research goes back to phase 1 with its history. Every run so far is stamped with
+    its era (measured with the old instrument) and keeps its number, its tag and its row; best and baseline are cleared, so
+    the evaluator can be amended; then the usual gates apply again: a smoke, the auditor's verdict on it, the seal, a new
+    baseline. Before this the only way was to move the research folder away and start over"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.reseal.only_the_lead'))
+    if not (reason or '').strip():
+        raise ValueError(say('kernel.reseal.say_why'))
+    c, st = _state(room)
+    if st['phase'] != 2:
+        raise ValueError(say('kernel.reseal.phase', phase=st['phase'], name=phase_name(st['phase'])))
+    if _run_alive(room) or _queue(room):
+        raise ValueError(say('kernel.reseal.runs_first'))
+
+    def apply(c2, s2):
+        era = int(s2.get('era', 1))
+        old = [a for a in s2['attempts'] if 'era' not in a]
+        for a in old:
+            a['era'] = era
+        s2.setdefault('reseals', []).append({'by': by, 'reason': ' '.join(reason.split())[:400], 'ts': time.time(), 'era': era,
+                                             'best': s2.get('best'), 'baseline': s2.get('baseline'), 'runs': len(old)})
+        s2.update(era=era + 1, phase=1, best=None, baseline=None, smoke_ok=None, wait_go=False)
+        for w in s2['workers'].values():
+            w['best'] = None
+        return era, len(old)
+    era, runs = _edit(room, apply)
+    _log(room, by, 'reseal', {'reason': reason, 'era': era, 'runs': runs})
+    return say('kernel.reseal.done', by=by, era=era, runs=runs, reason=' '.join(reason.split())[:200], program=c['program'], tag=c.get('tag', ''))
+
+
 def _seal(room, by, sealed, stay=False):
     c, st = _state(room)
     if st['phase'] != 1:
@@ -2150,6 +2393,9 @@ def _seal(room, by, sealed, stay=False):
     later = [a['n'] for a in st['attempts'] if a['kind'] == 'smoke' and a['n'] > smoke['n']]
     if later:
         raise ValueError(say('kernel._seal.the_last_good_smoke', n=smoke['n'], later=later[-1]))
+    unseen = [g['name'] for g in c.get('guards', []) if g['name'] not in (smoke.get('guards') or {})]
+    if unseen:                                            # a guard added after the smoke: its evaluator may never print it, and every run would die
+        raise ValueError(say('kernel._seal.guard_never_printed', names=', '.join(unseen), n=smoke['n']))
     commit = _git(work, 'rev-parse', smoke['commit'])
     drafter = st['workers'].get(smoke.get('worker')) or {}
     if drafter.get('work') and Path(drafter['work']).is_dir():   # what is sealed is what the last smoke ran: nothing after it
@@ -2193,6 +2439,7 @@ def _seal(room, by, sealed, stay=False):
     _edit(room, apply)
     _log(room, by, 'seal', {'commit': commit, 'sealed': list(seals)})
     return say('kernel._seal.sealed_by_at_phase', by=by, commit=commit[:7], v3=', '.join(seals) or say('kernel.word.no_files')) + dry + (
+        say('kernel._seal.python', py=resolved_python())) + (
         say('kernel._seal.waits_for_go') if stay else '')
 
 
@@ -2497,6 +2744,29 @@ def detectors(c, st):
     return out
 
 
+def _next_constraints(c, st):
+    """the rules that will refuse the next step, with where the room stands on each: so a plan is made once, not
+    rediscovered one refusal at a time. One line per rule, only the ones that apply to this phase"""
+    phase, out = st['phase'], []
+    if phase == 1:
+        out.append(say('kernel.status.next_seal', guards=', '.join(g['name'] for g in c.get('guards', [])) or '-'))
+    if phase == 2:
+        r = _round(st)
+        out.append(say('kernel.status.next_runs', n=st['evals'], max=c['max_evals']))
+        out.append(say('kernel.status.next_round', k=r['k'], done=st['evals'] - r['start'], max=r['max']) if r else
+                   say('kernel.status.next_round_none') if st.get('rounds') else say('kernel.status.next_round_auto', max=c.get('round_max') or ROUND_MAX))
+        if c.get('roles'):
+            out.append(say('kernel.status.next_evidence', S_MAX=S_MAX, items=', '.join(f"{k} {w.get('since_evidence', 0)}/{S_MAX}" for k, w in st['workers'].items() if k != '_main') or '-'))
+        recent = [a['family'] for a in st.get('assigns', [])[-4:]]
+        if recent:
+            out.append(say('kernel.status.next_family', items=', '.join(recent)))
+    if phase == 3:
+        out.append(say('kernel.status.next_kinds', kinds=', '.join(AUX_KINDS)))
+    if phase in (1, 2):
+        out.append(say('kernel.status.next_amend_open') if st.get('best') is None else say('kernel.status.next_amend_closed'))
+    return say('kernel.status.next_title') + '\n' + '\n'.join('- ' + x for x in out) if out else ''
+
+
 def status(room):
     reap(room)
     c, st = _state(room)
@@ -2516,6 +2786,16 @@ def status(room):
     left = [] if _run_alive(room) else strays(room)
     if left:
         head += say('kernel.word.strays', items=', '.join(left[:6]))
+    if c.get('guards'):                                   # the limit each guard enforces now, not only its tolerance
+        base_g = (st.get('baseline') or {}).get('guards') or {}
+        head += say('kernel.status.guards', items='; '.join(_guard_line(g, base_g.get(g['name'])) for g in c['guards']))
+    if c.get('info'):                                     # the absolute values of the best and of the baseline, next to the ratio
+        for label, ref in ((say('kernel.word.best'), st.get('best')), ('baseline', st.get('baseline'))):
+            got = next((a.get('info') for a in st['attempts'] if ref and a['n'] == ref.get('n')), None)
+            if got:
+                head += say('kernel.status.info', label=label, n=ref['n'], items=_info_text(got))
+    if st.get('reseals'):                                 # the runs of an earlier era were measured with another instrument
+        head += say('kernel.status.era', era=st.get('era', 1), runs=sum(1 for a in st['attempts'] if 'era' in a), reason=st['reseals'][-1]['reason'][:120])
     base = st.get('baseline') and next((a for a in st['attempts'] if a['n'] == st['baseline']['n']), None)
     if base and len(base.get('values') or []) >= 2 and best and best['n'] != base['n']:
         sigma = statistics.stdev(base['values'])               # report only: the keep rule stays the contract's
@@ -2545,14 +2825,24 @@ def status(room):
     for a in st.get('amends', []):
         head += say('kernel.word.amend_line', ts=a['ts'], by=a['by'], after_run=a['after_run'], what=a['what'], reason=a['reason'])
     held = _gpu_hold(room)
-    if held:
+    if held and held.get('reserved'):
+        head += say('kernel.status.gpu_reserved', by=held['by'], time=time.strftime('%H:%M', time.localtime(held['until'])))
+    elif held:
         head += (say('kernel.status.gpu_held_by', by=held['by'], reason=held['reason']) + (say('kernel.status.pid_log', pid=held['pid'], get=held.get('log')) if held.get('pid')
                  else say('kernel.word.until', time=time.strftime('%H:%M', time.localtime(held['until'])))))
+        if held.get('reserve_next'):
+            head += say('kernel.status.gpu_next', name=held['reserve_next'])
+    hq = _holdq(room)
+    if hq:
+        head += say('kernel.status.hold_line', items='; '.join(f"{i}. {x['by']} ({x['reason'][:40]})" for i, x in enumerate(hq, 1)))
     r = _round(st)
     if st['phase'] == 2 and (r or st.get('rounds')):
         head += '\n' + (say('kernel.round.status', k=r['k'], stage=stage(st, r), goal=r['goal'] or '-') if r else
                         say('kernel.round.none_open', k=st['rounds'][-1]['k'], decision=st['rounds'][-1].get('decision')))
     lines = [head]
+    nxt = _next_constraints(c, st)
+    if nxt:
+        lines.append(nxt)
     if len(st['workers']) > 1 or '_main' not in st['workers']:
         last = {k: max((a.get('ts', 0) for a in st['attempts'] if a.get('worker') == k), default=0) for k in st['workers']}
         waiting = {x['by'] for x in q} | ({st['pending'].get('worker')} if st.get('pending') else set())
@@ -2729,7 +3019,7 @@ def _cmd(room, a):
                           getattr(a, 'build_min', None), getattr(a, 'repeats', None), getattr(a, 'min_gain', None),
                           getattr(a, 'final', None), getattr(a, 'guard', None), getattr(a, 'reason', None),
                           getattr(a, 'provenance', None), getattr(a, 'precheck', None), getattr(a, 'build_dir', None),
-                          getattr(a, 'final_dry', None)))
+                          getattr(a, 'final_dry', None), info=getattr(a, 'info', None), reference=getattr(a, 'reference', None)))
     if act == 'roles':
         return post(roles(room, a.name, rest))
     if act == 'allow-fix' and rest:
@@ -2781,6 +3071,8 @@ def _cmd(room, a):
         return post(verdict(room, a.name, getattr(a, 'phase', None) or data.get('phase', 0), getattr(a, 'outcome', None) or data.get('outcome'),
                             data.get('scores'), data.get('coverage'), data.get('missing'), getattr(a, 'next_intent', None) or data.get('next_intent'),
                             data.get('notes', '')))
+    if act == 'reseal':
+        return post(reseal(room, a.name, getattr(a, 'reason', None)))
     if act == 'seal':
         return post(seal(room, a.name, split(a.sealed), bool(getattr(a, 'stay', False))))
     if act == 'phase':
