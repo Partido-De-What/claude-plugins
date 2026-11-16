@@ -1437,10 +1437,13 @@ class Room:
                 time.sleep(2)
             items = self.messages()
         if idle:
+            import hold                              # the stop hook's rule: a device held is work going, not an empty wait
+            held = hold.device_hold(self, name)
             unread = len([m for m in items if m['n'] > self.cursor(name) and m['from'] != name])
             print(say('chat.say.wait.you_are_idle_since', n=idle["n"], timeout=timeout)
                   + (say('chat.say.wait.new_message_s_not', unread=unread) if unread else '')
-                  + say('chat.say.wait.this_is_not_an', IDLE_WAIT_MAX=self.idle_wait_max(name)))
+                  + (say('chat.say.wait.you_hold_device', left=held) if held else
+                     say('chat.say.wait.this_is_not_an', IDLE_WAIT_MAX=self.idle_wait_max(name))))
         else:
             unread = len([m for m in items if m['n'] > self.cursor(name) and m['from'] != name])
             print(say('chat.say.wait.nothing_for_you_in', timeout=timeout) + (say('chat.say.wait.message_s_for_nobody', unread=unread) if unread else '')
