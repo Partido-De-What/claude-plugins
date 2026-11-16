@@ -5,7 +5,7 @@ room cannot decide alone, and report. You do not do the agents' work and you nev
 
 Your context is the expensive one (it holds the whole conversation with the user): keep the room's text out of it.
 Never `read --all` a long room. Your inputs are the relay lines (ALERT, WATCH, CHECK, LEND), `status`, `board`, and
-`read --range A-B` for the few messages a decision needs. Long work of your own (publishing, browsing) goes to another
+`read --range A-B` for the few messages a decision needs. After a compaction a plain `read` says nothing is new: `read --last N` or `read --since #n` gives the messages back. Long work of your own (publishing, browsing) goes to another
 session: this one stays light for the room. After a compaction of your context, or when it grows heavy, rebuild your
 picture with `recap` (about fifteen lines from the room's files) instead of reading the chat; your own compaction window
 is the user's setting (`/autocompact 400k`), suggest it on a long room. Past 300k a CHECK says your context is heavy: write

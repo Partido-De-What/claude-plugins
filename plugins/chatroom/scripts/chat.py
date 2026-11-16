@@ -3189,8 +3189,11 @@ def write_agents_md(room):
 # ---------------------------------------------------------------------- the MCP server
 MCP_TOOLS = [
     {'name': 'chat_read', 'description': 'The new messages of the room. focus=true (default): in full only what concerns you, the rest as a digest. '
-                                         'range "A-B": those messages in full (your place moves on only if they are the next unread ones).',
+                                         'range "A-B": those messages in full (your place moves on only if they are the next unread ones). '
+                                         'last N or since #n: the last N messages, or all after #n, in full (after a compaction).',
      'inputSchema': {'type': 'object', 'properties': {'focus': {'type': 'boolean'}, 'range': {'type': 'string'},
+                                                      'last': {'type': 'integer', 'description': 'the last N messages in full'},
+                                                      'since': {'type': 'string', 'description': 'every message after #n, in full'},
                                                       'ack': {'type': 'integer', 'description': 'agree with message #ack without writing a message'}}}},
     {'name': 'chat_post', 'description': 'Post in the room: a message (if it returns pings to send, send them), or a status (status=true, '
                                          'with the percentage, or state as JSON), an idle status (external=true: you wait for a run or '
@@ -3319,8 +3322,10 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 if args.get('ack'):
                     ns.pairs = [str(args['ack'])]
                     cmd_ack(room, ns)
-                elif args.get('range'):
-                    first, _, last = str(args['range']).partition('-')
+                elif args.get('range') or args.get('last') or args.get('since'):
+                    top = max((m['n'] for m in room.messages()), default=0)
+                    span = args.get('range') or (f"{max(1, top - int(args['last']) + 1)}-{top}" if args.get('last') else f"{int(str(args['since']).strip().lstrip('#')) + 1}-{top}")
+                    first, _, last = str(span).partition('-')
                     room.read_range(int(first.strip().lstrip('#')), int((last or first).strip().lstrip('#')), name)
                 else:
                     idle_note(room, name)
@@ -5901,6 +5906,8 @@ def main():
     p.add_argument('--key', help='post: an idempotency key; a retry with the same key does not post a second copy')
     p.add_argument('--upto', type=int, help='delivered: the session of --as has taken in the messages up to #N (the monitor and the hooks write it)')
     p.add_argument('--range', help='read: messages A-B in full (with --as your place moves on only if they are the next unread ones)')
+    p.add_argument('--last', type=int, help='read: the last N messages in full (after a compaction, when a plain read says nothing is new)')
+    p.add_argument('--since', help='read: every message after #n in full')
     p.add_argument('--map', action='store_true', help='look: also the map of the office (zones, free places, people)')
     p.add_argument('--focus', action='store_true', help='read, wait: in full only what concerns you, the rest as a one-line digest per author')
     p.add_argument('--port', type=int, default=8765)
@@ -5952,6 +5959,12 @@ def main():
         room = common_room(room)
     if a.command == 'read' and a.all:
         return room.show(room.messages())
+    if a.command == 'read' and (a.last or a.since) and not a.range:
+        top = max((m['n'] for m in room.messages()), default=0)
+        try:
+            a.range = f"{max(1, top - a.last + 1)}-{top}" if a.last else f"{int(a.since.strip().lstrip('#')) + 1}-{top}"
+        except ValueError:
+            sys.exit(say('chat.err.main.range_a_b_two'))
     if a.command == 'read' and a.range:               # no --as needed: then nobody's place moves
         first, _, last = a.range.partition('-')
         try:
