@@ -44,6 +44,7 @@ ok('the relay printed the tagged message', 'decision' in out, out)
 rec = chat.read_json(room / 'relay_sent_LEAD.json', None)
 ok('a hand-over record names the message and the lines', isinstance(rec, dict) and rec.get('upto') == n and any('decision' in x for x in rec.get('lines', [])), rec)
 ok('delivered is marked at the hand-over', r.delivered('LEAD') == n, r.delivered('LEAD'))
+os.utime(room / 'relay_sent_LEAD.json')            # a slow machine must not make 'at once' late
 r.count('LEAD', 'read')                              # at once: not yet a sign of reading
 ok('a command in the same second does not confirm', (room / 'relay_sent_LEAD.json').exists())
 time.sleep(chat.RELAY_CONFIRM_S + 1)
