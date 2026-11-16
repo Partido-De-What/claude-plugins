@@ -177,6 +177,9 @@ il suo worktree in un processo staccato (un reaper in background della sessione 
 mai le misure di un altro worker. L'output della build va in una cartella `--keep`. `research status` mostra come è
 finito (codice di uscita, log).
 
+(Un contratto la cui risorsa scarsa non è una GPU lo dice con `research init --resource NOME`: ogni testo di blocco, coda
+e rilascio la nomina. L'avviso "ancora vivi" elenca ogni processo con di chi è e la sua età, e lascia fuori i piccoli
+strumenti della shell.)
 La GPU fuori dalle corse (un profilo, un microbenchmark, il controllo dell'auditor): `research hold --minutes 20 --reason "..."`
 e poi `research release`. Mentre il blocco della GPU è attivo, solo chi lo tiene può fare evaluate. Qualsiasi agente può
 prenderlo, e `research status` lo mostra. Un agente lo tiene al massimo 120 minuti, il lead 720. Due stanze research su una

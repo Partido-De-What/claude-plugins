@@ -585,5 +585,49 @@ if section('K18'):                                                    # the eval
     c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
     ok('K18 the real baseline is still att-1', c == 0 and 'att-1' in o and 'KEEP' in o, o)
 
+# ---------------------------------------------------------------------------------------------------------------- H3
+if section('H3'):                                                     # the "still running" warning: whose it is, how old, no shell tools
+    room, repo, work = research_room('h3')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    keep = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+    tool = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+    try:
+        (room / 'research' / 'runs' / 'pids-1.txt').write_text(f'{keep.pid} python\n{tool.pid} sleep\n', encoding='utf-8')
+        time.sleep(1.2)
+        c, o = run(room, 'research', 'status', '--as', 'LEAD')
+        ok('H3 a process the evaluator left is named with its run author and age', f'python {keep.pid} (of W, ' in o and 'min old)' in o, o)
+        ok('H3 a shell tool (sleep) is not a stray', f'sleep {tool.pid}' not in o, o)
+        ok('H3 exactly one process is listed (the tool is out)', o.count(' min old)') == 1, o)
+    finally:
+        keep.kill(); tool.kill(); keep.wait(); tool.wait()
+
+# ---------------------------------------------------------------------------------------------------------------- H4
+if section('H4'):                                                     # the hold texts name the contract's resource, a long reason says it was cut
+    long_reason = 'profile the kernel ' + 'x' * 160
+    room, repo, work = research_room('h4', extra=['--resource', 'camera rig'])
+    c, o = run(room, 'research', 'hold', '--minutes', '5', '--reason', long_reason, '--as', 'W')
+    ok('H4 the hold text names the resource, not the GPU', c == 0 and 'camera rig held by W' in o and 'GPU' not in o, o)
+    c, o = run(room, 'research', 'release', '--as', 'W')
+    full = research.hold(chat.Room(str(room)), 'W', 5, long_reason)           # the returned text itself (the CLI shortens a long line again)
+    ok('H4 a long reason is cut with an ellipsis', 'xxx…' in full and long_reason not in full, full)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H4 status names it too', 'camera rig held by W' in o and 'GPU' not in o, o)
+    c, o = run(room, 'research', 'release', '--as', 'W')
+    ok('H4 release names it', 'camera rig released' in o and 'GPU' not in o, o)
+    c, o = run(room, 'research', 'hold', '--minutes', '5', '--reason', 'short', '--as', 'LEAD')
+    c, o = run(room, 'research', 'hold', '--minutes', '5', '--reason', 'second', '--as', 'W')
+    ok('H4 the line for it', 'in the line for the camera rig' in o, o)
+    run(room, 'research', 'release', '--as', 'LEAD')                    # the line is emptied: its runner has nothing to keep and ends
+    run(room, 'research', 'release', '--as', 'W')
+    room2, repo2, work2 = research_room('h4b')
+    c, o = run(room2, 'research', 'hold', '--minutes', '5', '--reason', 'plain', '--as', 'W')
+    ok('H4 without --resource the word stays GPU', 'GPU held by W' in o, o)
+    try:
+        research_room('h4c', extra=['--resource', 'bad/name!'])
+        refused = ''
+    except AssertionError as e:
+        refused = str(e)
+    ok('H4 a bad resource name is refused', '--resource' in refused, refused)
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)

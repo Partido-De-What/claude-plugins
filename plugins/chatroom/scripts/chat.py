@@ -6085,6 +6085,7 @@ def _main():
     p.add_argument('--reference', help='research amend: the --info number that is the reference arm measured in every run; a run whose reference moved since the one it competes with says so')
     p.add_argument('--min-gain', dest='min_gain', help='research init/amend: how much a keep must beat the best by (a number or N%%)')
     p.add_argument('--idea', help='research assign/evaluate: the idea (I-number) a cycle or a run works on')
+    p.add_argument('--resource', help='research init: the name of the one resource runs and holds queue for, in every text of the kernel (default GPU)')
     p.add_argument('--class', dest='cls', help='research evaluate/queue/shelve: the class of the run or of the shelved idea (a short word), kept in its record')
     p.add_argument('--level', help='research evaluate/queue/shelve: the level of the run or of the shelved idea (a short word or number)')
     p.add_argument('--value', help='research shelve: the number the shelved idea was worth (summed per class in research shelved)')

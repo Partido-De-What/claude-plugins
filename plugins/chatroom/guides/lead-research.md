@@ -168,6 +168,9 @@ a detached process (a session's background reaper cannot kill it), with the log 
 no evaluate starts until it exits, so a build never disturbs another worker's measures. The build output goes in a
 `--keep` folder. `research status` shows how it ended (exit code, log).
 
+(A contract whose scarce resource is not a GPU says so with `research init --resource NAME`: every hold, line and release
+text then names it. The "still running" warning lists each process with whose it is and its age, and leaves out a
+shell's short tools.)
 The GPU outside the runs (a profile, a microbenchmark, the auditor's check): `research hold --minutes 20 --reason "..."`
 then `research release`; while it holds, only the holder may evaluate. Any agent can take it, and `research status`
 shows it. An agent holds it at most 120 minutes, the lead 720. Two research rooms on one GPU: `--for ROOM` gives the other

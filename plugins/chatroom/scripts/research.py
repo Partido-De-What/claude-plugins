@@ -68,6 +68,20 @@ def _dir(room):
     return (room.dir / 'research').resolve()          # absolute: git commands run in other folders
 
 
+def _res(room):
+    """H4: what the contract calls the one resource the runs and the holds queue for (--resource; the GPU when it says nothing)"""
+    try:
+        return _load(room, 'contract.json').get('resource') or 'GPU'
+    except ValueError:
+        return 'GPU'
+
+
+def _clip(text, n):
+    """H4: a reason cut to n characters says so (an ellipsis), not silently"""
+    text = str(text)
+    return text if len(text) <= n else text[:n - 1].rstrip() + '…'
+
+
 def _git(cwd, *args, check=True, ident=None):
     """git with file names unquoted (modèle.py stays modèle.py), none of the repository's hooks (pre-commit, post-commit,
     post-checkout...) and, for the kernel's commits, an identity of its own and no signing"""
@@ -351,7 +365,7 @@ def _better(c, value, than):
 # ---------------------------------------------------------------------------------------------------------- contract
 def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, max_evals=100, repo='.', sealed=(), tag=None,
          result_file=False, keep=(), draft=False, final=None, build=None, build_min=None, repeats=1, min_gain=None, guards=None,
-         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None, artifacts=None):
+         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None, artifacts=None, resource=None):
     """the lead or the user writes the contract: which file changes, how it is built and evaluated, what is sealed, the
     budget, how noise is handled. --draft starts at phase 1 (the evaluator is still being written, sealed later)"""
     if by not in room.user_names():
@@ -372,6 +386,8 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
         raise ValueError(say('kernel.init.min_gain_a_number'))
     if build_min is not None and not (0 < float(build_min) <= 1440):
         raise ValueError(say('kernel.init.build_min_the_minutes'))
+    if resource is not None and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,23}', str(resource).strip()):
+        raise ValueError(say('kernel.init.resource_name'))
     guards = parse_guards(guards)
     task = _dir(room) / 'task.md'
     if not task.is_file() or not task.read_text(encoding='utf-8', errors='replace').strip():
@@ -429,7 +445,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
                 'build': build or '', 'build_s': max(1, int(float(build_min) * 60)) if build_min else 0,
                 'repeats': int(repeats or 1), 'min_gain': str(min_gain) if min_gain is not None else '', 'roles': {}, 'guards': guards, 'provenance': bool(provenance),
                 'precheck': precheck or '', 'build_dir': _build_dir(room, build_dir), 'final_dry': final_dry or '', 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'round_max': int(round_max or ROUND_MAX), 'artifacts': artifacts}
+                'round_max': int(round_max or ROUND_MAX), 'artifacts': artifacts, 'resource': (resource or '').strip()}
     _save(room, 'contract.json', contract)
     st = _migrate(contract, {'evals': 0, 'best': None, 'head': base, 'pending': None, 'phase': 1 if draft else 2})
     _save(room, 'state.json', st)
@@ -1127,7 +1143,7 @@ def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, ex
     _release_fallen(room)
     held = _gpu_hold(room)
     if held and held['by'] != name:
-        raise ValueError(say('kernel.evaluate.the_gpu_is_held', by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
+        raise ValueError(say('kernel.evaluate.the_gpu_is_held', res=_res(room), by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
     return _locked(room, c, name, lambda: _evaluate(room, name, desc, idea, kind, of, seed, extra_env, cls, level))
 
 
@@ -1138,7 +1154,7 @@ def dry_eval(room, name, worker=None, evaluate_cmd=None):
     _need(room, c, name, 'WORKER')
     held = _gpu_hold(room)
     if held and held['by'] != name:
-        raise ValueError(say('kernel.evaluate.the_gpu_is_held', by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
+        raise ValueError(say('kernel.evaluate.the_gpu_is_held', res=_res(room), by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
     key, wk = _worker(st, worker or name)
     work = _check_work(c, wk)
     if not (c.get('evaluate') or evaluate_cmd):
@@ -2000,7 +2016,7 @@ def hold(room, by, minutes, reason, for_room=None):
     evaluate starts while it holds, except the holder's own. It ends at release or after the minutes"""
     c, st = _state(room)
     if not by:
-        raise ValueError(say('kernel.hold.as_name_who_holds'))
+        raise ValueError(say('kernel.hold.as_name_who_holds', res=_res(room)))
     if not reason:
         raise ValueError(say('kernel.hold.say_what_for_reason'))
     minutes = float(minutes or 0)
@@ -2014,7 +2030,7 @@ def hold(room, by, minutes, reason, for_room=None):
     if other and other['by'] != by:                       # held by someone else: a place in the line, not a refusal to retry
         return _hold_enqueue(room, by, minutes, reason, other)
     if _run_alive(room):
-        raise ValueError(say('kernel.hold.a_run_is_in'))
+        raise ValueError(say('kernel.hold.a_run_is_in', res=_res(room)))
     if for_room:                                          # a window for another room on the same GPU: this room's runs wait
         reason = say('kernel.hold.window_for', room=for_room) + reason
     _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != by]))   # it holds now: no second place in the line
@@ -2024,7 +2040,7 @@ def hold(room, by, minutes, reason, for_room=None):
     from chat import write_atomic
     write_atomic(_dir(room) / 'gpu.hold', json.dumps(h))
     _log(room, by, 'hold', h)
-    return say('kernel.hold.gpu_held_by_for', by=by, v2=format(minutes, 'g'), reason=reason[:160])
+    return say('kernel.hold.gpu_held_by_for', res=_res(room), by=by, v2=format(minutes, 'g'), reason=_clip(reason, 160))
 
 
 HOLD_RESERVE_MIN = 15                                      # how long a reserved turn waits for its agent before the line moves on
@@ -2064,7 +2080,7 @@ def _hold_enqueue(room, by, minutes, reason, other):
     pos = _holdq_edit(room, add)
     _log(room, by, 'hold-queued', dict(entry, behind=other['by']))
     _queue_runner(room)
-    return say('kernel.hold.queued', by=by, pos=pos, holder=other['by'], reason=other['reason'][:80])
+    return say('kernel.hold.queued', res=_res(room), by=by, pos=pos, holder=other['by'], reason=_clip(other['reason'], 80))
 
 
 def _hold_reserve(room, by, name, other, reason, minutes):
@@ -2073,17 +2089,17 @@ def _hold_reserve(room, by, name, other, reason, minutes):
     if name == by:
         raise ValueError(say('kernel.hold.reserve_self'))
     if other and other['by'] != by and by not in room.user_names():
-        raise ValueError(say('kernel.hold.reserve_not_holder', by=other['by']))
+        raise ValueError(say('kernel.hold.reserve_not_holder', res=_res(room), by=other['by']))
     if other:
         other['reserve_next'] = name
         from chat import write_atomic
         write_atomic(_dir(room) / 'gpu.hold', json.dumps(other))
         _log(room, by, 'hold-reserve', {'for': name, 'held_by': other['by']})
-        return say('kernel.hold.reserved_next', name=name, holder=other['by'])
+        return say('kernel.hold.reserved_next', res=_res(room), name=name, holder=other['by'])
     if _run_alive(room):
-        raise ValueError(say('kernel.hold.a_run_is_in'))
+        raise ValueError(say('kernel.hold.a_run_is_in', res=_res(room)))
     _hold_give(room, by, name, reserved=True, reason=reason)
-    return say('kernel.hold.reserved_now', name=name, minutes=HOLD_RESERVE_MIN)
+    return say('kernel.hold.reserved_now', res=_res(room), name=name, minutes=HOLD_RESERVE_MIN)
 
 
 def _hold_give(room, giver, name, reserved=False, reason='', minutes=None):
@@ -2097,7 +2113,7 @@ def _hold_give(room, giver, name, reserved=False, reason='', minutes=None):
     _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != name]))
     _log(room, giver, 'hold-give', {'to': name, 'reserved': reserved, 'minutes': mins})
     lead = (room.config().get('self_names') or ['LEAD'])[0]
-    room.append(lead, f"@{name} " + say('kernel.hold.yours', minutes=format(mins, 'g'), reserved=say('kernel.word.reserved') if reserved else ''), 'board')
+    room.append(lead, f"@{name} " + say('kernel.hold.yours', res=_res(room), minutes=format(mins, 'g'), reserved=say('kernel.word.reserved') if reserved else ''), 'board')
 
 
 def _hold_promote(room):
@@ -2132,7 +2148,7 @@ def _release_fallen(room):
     line = release(room, 'KERNEL')
     _log(room, 'KERNEL', 'hold-fell', {'holder': h['by'], 'reason': h['reason'][:120]})
     lead = (room.config().get('self_names') or ['LEAD'])[0]
-    room.append(lead, f"@{h['by']} " + say('kernel.hold.fell', name=h['by'], lead=lead) + line, 'board')
+    room.append(lead, f"@{h['by']} " + say('kernel.hold.fell', res=_res(room), name=h['by'], lead=lead) + line, 'board')
     return h['by']
 
 
@@ -2141,24 +2157,24 @@ def release(room, by):
     if by in [x['by'] for x in _holdq(room)] and not (h and h['by'] == by):   # not the holder, only waiting: it leaves the line
         _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != by]))
         _log(room, by, 'hold-left-line', {})
-        return say('kernel.release.left_the_line')
+        return say('kernel.release.left_the_line', res=_res(room))
     if not h:
         (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
         nxt = _hold_promote(room)
-        return say('kernel.release.the_gpu_is_free') + (say('kernel.release.next', name=nxt) if nxt else '')
+        return say('kernel.release.the_gpu_is_free', res=_res(room)) + (say('kernel.release.next', res=_res(room), name=nxt) if nxt else '')
     if h['by'] != by and by not in room.user_names() and by != 'KERNEL':
-        raise ValueError(say('kernel.release.the_gpu_is_held', by=h['by']))
+        raise ValueError(say('kernel.release.the_gpu_is_held', res=_res(room), by=h['by']))
     (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
     _log(room, by, 'release', {'held_by': h['by']})
-    left = strays(room) + _orphans_since(h.get('before'))
+    left = strays(room) + _orphans_since(h.get('before'), h['by'], room)
     nxt = ''
     if h.get('reserve_next'):
         _hold_give(room, h['by'], h['reserve_next'], reserved=True)
         nxt = h['reserve_next']
     else:
         nxt = _hold_promote(room)
-    return say('kernel.release.gpu_released_by_held', by=by, by_=h['by'], reason=h['reason'][:120]) + (
-        say('kernel.word.strays', items=', '.join(left[:6])) if left else '') + (say('kernel.release.next', name=nxt) if nxt else '')
+    return say('kernel.release.gpu_released_by_held', res=_res(room), by=by, by_=h['by'], reason=_clip(h['reason'], 120)) + (
+        say('kernel.word.strays', items=', '.join(left[:6])) if left else '') + (say('kernel.release.next', res=_res(room), name=nxt) if nxt else '')
 
 
 def _detach(argv, **kw):
@@ -2468,36 +2484,83 @@ def _descendants(pid):
     return {k: procs[k][0] for k in out}
 
 
-def _orphans_since(before):
+STRAY_IGNORE = {'sleep', 'find', 'head', 'cat', 'grep', 'sed', 'awk', 'sort', 'cut', 'tr', 'wc', 'ls', 'echo', 'date', 'git', 'conhost'}   # H3: a shell's short tools are not a server left behind
+
+
+def _born(pid):
+    """when a process started (epoch seconds), or None; shortcut: no /proc (macOS) gives no age"""
+    try:
+        if os.name == 'nt':
+            import ctypes
+            from ctypes import wintypes
+            k = ctypes.windll.kernel32
+            k.OpenProcess.restype = wintypes.HANDLE
+            h = k.OpenProcess(0x1000, False, pid)         # PROCESS_QUERY_LIMITED_INFORMATION
+            if not h:
+                return None
+            t = [wintypes.FILETIME() for _ in range(4)]
+            got = k.GetProcessTimes(wintypes.HANDLE(h), *map(ctypes.byref, t))
+            k.CloseHandle(wintypes.HANDLE(h))
+            return ((t[0].dwHighDateTime << 32 | t[0].dwLowDateTime) / 1e7 - 11644473600) if got else None
+        return os.stat(f'/proc/{pid}').st_mtime
+    except (OSError, AttributeError):
+        return None
+
+
+def _stray_text(name, pid, owner=''):
+    """H3: 'name pid' with whose it is and how long it has lived, when known"""
+    born = _born(int(pid))
+    more = ([say('kernel.stray.owner', who=owner)] if owner else []) + ([say('kernel.stray.age', minutes=f'{max(0, time.time() - born) / 60:.0f}')] if born else [])
+    return f'{name} {pid}' + (f" ({', '.join(more)})" if more else '')
+
+
+def _room_pids(room):
+    """H3: the room's own long-lived processes (the queue runner, the evaluator's lock owner, this one): never a stray"""
+    out = {os.getpid()}
+    for f in ('queue.lock', 'eval.lock'):
+        try:
+            out.add(int((_dir(room) / f).read_text().split()[0]))
+        except (OSError, ValueError, IndexError):
+            pass
+    return out
+
+
+def _orphans_since(before, owner='', room=None):
     """processes born after `before` (a pid list) whose parent is gone, outside the system's folders: a server a profile
-    started from a shell that has ended"""
+    started from a shell that has ended. owner (who held) and the age are said; a shell's short tools and the room's own
+    processes are not"""
     if not before:
         return []
     from inbox import processes
     from chat import pid_alive
     seen, paths = set(before), _exe_paths()
     sysdir = os.path.normcase(os.environ.get('SystemRoot', r'C:\Windows'))
-    return sorted(f'{name} {pid}' for pid, (name, pp) in processes().items()
-                  if pid not in seen and pid != os.getpid() and not pid_alive(pp)
+    mine = _room_pids(room) if room else {os.getpid()}
+    return sorted(_stray_text(name, pid, owner) for pid, (name, pp) in processes().items()
+                  if pid not in seen and pid not in mine and name not in STRAY_IGNORE and not pid_alive(pp)
                   and not os.path.normcase(paths.get(pid, sysdir)).startswith(sysdir))
 
 
 def strays(room):
     """processes still alive whose program lives in a worktree of this research (a server left by a profile or a killed
-    run): listed for the lead, never killed"""
+    run): listed for the lead with whose worktree or run they are and their age, never killed"""
     try:
         c, st = _state(room)
-        dirs = {os.path.normcase(str(Path(w).resolve())) for w in [c['work'], *(x['work'] for x in st['workers'].values())]}
+        dirs = {os.path.normcase(str(Path(w).resolve())): k for k, w in [('', c['work']), *((k, x['work']) for k, x in st['workers'].items())]}
         long = lambda p: os.path.normcase(str(Path(p).resolve()) if '~' in p else p)   # Windows keeps a short name (ADMINI~1) in the image path
-        found = {f'{Path(p).name} {pid}' for pid, p in _exe_paths().items()
-                 if pid != os.getpid() and any(long(p).startswith(d + os.sep) for d in dirs)}
+        mine, found = _room_pids(room), {}
+        for pid, p in _exe_paths().items():
+            who = next((k for d, k in dirs.items() if long(p).startswith(d + os.sep)), None)
+            if who is not None and pid not in mine and Path(p).stem.lower() not in STRAY_IGNORE:
+                found[pid] = _stray_text(Path(p).name, pid, who.strip('_'))
         from chat import pid_alive                        # and what a run's evaluator left behind (runs/pids-N.txt)
+        rows = {r.split('\t')[0]: r.split('\t')[6] for r in (_dir(room) / 'results.tsv').read_text(encoding='utf-8').splitlines()[1:] if r.count('\t') >= 6}
         for f in (_dir(room) / 'runs').glob('pids-*.txt'):
             for line in f.read_text(encoding='utf-8').splitlines():
                 pid, _, name = line.partition(' ')
-                if pid.isdigit() and pid_alive(int(pid)):
-                    found.add(f'{name} {pid}')
-        return sorted(found)
+                if pid.isdigit() and int(pid) not in mine and pid_alive(int(pid)) and name.lower() not in STRAY_IGNORE:
+                    found.setdefault(int(pid), _stray_text(name, pid, rows.get(f.stem[5:], '')))
+        return sorted(found.values())
     except (OSError, ValueError, KeyError, AttributeError):
         return []
 
@@ -2523,7 +2586,7 @@ def neighbours(room):
                 out.append(f"{title}: att-{st['pending']['n']} ({st['pending'].get('by', '?')})")
             h = _gpu_hold(other)
             if h:
-                out.append(f"{title}: hold {h['by']} ({h['reason'][:60]})")
+                out.append(f"{title}: hold {h['by']} ({_clip(h['reason'], 60)})")
         except (OSError, ValueError, KeyError):
             continue
     return out
@@ -2541,7 +2604,7 @@ def prebuild(room, by, worker):
     work = _check_work(c, wk)
     other = _gpu_hold(room)
     if other:
-        raise ValueError(say('kernel.prebuild.the_gpu_is_held', by=other['by'], reason=other['reason']))
+        raise ValueError(say('kernel.prebuild.the_gpu_is_held', res=_res(room), by=other['by'], reason=other['reason']))
     if _run_alive(room):
         raise ValueError(say('kernel.prebuild.a_run_is_in'))
     log = _dir(room) / 'runs' / f'prebuild-{key}.log'
@@ -2826,7 +2889,7 @@ def final(room, by, dry=False):
         raise ValueError(say('kernel.final.no_best_program_to'))
     held = _gpu_hold(room)
     if held and held['by'] != by:
-        raise ValueError(say('kernel.final.the_gpu_is_held', by=held['by'], reason=held['reason']))
+        raise ValueError(say('kernel.final.the_gpu_is_held', res=_res(room), by=held['by'], reason=held['reason']))
     if dry:
         def dry_run():
             secs = _final_dry(room, c, _check_work(c, {'work': c['work'], 'branch': c['branch']}))
@@ -3126,7 +3189,7 @@ def status(room):
                 say('kernel.status.noise_low') if margin < 2 else '')
     near = neighbours(room)
     if near:
-        head += say('kernel.status.neighbours', items='; '.join(near))
+        head += say('kernel.status.neighbours', res=_res(room), items='; '.join(near))
     q = _queue(room)
     if q:
         _queue_runner(room)                               # a runner that died with runs left: started again
@@ -3152,15 +3215,15 @@ def status(room):
         head += say('kernel.word.amend_line', ts=a['ts'], by=a['by'], after_run=a['after_run'], what=a['what'], reason=a['reason'])
     held = _gpu_hold(room)
     if held and held.get('reserved'):
-        head += say('kernel.status.gpu_reserved', by=held['by'], time=time.strftime('%H:%M', time.localtime(held['until'])))
+        head += say('kernel.status.gpu_reserved', res=_res(room), by=held['by'], time=time.strftime('%H:%M', time.localtime(held['until'])))
     elif held:
-        head += (say('kernel.status.gpu_held_by', by=held['by'], reason=held['reason']) + (say('kernel.status.pid_log', pid=held['pid'], get=held.get('log')) if held.get('pid')
+        head += (say('kernel.status.gpu_held_by', res=_res(room), by=held['by'], reason=held['reason']) + (say('kernel.status.pid_log', pid=held['pid'], get=held.get('log')) if held.get('pid')
                  else say('kernel.word.until', time=time.strftime('%H:%M', time.localtime(held['until'])))))
         if held.get('reserve_next'):
             head += say('kernel.status.gpu_next', name=held['reserve_next'])
     hq = _holdq(room)
     if hq:
-        head += say('kernel.status.hold_line', items='; '.join(f"{i}. {x['by']} ({x['reason'][:40]})" for i, x in enumerate(hq, 1)))
+        head += say('kernel.status.hold_line', res=_res(room), items='; '.join(f"{i}. {x['by']} ({_clip(x['reason'], 40)})" for i, x in enumerate(hq, 1)))
     r = _round(st)
     if st['phase'] == 2 and (r or st.get('rounds')):
         head += '\n' + (say('kernel.round.status', k=r['k'], stage=stage(st, r), goal=r['goal'] or '-') if r else
@@ -3334,7 +3397,7 @@ def _cmd(room, a):
                          getattr(a, 'build_min', None), getattr(a, 'repeats', None) or 1, getattr(a, 'min_gain', None),
                          getattr(a, 'guard', None), getattr(a, 'provenance', None), getattr(a, 'precheck', None),
                          getattr(a, 'build_dir', None), getattr(a, 'final_dry', None), getattr(a, 'round', None),
-                         getattr(a, 'artifacts', None)))
+                         getattr(a, 'artifacts', None), getattr(a, 'resource', None)))
     if act == 'round' and rest[:1] == ['open']:
         return post(round_open(room, a.name, getattr(a, 'round', None), a.text or a.desc or ''))
     if act == 'round' and rest[:1] == ['close']:
