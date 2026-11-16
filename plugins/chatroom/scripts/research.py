@@ -1785,12 +1785,15 @@ def hold(room, by, minutes, reason, for_room=None):
     if not (0 < minutes <= top):
         raise ValueError(say('kernel.hold.minutes_how_long_more', top=top))
     other = _gpu_hold(room)
-    if other and other['by'] != by:
-        raise ValueError(say('kernel.hold.the_gpu_is_already', by=other['by'], reason=other['reason']))
+    if for_room and for_room in room.config().get('participants', []):   # --for NAME: the next turn on the GPU is NAME's
+        return _hold_reserve(room, by, for_room, other, reason, minutes)
+    if other and other['by'] != by:                       # held by someone else: a place in the line, not a refusal to retry
+        return _hold_enqueue(room, by, minutes, reason, other)
     if _run_alive(room):
         raise ValueError(say('kernel.hold.a_run_is_in'))
     if for_room:                                          # a window for another room on the same GPU: this room's runs wait
         reason = say('kernel.hold.window_for', room=for_room) + reason
+    _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != by]))   # it holds now: no second place in the line
     from inbox import processes
     h = {'by': by, 'reason': reason, 'until': time.time() + minutes * 60, 'pid': None, 'for': for_room,
          'before': sorted(processes())}               # what ran before it: at release, what it left behind is told apart
@@ -1800,18 +1803,122 @@ def hold(room, by, minutes, reason, for_room=None):
     return say('kernel.hold.gpu_held_by_for', by=by, v2=format(minutes, 'g'), reason=reason[:160])
 
 
+HOLD_RESERVE_MIN = 15                                      # how long a reserved turn waits for its agent before the line moves on
+
+
+def _holdq(room):
+    try:
+        return json.loads((_dir(room) / 'holdq.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+
+
+def _holdq_edit(room, fn):
+    """read, change and write the line for the GPU under the room's lock (the same one as the runs' queue)"""
+    from chat import write_atomic
+
+    def run():
+        q = _holdq(room)
+        out = fn(q)
+        write_atomic(_dir(room) / 'holdq.json', json.dumps(q, ensure_ascii=False))
+        return out
+    return room.locked(run)
+
+
+def _hold_enqueue(room, by, minutes, reason, other):
+    """the GPU is held by someone else: by takes a place in the line (one place per agent, its latest ask), and the runner
+    that keeps watching hands it over when it is free; the new holder is tagged on the board"""
+    entry = {'by': by, 'minutes': minutes, 'reason': reason, 'ts': time.time()}
+
+    def add(q):
+        old = next((x for x in q if x['by'] == by), None)
+        if old:
+            entry['ts'] = old['ts']                       # asking again keeps the place
+        q[:] = [x for x in q if x['by'] != by] + [entry]
+        q.sort(key=lambda x: x['ts'])
+        return [x['by'] for x in q].index(by) + 1
+    pos = _holdq_edit(room, add)
+    _log(room, by, 'hold-queued', dict(entry, behind=other['by']))
+    _queue_runner(room)
+    return say('kernel.hold.queued', by=by, pos=pos, holder=other['by'], reason=other['reason'][:80])
+
+
+def _hold_reserve(room, by, name, other, reason, minutes):
+    """hold --for NAME: the next turn on the GPU is NAME's. Free now: NAME's turn starts, kept for HOLD_RESERVE_MIN minutes
+    for NAME to claim; held by `by` (or the lead asks): it passes to NAME at the release, ahead of the line"""
+    if name == by:
+        raise ValueError(say('kernel.hold.reserve_self'))
+    if other and other['by'] != by and by not in room.user_names():
+        raise ValueError(say('kernel.hold.reserve_not_holder', by=other['by']))
+    if other:
+        other['reserve_next'] = name
+        from chat import write_atomic
+        write_atomic(_dir(room) / 'gpu.hold', json.dumps(other))
+        _log(room, by, 'hold-reserve', {'for': name, 'held_by': other['by']})
+        return say('kernel.hold.reserved_next', name=name, holder=other['by'])
+    if _run_alive(room):
+        raise ValueError(say('kernel.hold.a_run_is_in'))
+    _hold_give(room, by, name, reserved=True, reason=reason)
+    return say('kernel.hold.reserved_now', name=name, minutes=HOLD_RESERVE_MIN)
+
+
+def _hold_give(room, giver, name, reserved=False, reason='', minutes=None):
+    """the GPU passes to name: a reserved turn (HOLD_RESERVE_MIN to claim) or the hold name asked for in the line"""
+    from inbox import processes
+    from chat import write_atomic
+    mins = HOLD_RESERVE_MIN if reserved else float(minutes)
+    h = {'by': name, 'reason': say('kernel.hold.reserved_reason', by=giver) if reserved else reason, 'until': time.time() + mins * 60,
+         'pid': None, 'for': None, 'before': sorted(processes()), 'reserved': reserved}
+    write_atomic(_dir(room) / 'gpu.hold', json.dumps(h))
+    _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != name]))
+    _log(room, giver, 'hold-give', {'to': name, 'reserved': reserved, 'minutes': mins})
+    lead = (room.config().get('self_names') or ['LEAD'])[0]
+    room.append(lead, f"@{name} " + say('kernel.hold.yours', minutes=format(mins, 'g'), reserved=say('kernel.word.reserved') if reserved else ''), 'board')
+
+
+def _hold_promote(room):
+    """the GPU is free (no hold, no run): the first in the line takes it, unless a queued run is older and goes first.
+    The name that took it, or ''"""
+    def go(q):
+        if not q or _gpu_hold(room) or _run_alive(room) or _state(room)[1].get('pending'):
+            return ''
+        q.sort(key=lambda x: x['ts'])
+        c, st = _state(room)
+        done = {f"att-{a['n']}" for a in st['attempts']}
+        runs = [x['ts'] for x in _queue(room) if not x.get('after') or x['after'] in done]
+        if runs and min(runs) < q[0]['ts']:
+            return ''
+        return q[0]
+    first = _holdq_edit(room, go)
+    if not first:
+        return ''
+    _hold_give(room, 'KERNEL', first['by'], reason=first['reason'], minutes=first['minutes'])
+    return first['by']
+
+
 def release(room, by):
     h = _gpu_hold(room)
+    if by in [x['by'] for x in _holdq(room)] and not (h and h['by'] == by):   # not the holder, only waiting: it leaves the line
+        _holdq_edit(room, lambda q: q.__setitem__(slice(None), [x for x in q if x['by'] != by]))
+        _log(room, by, 'hold-left-line', {})
+        return say('kernel.release.left_the_line')
     if not h:
         (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
-        return say('kernel.release.the_gpu_is_free')
+        nxt = _hold_promote(room)
+        return say('kernel.release.the_gpu_is_free') + (say('kernel.release.next', name=nxt) if nxt else '')
     if h['by'] != by and by not in room.user_names():
         raise ValueError(say('kernel.release.the_gpu_is_held', by=h['by']))
     (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
     _log(room, by, 'release', {'held_by': h['by']})
     left = strays(room) + _orphans_since(h.get('before'))
+    nxt = ''
+    if h.get('reserve_next'):
+        _hold_give(room, h['by'], h['reserve_next'], reserved=True)
+        nxt = h['reserve_next']
+    else:
+        nxt = _hold_promote(room)
     return say('kernel.release.gpu_released_by_held', by=by, by_=h['by'], reason=h['reason'][:120]) + (
-        say('kernel.word.strays', items=', '.join(left[:6])) if left else '')
+        say('kernel.word.strays', items=', '.join(left[:6])) if left else '') + (say('kernel.release.next', name=nxt) if nxt else '')
 
 
 def _detach(argv, **kw):
@@ -1931,13 +2038,14 @@ def run_queue(room, poll=15):
                         q.remove(x)
                         room.append(lead, say('kernel.queue.dropped', by=x['by'], desc=x['desc'][:80]), 'board')
                 if not q:
-                    return 'empty'
+                    return None if _holdq(room) else 'empty'   # a line for the GPU keeps the runner: it hands the GPU over, expiries included
                 ready = next((x for x in q if not x.get('after') or x['after'] in done), None)
                 held = _gpu_hold(room)
                 if not ready or _run_alive(room) or st.get('pending') or (held and held['by'] != ready['by']):
                     return None
                 q.remove(ready)
                 return ready
+            _hold_promote(room)
             ready = _queue_edit(room, take)
             if ready == 'empty':
                 return
@@ -2589,9 +2697,16 @@ def status(room):
     for a in st.get('amends', []):
         head += say('kernel.word.amend_line', ts=a['ts'], by=a['by'], after_run=a['after_run'], what=a['what'], reason=a['reason'])
     held = _gpu_hold(room)
-    if held:
+    if held and held.get('reserved'):
+        head += say('kernel.status.gpu_reserved', by=held['by'], time=time.strftime('%H:%M', time.localtime(held['until'])))
+    elif held:
         head += (say('kernel.status.gpu_held_by', by=held['by'], reason=held['reason']) + (say('kernel.status.pid_log', pid=held['pid'], get=held.get('log')) if held.get('pid')
                  else say('kernel.word.until', time=time.strftime('%H:%M', time.localtime(held['until'])))))
+        if held.get('reserve_next'):
+            head += say('kernel.status.gpu_next', name=held['reserve_next'])
+    hq = _holdq(room)
+    if hq:
+        head += say('kernel.status.hold_line', items='; '.join(f"{i}. {x['by']} ({x['reason'][:40]})" for i, x in enumerate(hq, 1)))
     r = _round(st)
     if st['phase'] == 2 and (r or st.get('rounds')):
         head += '\n' + (say('kernel.round.status', k=r['k'], stage=stage(st, r), goal=r['goal'] or '-') if r else

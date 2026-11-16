@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 SCRIPTS = os.environ.get('CHATROOM_SCRIPTS') or str(Path(__file__).resolve().parent.parent)
@@ -139,6 +140,57 @@ if section('K8S'):                                                    # seal: a 
     c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke 2', '--as', 'W')
     c, o = run(room, 'research', 'seal', '--as', 'LEAD')
     ok('K8 seal passes once the smoke printed every guard', c == 0 and state(room)['phase'] == 2, o)
+
+# ---------------------------------------------------------------------------------------------------------------- H1
+def holdq(room):
+    p = room / 'research' / 'holdq.json'
+    return json.loads(p.read_text(encoding='utf-8')) if p.is_file() else []
+
+
+def gpu_hold(room):
+    p = room / 'research' / 'gpu.hold'
+    return json.loads(p.read_text(encoding='utf-8')) if p.is_file() else None
+
+
+if section('H1'):
+    room, repo, work = research_room('h1', participants='W1,W2,W3')
+    h = lambda who, *a: run(room, 'research', 'hold', '--minutes', '10', '--reason', f'{who} profile', *a, '--as', who)
+    c, o = h('W1')
+    ok('H1 W1 holds', c == 0 and gpu_hold(room)['by'] == 'W1', o)
+    c, o = h('W2')
+    ok('H1 W2 is queued, not refused', c == 0 and 'in the line' in o and [x['by'] for x in holdq(room)] == ['W2'], o)
+    c, o = h('W2')
+    ok('H1 asking twice keeps one place', c == 0 and [x['by'] for x in holdq(room)] == ['W2'], o)
+    c, o = h('W3')
+    ok('H1 third in line', 'position 2' in o, o)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H1 status lists the hold and the line', 'W1' in o and 'W2' in o and 'W3' in o and 'line' in o.lower(), o)
+    c, o = run(room, 'research', 'release', '--as', 'W3')
+    ok('H1 a queued agent releases = leaves the line', c == 0 and [x['by'] for x in holdq(room)] == ['W2'] and gpu_hold(room)['by'] == 'W1', o)
+    c, o = run(room, 'research', 'release', '--as', 'W1')
+    ok('H1 release hands the GPU to the first in line', c == 0 and gpu_hold(room)['by'] == 'W2' and holdq(room) == [], o)
+    c, o = run(room, 'read', '--all', '--as', 'LEAD')
+    ok('H1 the board tags the new holder', '@W2' in o and 'yours' in o.lower(), o[-400:])
+    # reservation: W2 reserves the next turn for W3, then releases
+    c, o = h('W2', '--for', 'W3')
+    ok('H1 hold --for a participant reserves the next turn', c == 0 and gpu_hold(room).get('reserve_next') == 'W3', o)
+    c, o = run(room, 'research', 'release', '--as', 'W2')
+    g = gpu_hold(room)
+    ok('H1 release gives it reserved to W3', c == 0 and g and g['by'] == 'W3' and g.get('reserved'), g)
+    c, o = h('W1')
+    ok('H1 others queue behind a reservation', c == 0 and [x['by'] for x in holdq(room)] == ['W1'], o)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H1 status says reserved for W3', 'reserved for W3' in o, o)
+    run(room, 'research', 'release', '--as', 'W1')                      # leave the line: the room's runner (it watches the line) ends
+    run(room, 'research', 'release', '--as', 'LEAD')
+    ok('H1 line and hold cleaned up', holdq(room) == [] and gpu_hold(room) is None or not gpu_hold(room), gpu_hold(room))
+    lock = room / 'research' / 'queue.lock'
+    alive = lambda: lock.exists() and chat.pid_alive(int(lock.read_text().split()[0]))   # on Windows the lock names the launcher's pid
+    for _ in range(60):                                                 # the runner polls every 15 s
+        if not alive():
+            break
+        time.sleep(1)
+    ok('H1 the runner ended with the line', not alive(), lock.read_text() if lock.exists() else '')
 
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
