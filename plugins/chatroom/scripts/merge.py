@@ -47,8 +47,8 @@ def _holder_runs(path):
         pid = int(path.read_text().split()[0])
     except (OSError, ValueError, IndexError):
         return False
-    import share
-    return share.alive(pid)
+    from chat import pid_alive      # the same check machine.py and lessons.py use (a process we may not query counts as running)
+    return pid_alive(pid)
 
 
 def _steal(path, stale):
