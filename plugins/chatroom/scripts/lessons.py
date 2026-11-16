@@ -242,9 +242,53 @@ def topic_propose(room, a, text, p):
     print(say('lessons.topic.applied', id=tid, slug=slug, score=p['score']) if p['score'] >= 4 else say('lessons.topic.kept', id=tid, slug=slug, score=p['score']))
 
 
+SKILL_NAME = re.compile(r'[\w.@:-]{1,80}')
+
+
+def role_skills(slug, roles):
+    """the skills the topic keeps for the first of `roles` it knows (case does not matter): a list of names, [] for none"""
+    kept = {k.casefold(): v for k, v in (load_topic(slug)['meta'].get('skills') or {}).items()}
+    return next((list(kept[r.casefold()]) for r in roles if r and r.casefold() in kept), [])
+
+
+def topic_skills(room, rest):
+    """lessons topic skills [ROLE [a,b | -]]: the skills the topic remembers for a role, as a list of names only (the skills stay in
+    the one library of the skills panel); the prompt of that role names them. `-` forgets the role's list"""
+    slug = topic_of(room)
+    if not slug:
+        raise ValueError(say('lessons.topic.none'))
+    data = load_topic(slug)
+    kept = data['meta'].setdefault('skills', {})
+    if len(rest) < 2:                                          # none, or only a role: what is kept
+        for role, names in kept.items():
+            if not rest or role.casefold() == rest[0].casefold():
+                print(say('lessons.topic.skills_row', role=role, skills=', '.join(names)))
+        return print(say('lessons.topic.skills_none', slug=slug)) if not any(not rest or r.casefold() == rest[0].casefold() for r in kept) else None
+    role = rest[0].upper()
+    names = [] if rest[1:] == ['-'] else [n for n in re.split(r'[,\s]+', ' '.join(rest[1:])) if n]
+    bad = [n for n in names if not SKILL_NAME.fullmatch(n)]
+    if bad:
+        raise ValueError(say('lessons.topic.skills_name', names=', '.join(bad)))
+    kept.pop(next((r for r in kept if r.casefold() == role.casefold()), role), None)
+    if names:
+        kept[role] = list(dict.fromkeys(names))
+    save_topic(slug, data)
+    try:                                                       # a name the library does not know is kept, and said
+        import skills
+        lib = skills.scan(room.dir)
+        unknown = [n for n in names if skills.find(lib, n) is None]
+    except Exception:                                          # no library to read: the list is kept as given
+        unknown = []
+    print(say('lessons.topic.skills_set', role=role, slug=slug, skills=', '.join(names) or '-'))
+    if unknown:
+        print(say('lessons.topic.skills_unknown', names=', '.join(unknown)))
+
+
 def topic_command(room, a, rest):
-    """lessons topic use SLUG --confirmed | list | show [SLUG] | back SLUG"""
+    """lessons topic use SLUG --confirmed | list | show [SLUG] | back SLUG | skills [ROLE [a,b | -]]"""
     act, slug = (rest[0].lower() if rest else 'show'), (rest[1].lower() if len(rest) > 1 else '')
+    if act == 'skills':
+        return topic_skills(room, rest[1:])
     if act == 'list':
         found = sorted(p.name for p in (home() / 'topics').glob('*') if (p / 'lessons.json').is_file()) if (home() / 'topics').is_dir() else []
         for s in found:
@@ -281,6 +325,8 @@ def topic_command(room, a, rest):
     if act == 'show':
         data = load_topic(slug)
         print(say('lessons.topic.head', slug=slug, core=data['meta'].get('core', '?'), rooms=len(data['meta'].get('rooms', []))))
+        for role, names in (data['meta'].get('skills') or {}).items():
+            print(say('lessons.topic.skills_row', role=role, skills=', '.join(names)))
         for x in data['lessons']:
             print(f"  {x['id']} [{x.get('status')}] {x['text']} ({x.get('when', '')}) -> {x.get('expect', '')} · {say('lessons.rooms', n=len(x.get('rooms', [])))} · {x.get('by', '')}")
         return print('  -') if not data['lessons'] else None

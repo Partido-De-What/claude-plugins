@@ -4270,6 +4270,11 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
         if kept:
             values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.lessons') + '\n' + '\n'.join(kept)
             lessons.used(room.dir, data.get('lessons') == 'trial')
+        slug = lessons.topic_of(room)                 # the skills the topic remembers for this role: names only, the library is one
+        roles = [config.get('profiles', {}).get(name, {}).get('role'), *[r for r, who in read_json(room.dir / 'research' / 'contract.json', {}).get('roles', {}).items() if name in who]]
+        mine = lessons.role_skills(slug, roles) if slug else []
+        if mine:
+            values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.topic_skills', skills=', '.join(mine))
     contract = room.dir / 'research' / 'contract.json'
     if contract.is_file():                      # a research room: the worker templates name the contract's terms
         c = json.loads(contract.read_text(encoding='utf-8'))
