@@ -3091,6 +3091,19 @@ def cmd_sources(room, a):
     print('\n'.join(got) if got else say('chat.say.cmd_sources.none'))
 
 
+def coverage_line(cat, has_key):
+    """the line before a big round: how many models and routes, the providers skipped for no key and those that failed to read"""
+    from spawn.catalog import catalog
+    from spawn.providers import catalog as providers
+    c = catalog.coverage(cat, list(providers.FREE), has_key)
+    line = say('spawn.coverage.line', models=c['models'], routes=c['routes'], read=len(c['read']))
+    if c['no_key']:
+        line += say('spawn.coverage.no_key', n=len(c['no_key']), names=', '.join(c['no_key']))
+    if c['failed']:
+        line += say('spawn.coverage.failed', n=len(c['failed']), names='; '.join(f'{p} ({" ".join(e.split())[:60]})' for p, e in c['failed']))
+    return line
+
+
 def cmd_spawn(room, a):
     """chat.py spawn [create] --room ROOM: the spawn mode here (A in a room made with init --spawn, B in a normal room,
     C in a research room). One line in the chat: keys, models and roles live in the viewer's Spawn view (🛸, ?view=spawn),
@@ -3112,6 +3125,9 @@ def cmd_spawn(room, a):
             live = json.loads(urllib.request.urlopen(req, timeout=60).read())['data']
         has_key = lambda adapter: bool(load_key(adapter))
         picked = sc.pick(a.top or 60, a.ids, a.openrouter, has_key=has_key, live=live)
+        if not a.ids and not a.openrouter:            # a big round on the catalog: what it cannot use is said first
+            from spawn.catalog import catalog
+            print(coverage_line(catalog.load(), has_key))
         if a.dry:
             for i, (_, m) in enumerate(picked):
                 print(i + 1, m['canonical'], m.get('ctx', ''), [r['adapter'] for r in m['routes']])
@@ -3128,6 +3144,8 @@ def cmd_spawn(room, a):
         old = catalog.age_days()
         if catalog.stale():
             print(say('spawn.ping.old_catalog', days=f'{old:.0f}'))
+        from spawn.keys import load as load_key
+        print(coverage_line(catalog.load(), lambda p: bool(load_key(p))))
         rows = catalog.ping(a.pairs[1:] or None, getattr(a, 'top', None), vision=bool(getattr(a, 'vision', False)))
         for r in rows:
             print(f"{r['model']:<36} {r['host']:<14} {r['s']:>6.1f} s  {r['result']}")
