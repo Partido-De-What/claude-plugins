@@ -771,8 +771,10 @@ def assign(room, by, worker, idea=None, parent='best', kind='explorer', force=Fa
         raise ValueError(say('kernel.assign.type_explorer_or_optimizer'))
     _check_kernel(room)
     c, st = _state(room)
-    if st['phase'] != 2:
+    if st['phase'] not in (1, 2):
         raise ValueError(say('kernel.assign.cycles_are_assigned_in', phase=st['phase'], PHASES=phase_name(st['phase'])))
+    if st['phase'] == 1 and parent not in (None, '', 'best', 'base'):   # K15: the recon starts from the drafted state, there is no best yet
+        raise ValueError(say('kernel.assign.recon_from_base'))
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,40}', worker or ''):
         raise ValueError(say('kernel.assign.a_worker_name_letters'))
     if c.get('roles') and _role_of(c, worker) != 'WORKER':
@@ -865,7 +867,7 @@ def _worker(st, name):
     """the worktree record of a worker: its own, or the main one when the research has a single worker"""
     if name in st['workers']:
         return name, st['workers'][name]
-    if list(st['workers']) == ['_main']:
+    if list(st['workers']) == ['_main'] or (st.get('phase') == 1 and '_main' in st['workers']):   # K15: a recon worker has its own, the drafters keep the shared one
         return '_main', st['workers']['_main']
     raise ValueError(say('kernel._worker.has_no_worktree_the', name=name))
 
@@ -1765,7 +1767,7 @@ def propose_idea(room, by, data):
     is too close to an idea already there, or when it would be the fourth in a row that only changes the method"""
     c, st = _state(room)
     _need(room, c, by, 'PROPOSER')
-    if st['phase'] != 2:
+    if st['phase'] not in (1, 2):
         raise ValueError(say('kernel.propose_idea.ideas_are_proposed_in'))
     if not isinstance(data, dict):
         raise ValueError(say('kernel.propose_idea.an_idea_is_a'))
@@ -1795,12 +1797,40 @@ def propose_idea(room, by, data):
         s2['ideas'].append({'id': iid, 'title': str(data['title'])[:200], 'hypothesis': str(data['hypothesis'])[:1000],
                             'plan': str(data['plan'])[:2000], 'rubrics': {k: str(v)[:500] for k, v in rub.items()},
                             'changes': data['changes'], 'prior_work': str(data['prior_work'])[:500], 'mode': data['mode'],
-                            'by': by, 'status': 'accepted', 'ts': time.time()})
+                            'by': by, 'status': 'draft' if s2['phase'] == 1 else 'accepted', 'ts': time.time()})   # K15: in the recon the lead decides first (gate)
         s2['next_mode'] = 'analogy' if s2['next_mode'] == 'gap' else 'gap'
         return iid
     iid = _edit(room, apply)
     _log(room, by, 'idea', {**data, 'id': iid})
-    return say('kernel.propose_idea.idea_changes_the', iid=iid, mode=data['mode'], changes=data['changes'], str_title=str(data['title'])[:140])
+    return say('kernel.propose_idea.idea_changes_the', iid=iid, mode=data['mode'], changes=data['changes'], str_title=str(data['title'])[:140]) + (
+        say('kernel.propose_idea.draft') if st['phase'] == 1 else '')
+
+
+def gate(room, by, accept=(), reject=()):
+    """K15: the lead decides the ideas the recon (phase 1) left as drafts: accepted ones are ideas as any other, rejected ones
+    are closed. The seal waits for every draft to be decided"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.gate.only_the_lead'))
+    accept, reject = (list(dict.fromkeys(x)) for x in (accept, reject))
+    if not accept and not reject:
+        raise ValueError(say('kernel.gate.say_which'))
+    both = set(accept) & set(reject)
+    if both:
+        raise ValueError(say('kernel.curate.one_decision_per_piece', sorted=', '.join(sorted(both))))
+
+    def apply(c2, s2):
+        ideas = {i['id']: i for i in s2['ideas']}
+        for iid in [*accept, *reject]:
+            if iid not in ideas or ideas[iid]['status'] != 'draft':
+                raise ValueError(say('kernel.gate.not_a_draft', iid=iid))
+        for iid in accept:
+            ideas[iid]['status'] = 'accepted'
+        for iid in reject:
+            ideas[iid]['status'] = 'rejected'
+        return [i['id'] for i in s2['ideas'] if i['status'] == 'draft']
+    left = _edit(room, apply)
+    _log(room, by, 'gate', {'accept': accept, 'reject': reject, 'left': left})
+    return say('kernel.gate.done', by=by, accepted=', '.join(accept) or '-', rejected=', '.join(reject) or '-', left=', '.join(left) or '-')
 
 
 # ---------------------------------------------------------------------------------------------------------- evidence
@@ -2728,7 +2758,7 @@ def report(room, by, text, draft=False):
     draft: report-draft.md from phase 2 on, which closes no gate"""
     c, st = _state(room)
     _need(room, c, by, 'WORKER')
-    if st['phase'] != 5 and not (draft and st['phase'] >= 2):
+    if st['phase'] != 5 and not (draft and st['phase'] >= 1):   # K15: the recon hands its summary over as a draft report
         raise ValueError(say('kernel.report.only_in_phase_5', phase=st['phase']))
     if not (text or '').strip():
         raise ValueError(say('kernel.report.empty'))
@@ -2865,6 +2895,9 @@ def _seal(room, by, sealed, stay=False):
     if st['phase'] != 1:
         raise ValueError(say('kernel._seal.seal_belongs_to_the'))
     c, st = _settle(room, c, st, locked=True)
+    drafts = [i['id'] for i in st['ideas'] if i['status'] == 'draft']
+    if drafts:                                            # K15: the lead's gate: the recon's ideas are decided before the investigation starts
+        raise ValueError(say('kernel._seal.drafts_wait', ids=', '.join(drafts[:12])))
     if not st.get('smoke_ok'):
         raise ValueError(say('kernel._seal.no_smoke_run_has'))
     if c.get('roles', {}).get('AUDITOR') and not _verdict_holds(room, st, 1, 'pass'):
@@ -3251,6 +3284,9 @@ def _next_constraints(c, st):
     phase, out = st['phase'], []
     if phase == 1:
         out.append(say('kernel.status.next_seal', guards=', '.join(g['name'] for g in c.get('guards', [])) or '-'))
+        drafts = [i['id'] for i in st['ideas'] if i['status'] == 'draft']
+        if drafts:
+            out.append(say('kernel.status.next_drafts', ids=', '.join(drafts[:12]), n=len(drafts)))
     if phase == 2:
         r = _round(st)
         out.append(say('kernel.status.next_runs', n=st['evals'], max=c['max_evals']))
@@ -3596,6 +3632,8 @@ def _cmd(room, a):
                             data.get('notes', '')))
     if act == 'reseal':
         return post(reseal(room, a.name, getattr(a, 'reason', None)))
+    if act == 'gate':
+        return post(gate(room, a.name, split(getattr(a, 'accept', None)), split(getattr(a, 'reject', None))))
     if act == 'promote':
         return post(promote(room, a.name, rest[0] if rest else None, split(getattr(a, 'files', None))))
     if act == 'seal':

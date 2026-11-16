@@ -139,6 +139,10 @@ precheck you can also check what the run is about to use against the contract (d
 (`research evaluate --kind smoke`), the AUDITOR passes it (`research verdict --phase 1 --outcome pass`), and you seal it
 (`research seal --sealed eval.py,...`; `--stay` seals without opening phase 2 until `phase next`; a pass given before the last smoke run no longer holds). Then `config --topic
 "..." --subtitle "<goal>"`.
+Phase 1 is also the recon: a PROPOSER's `research propose-idea` there makes a draft idea (the next number, not assignable), you
+can start a recon worker with `research assign NAME` (from the base only, its own worktree, smoke runs there), and a worker
+hands its summary over with `research report --draft`. Before the seal you decide the drafts: `research gate --accept I1,I2
+--reject I3`; `seal` refuses while one is left. In phase 2 an idea is accepted at once, as before.
 
 `init` prints the longest one evaluate call can take (build + repeats x 2 x budget + git work) and warns when a build has
 no `--keep` folder (it would rebuild from scratch every run). Without `--build-min` a build may take 2 x the budget.
