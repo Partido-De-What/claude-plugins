@@ -2703,6 +2703,8 @@
  "lessons.topic.back": "topic {slug}: back to version {n} ({live} live lessons). The version left is kept: lessons topic back again returns to it.",
  "lessons.topic.head": "topic {slug} (born under core {core}, {rooms} rooms):",
  "lessons.topic.usage": "lessons topic use <slug> --confirmed | list | show [slug] | back <slug>",
+ "lessons.close.topic": "d. the topic {slug}: what its profile holds, and what each lesson promised",
+ "lessons.close.topic_how": "    did each one do what it promised in this room? lessons accept T<n> keeps it, lessons retire T<n> takes it out; a wrong turn: lessons topic back {slug}",
  "lessons.need_when": "a lesson needs --scope: when it applies and when it does not. A rule without its conditions gets applied where it does not hold. Nothing was added.",
  "lessons.propose.usage": "lessons propose \"rule\" needs --score (1 to 5), --reach (local: this machine, general: the harness for anyone) and, for a score of 4 or 5, --scope (when it applies); --kind is improvement (default), bug or plugin (a bug of the chatroom plugin itself). Nothing was kept.",
  "lessons.propose.not_kept": "Not kept: a score of 1 to 3, and a bug of the plugin itself, are for the plugin's creator; on this machine they are neither kept nor applied. A 4 or a 5 is applied by itself.",

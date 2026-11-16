@@ -2703,6 +2703,8 @@
  "lessons.topic.back": "topic {slug}: tornato alla versione {n} ({live} lezioni vive). La versione lasciata resta: un altro lessons topic back ci ritorna.",
  "lessons.topic.head": "topic {slug} (nato sotto il core {core}, {rooms} stanze):",
  "lessons.topic.usage": "lessons topic use <slug> --confirmed | list | show [slug] | back <slug>",
+ "lessons.close.topic": "d. il topic {slug}: cosa tiene il suo profilo, e cosa ha promesso ogni lezione",
+ "lessons.close.topic_how": "    ognuna ha fatto in questa stanza ciò che prometteva? lessons accept T<n> la tiene, lessons retire T<n> la toglie; passo sbagliato: lessons topic back {slug}",
  "lessons.need_when": "una lezione vuole --scope: quando vale e quando no. Una regola senza le sue condizioni viene applicata dove non vale. Niente è stato aggiunto.",
  "lessons.propose.usage": "lessons propose \"regola\" vuole --score (da 1 a 5), --reach (local: questa macchina, general: l'harness per chiunque) e, con punteggio 4 o 5, --scope (quando vale); --kind è improvement (predefinito), bug o plugin (un bug del plugin chatroom stesso). Non è stato tenuto niente.",
  "lessons.propose.not_kept": "Non tenuta: un punteggio da 1 a 3, e un bug del plugin stesso, sono per il creatore del plugin; su questa macchina non vengono né tenuti né applicati. Un 4 o un 5 si applica da solo.",
