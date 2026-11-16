@@ -84,7 +84,9 @@ A metric that is a ratio against a reference arm measured in the same run hides 
 absolute values too ("NAME: value") and name them with `--info NAME,...` (and the reference arm with `--reference NAME`),
 at `init` or later with `amend`. They are recorded with every run, shown on its line and in status, and written in the
 `info` column of results.tsv (`NAME=value;...`), never judged; a run whose reference moved 2 percent or more since the run
-it competes with says so.
+it competes with says so. When it is also within 10 percent of that run's number, the kernel measures the best's program
+again in the same run (the program file swapped for the measure, put back after) and the verdict is between the two numbers
+of the same hour; the run line says "paired measure", the record has `paired`. It costs one more measure of the run.
 
 Ask in phase 0: does the evaluator (and each guard) exercise the code paths the program will change? A gate that runs
 only the prefill does not check a change to the decoding kernels.

@@ -87,7 +87,10 @@ Una metrica che è un rapporto con un braccio di riferimento misurato nella stes
 deriva: stampa anche i valori assoluti ("NOME: valore") e nominali con `--info NOME,...` (e il braccio di riferimento con
 `--reference NOME`), a `init` o dopo con `amend`. Si registrano a ogni corsa, si mostrano sulla sua riga e in status, e
 vanno nella colonna `info` di results.tsv (`NOME=valore;...`), mai giudicati; una corsa il cui riferimento si è mosso del
-2 per cento o più dalla corsa con cui compete lo dice.
+2 per cento o più dalla corsa con cui compete lo dice. Se è anche entro il 10 per cento del numero di quella corsa, il kernel
+rimisura nella stessa corsa il programma del migliore (il file del programma scambiato per la misura, rimesso dopo) e il
+verdetto sta tra i due numeri della stessa ora; la riga della corsa dice "misura appaiata", il record ha `paired`. Costa una
+misura in più alla corsa.
 
 Chiedi in fase 0: il valutatore (e ogni guardia) esercita i percorsi di codice che il programma cambierà? Un controllo
 che esegue solo il prefill non controlla una modifica ai kernel di decoding.

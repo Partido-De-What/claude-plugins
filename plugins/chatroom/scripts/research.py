@@ -1531,7 +1531,32 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, 
         else:
             why += say('kernel._evaluate.replica_held', v2=f'{v2:.6g}')
             value = both
-    if status == 'invalid':                               # K4: not a run at all: no number of the budget or the round; the code stays staged for the same run again
+    drift = _drift(c, st, info, line_best) if kind == 'attempt' and not first else None
+    paired = None
+    if drift is not None and abs(drift) >= DRIFT_SAY and not fix and status in ('keep', 'discard') and line_best.get('commit') and line_best.get('metric') \
+            and abs(value - line_best['metric']) < REPLICA_GAIN * abs(line_best['metric']):
+        # K2c: near the best while the reference arm moved since the best was measured: the best's program is measured again
+        # here, in this run, and the verdict is between the two numbers of the same hour
+        room.append(name, say('kernel._evaluate.paired_running', n=n, best=line_best['n'], pct=f'{100 * drift:+.1f}', name=c['reference']), 'board')
+        prog, mine = work / c['program'], _git(work, 'rev-parse', 'HEAD')
+        try:
+            _git(work, 'checkout', '-q', line_best['commit'], '--', c['program'])
+            bv, _, s_3, _, _, _ = _measure(c, work, d, n, dict(env, CHATROOM_PROGRAM_SHA=_sha(prog)), log.with_name(f'{n}-paired.log'), started, None)
+        finally:
+            _git(work, 'checkout', '-q', mine, '--', c['program'])   # the run's own program back, staged as committed
+        for k in ('_guards', '_env', '_built', '_values', '_info'):
+            c.pop(k, None)
+        slow = max(slow, c.pop('_slow', 0))
+        secs += s_3
+        if bv is None:
+            why += say('kernel._evaluate.paired_failed', best=line_best['n'])
+        else:
+            wins = _better(c, value, bv) and len(values) == c.get('repeats', 1)   # a run cut short by the early stop does not turn into a keep
+            status = 'keep' if wins else 'discard'
+            why = (say('kernel._evaluate.paired_won', best=line_best['n'], v1=f'{value:.6g}', v2=f'{bv:.6g}') if wins
+                   else say('kernel._evaluate.paired_lost', best=line_best['n'], v1=f'{value:.6g}', v2=f'{bv:.6g}'))
+            paired = {'of': line_best['n'], 'metric': bv}
+    if status == 'invalid':                            # K4: not a run at all: no number of the budget or the round; the code stays staged for the same run again
         old, n = n, AUX_BASE + _state(room)[1]['aux'] + 1
         _git(work, 'tag', f"{c['branch']}/att-{n}", tag, ident=name)
         _git(work, 'tag', '-d', tag)
@@ -1556,7 +1581,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, 
         rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': 'invalid' if status == 'invalid' else kind, 'idea': idea, 'cls': cls, 'level': level,
                'state': 'committed', 'parent_n': (w.get('best') or {}).get('n'), 'desc': desc, 'lines': lines,
                'added': len(added), 'readded': readded, 'tuning': tuning, 'spread': spread, 'of': of, 'seed': seed,
-               'guards': guards, 'info': info, 'fix': fix, 'env': env_lines, **({'env_set': extra_env} if kind == 'probe' and extra_env else {}), 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
+               'guards': guards, 'info': info, **({'paired': paired} if paired else {}), 'fix': fix, 'env': env_lines, **({'env_set': extra_env} if kind == 'probe' and extra_env else {}), 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
         s2['attempts'].append(rec)
         if status == 'invalid':
             s2['aux'] += 1                                 # numbered like evidence: the budget and the round do not move
@@ -1578,7 +1603,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, 
                 if first:
                     s2['baseline'] = {'n': n, 'commit': commit, 'metric': value, 'guards': guards}
                     s2['protocol'] = proto
-                if _better(c2, value, (s2['best'] or {}).get('metric')) or s2['best'] is None:
+                if _better(c2, value, (s2['best'] or {}).get('metric')) or s2['best'] is None \
+                        or (paired and s2['best']['n'] == paired['of']):   # K2c: it beat the best measured again beside it, in numbers of today's machine
                     s2['best'] = {'n': n, 'worker': key, 'commit': commit, 'metric': value}
         elif kind == 'smoke':
             s2['aux'] += 1
@@ -1616,8 +1642,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, 
     if kind == 'attempt' and status == 'keep' and s3['best']:     # a keep beats the line's best; the global best wants min_gain more
         flags += (say('kernel._evaluate.new_global_best') if s3['best']['n'] == n else
                   say('kernel._evaluate.line_keep', best=s3['best']['n'], metric=f"{s3['best']['metric']:.6g}", gain=c.get('min_gain') or '0'))
-    drift = _drift(c, st, info, line_best) if kind == 'attempt' and not first else None
-    if info:                                              # the absolute values, and a reference that moved since the run it competes with
+    if info:                                          # the absolute values, and a reference that moved since the run it competes with
         flags += say('kernel._evaluate.info', items=_info_text(info))
     if drift is not None and abs(drift) >= DRIFT_SAY:
         flags += say('kernel._evaluate.reference_drift', name=c['reference'], pct=f'{100 * drift:+.1f}', n=line_best['n'])
