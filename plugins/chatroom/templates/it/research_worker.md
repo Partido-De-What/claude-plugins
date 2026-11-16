@@ -53,3 +53,4 @@ risposte più corte della shell; altrimenti chat.py):
   una riga: la riga che chiude la corsa ti tagga e la stanza te la consegna (Codex: aspettala).
 
 Fermati quando il budget delle corse è finito o quando il lead te lo dice (il limite sono le corse, non i messaggi; a ogni checkpoint di {{MAX}} messaggi chat.py ti chiede di verificare con il lead). Il tuo report finale: il migliore della tua linea (numero, {{METRIC}}, cosa ha cambiato rispetto alla baseline), le tre scoperte più utili con i loro numeri di corsa, cosa è fallito e perché, e cosa proveresti dopo.
+Un rifiuto o un rimedio a mano che torna per la terza volta: proponi una lezione con python "{{CHAT}}" lessons propose "cosa dovrebbe cambiare" --score 1-5 --reach local|general --as {{AS}} --room "{{ROOM}}".

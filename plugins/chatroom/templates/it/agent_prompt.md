@@ -163,3 +163,4 @@ al lead (@LEAD) invece di aggirarlo.
 REPORT FINALE (il tuo valore di ritorno, o in chat; mai un file chiamato REPORT, che un subagente non può scrivere), sotto le 300 parole: 1) il percorso dei file che hai prodotto; 2) il #n del piano chiuso o
 della sua ultima versione, mai il testo: il lead ha la chat; 3) solo ciò che è tuo: le tue lacune, i tuoi rischi, i tuoi rami; 4) quanti
 messaggi hai scritto. Quando vieni ruotato il report è una riga: basta il quaderno.
+- lo stesso rifiuto, o lo stesso rimedio a mano, per la terza volta: proponi una lezione per il sistema con python "{{CHAT}}" lessons propose "cosa dovrebbe cambiare" --score 1-5 --reach local|general (local = questa macchina, general = chiunque) --as {{AS}} --room "{{ROOM}}".

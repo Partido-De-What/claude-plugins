@@ -39,3 +39,4 @@ li hai, risposte più corte della shell; altrimenti chat.py):
 
 Checkpoint ogni {{MAX}} messaggi: chat.py te lo segnala; poi chiedi a @LEAD se continuare, e aspetta la risposta.
 Fermati quando la ricerca raggiunge la fase evidence o quando il lead te lo dice. Report finale: le tue idee, quali corse le hanno testate e cosa hanno mostrato, le direzioni non esplorate.
+Un rifiuto o un rimedio a mano che torna per la terza volta: proponi una lezione con python "{{CHAT}}" lessons propose "cosa dovrebbe cambiare" --score 1-5 --reach local|general --as {{AS}} --room "{{ROOM}}".

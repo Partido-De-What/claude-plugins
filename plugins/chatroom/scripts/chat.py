@@ -432,7 +432,7 @@ def note_event(room, kind, key, name='', task='', detail=''):
 
 
 CALL = {}                # the room and the arguments of this process's command: a refusal on its way out is recorded once (main)
-LEAD_ACTS = ('rotate', 'retire', 'reopen', 'roster', 'add', 'remove')   # what a lead does by hand to keep a room going: the remedies
+LEAD_ACTS = ('rotate', 'retire', 'reopen', 'roster', 'add', 'remove', 'pause', 'resume')   # what a lead does by hand to keep a room going: the remedies
 
 
 def call_key(a):
@@ -669,7 +669,8 @@ def wake_summary(room):
     waits = [f'{k} #{n} ({int(mins)} min)' for k, n, mins, _ in waits_for_lead(room, items)]
     count = lambda s: sum(t['state'] == s for t in b['tasks'])
     return say('chat.say.cmd_alerts.wake_summary', open=count('open'), taken=count('taken'), done=count('done'),
-               waits=', '.join(waits) or '-', idle=', '.join(idle) or '-', working=len(people) - len(idle) - len(away))         + (say('chat.say.cmd_alerts.wake_away', names=', '.join(away)) if away else '')
+               waits=', '.join(waits) or '-', idle=', '.join(idle) or '-', working=len(people) - len(idle) - len(away))         + (say('chat.say.cmd_alerts.wake_away', names=', '.join(away)) if away else '') \
+        + (' ' + say('chat.say.cmd_alerts.paused_since', since=time.strftime('%H:%M', time.localtime(float(pause_info(room).get('ts', 0))))) if is_paused(room) else '')
 
 
 def relay_down(room):
@@ -840,7 +841,7 @@ def sweep_left(room, items=None, now=None):
     used since: its address goes to roster.left.json, out of the roster and the pings. Its next chat command writes it back (the roster
     hook). Returns the names taken out"""
     items, now, out = room.messages() if items is None else items, now or time.time(), []
-    if is_shut(room, items) or winding(room, items):
+    if is_shut(room, items) or winding(room, items) or is_paused(room):
         return out
     roster = room.roster()
     for k, got in read_json(room.dir / 'gone.json', {}).items():
@@ -3179,10 +3180,54 @@ def call_budget(room, config=None):
     return budget
 
 
+def pause_info(room):
+    """{'ts', 'by', 'why'} while the lead has the room paused (the machine is off, the user is away), else None"""
+    p = read_json(room.dir / 'paused.json', None)
+    return p if isinstance(p, dict) else None
+
+
+def is_paused(room):
+    """a paused room counts no fall, asks no report and says no CHECK, for the agents are not at fault (hold.py keeps them held)"""
+    return pause_info(room) is not None
+
+
+def cmd_pause(room, a):
+    """chat.py pause --as LEAD [WHY...]: the room stops counting falls and asking reports until `resume`"""
+    if a.name not in room.user_names():
+        sys.exit(say('chat.err.cmd_pause.only_the_lead'))
+    if is_paused(room):
+        return print(say('chat.say.cmd_pause.already'))
+    why = ' '.join(a.pairs or [])
+    write_atomic(room.dir / 'paused.json', json.dumps({'ts': time.time(), 'by': a.name, 'why': why}, ensure_ascii=False))
+    room.append(a.name, say('chat.say.cmd_pause.board', why=why or '-'), 'board')
+    print(say('chat.say.cmd_pause.paused'))
+
+
+def cmd_resume(room, a):
+    """chat.py resume --as LEAD: the pause ends; what the agents' stop hooks wrote in it (gone.json) is forgotten, they were not gone"""
+    if a.name not in room.user_names():
+        sys.exit(say('chat.err.cmd_pause.only_the_lead'))
+    p = pause_info(room)
+    if not p:
+        return print(say('chat.say.cmd_resume.not_paused'))
+    (room.dir / 'paused.json').unlink(missing_ok=True)
+    write_atomic(room.dir / 'gone.json', '{}')
+    write_atomic(room.dir / 'resumed.json', json.dumps({'ts': time.time(), 'by': a.name}))
+    held = [t['id'] for t in Board(room).load()['tasks'] if t['state'] == 'taken']
+    room.append(a.name, say('chat.say.cmd_resume.board', since=time.strftime('%H:%M', time.localtime(float(p.get('ts', 0)))), tasks=', '.join(held) or '-'), 'board')
+    print(say('chat.say.cmd_resume.resumed'))
+    roster = room.roster()
+    for k in room.config().get('participants', []):         # a run that ended while the room stood still: the lead starts it again by hand
+        if k not in room.config().get('left', []) and roster.get(k) and agent_ended(roster.get(k)):
+            print(say('chat.say.cmd_resume.relaunch', name=k, prompt=room.dir / 'prompts' / f'{k}.md', state=room.dir / 'notes' / f'{k}.state.md'))
+
+
 def failures(room, now=None):
     """the commonest ways a multi-agent chat goes wrong, seen in the room: [(key, text)]. Tasks closed without an artifact
     or with gaps, one file in two agents' statuses, tags left unanswered, stalls and loops, votes flipped without evidence,
     claims of 100% without evidence, drift, everyone idle, premature consensus, lent pieces not accepted, call budgets."""
+    if is_paused(room):
+        return []
     now = now or time.time()
     config = room.config()
     items, out, people, users = room.messages(), [], set(config.get('participants', [])), room.user_names()
@@ -4661,7 +4706,7 @@ def cmd_alerts(room, a):
         if a.messages and time.time() - checked > 60:   # the lead also hears about what is going wrong, once each
             checked = time.time()
             Locks(room).tick()
-            for line in dissolve_idlefree(room):      # an agent idle next to a free task is given it, and the lead is told
+            for line in ([] if is_paused(room) else dissolve_idlefree(room)):      # an agent idle next to a free task is given it, and the lead is told
                 out(line, act=False, flush=True)
             if (room.dir / 'research' / 'state.json').is_file():
                 import research
@@ -4837,7 +4882,7 @@ def cmd_status(room, a):
                    'not_yet': [k for k in idle if room.cursor(k) < n and k not in acks.get(str(n), []) and turn[k] != 'closed'],
                    'left': [k for k in idle if room.cursor(k) < n and k not in acks.get(str(n), []) and turn[k] == 'closed']} for n in mine}   # one that left reads nothing more: not "not yet"
     print(json.dumps({'total': len(items), 'per_participant': counts, 'seconds_silent': silent, 'idle': idle, 'turn': turn, 'waiting_lead': lead,
-                      'closing': closing_, 'read_by': read_by, 'calls': calls, 'budget_calls_per_agent': call_budget(room),
+                      'closing': closing_, 'paused': pause_info(room), 'read_by': read_by, 'calls': calls, 'budget_calls_per_agent': call_budget(room),
                       'deadline': deadline_line(room).strip() or None, 'locks': Locks(room).lines()}, ensure_ascii=False))
 
 
@@ -6088,7 +6133,7 @@ def _main():
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
                                         'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor',
                                         'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen', 'ack', 'deadline', 'group', 'append',
-                                        'help', 'lessons', 'preview', 'merge', 'procs'])
+                                        'help', 'lessons', 'preview', 'merge', 'procs', 'pause', 'resume'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -6266,7 +6311,7 @@ def _main():
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
                     'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
-                    'lessons': cmd_lessons, 'preview': cmd_preview}
+                    'lessons': cmd_lessons, 'preview': cmd_preview, 'pause': cmd_pause, 'resume': cmd_resume}
         CALL.update(room=room, a=a)
         if a.command in commands:
             if a.command in ('task', 'board', 'notebook') and getattr(a, 'name', None):

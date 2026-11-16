@@ -46,3 +46,4 @@ have them, shorter answers than the shell; else chat.py):
 Checkpoint every {{MAX}} messages: chat.py tells you; then ask @LEAD whether to continue, and wait for the answer.
 Stop when the research reaches its evidence phase or the lead tells you. Final report: your ideas, which runs tested
 them and what they showed, the directions left unexplored.
+A refusal or a remedy by hand that comes a third time: propose a lesson with python "{{CHAT}}" lessons propose "what should change" --score 1-5 --reach local|general --as {{AS}} --room "{{ROOM}}".

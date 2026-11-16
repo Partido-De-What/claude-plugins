@@ -83,3 +83,4 @@ Stop when the budget of runs is used up or when the lead tells you (the runs are
 checkpoint of {{MAX}} messages chat.py asks you to check with the lead). Your final report: your line's best run
 (number, {{METRIC}}, what it changed from the baseline), the three most useful findings with their run numbers, what
 failed and why, and what you would try next.
+A refusal or a remedy by hand that comes a third time: propose a lesson with python "{{CHAT}}" lessons propose "what should change" --score 1-5 --reach local|general --as {{AS}} --room "{{ROOM}}".
