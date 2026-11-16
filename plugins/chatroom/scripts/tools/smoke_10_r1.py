@@ -1,6 +1,9 @@
 """1.0 R1: the relay of a lead delivers the messages of a second lead. self_names lists every lead of the room, so the relay of
 LEAD skipped what LEAD2 wrote (a whole room followed through an outside sentinel). Only the lead that runs the relay is skipped.
 Run: python -X utf8 smoke_10_r1.py"""
+import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -11,6 +14,7 @@ from pathlib import Path
 SCRIPTS = os.environ.get('CHATROOM_SCRIPTS') or str(Path(__file__).resolve().parent.parent)
 BASE = Path(tempfile.mkdtemp(prefix='smoke10r1_'))
 os.environ['CLAUDE_CONFIG_DIR'] = str(BASE / 'claude')
+os.environ['CHATROOM_RELAUNCHED'] = '1'      # a fresh config dir has no uv environment yet: relaunching into it costs a minute
 (BASE / 'claude' / 'chatroom').mkdir(parents=True)
 sys.path.insert(0, SCRIPTS)
 import chat  # noqa: E402
@@ -25,16 +29,22 @@ def ok(name, cond, info=''):
     fails += not cond
 
 
+def make(name):
+    room = BASE / name
+    room.mkdir()
+    (room / 'config.json').write_text(json.dumps({'participants': ['A', 'B'], 'self_names': ['LEAD', 'LEAD2'], 'user_name': 'USER'}), encoding='utf-8')
+    return room
+
+
 def relay(room, who):
-    r = subprocess.run([sys.executable, '-X', 'utf8', CHAT, 'alerts', *(['--as', who] if who else []), '--messages', '--room', str(room)], capture_output=True, timeout=120)
-    return (r.stdout + r.stderr).decode('utf-8', errors='replace')
+    """the relay of a lead, once, in this process (a subprocess costs seconds here)"""
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        chat.cmd_alerts(chat.Room(room), argparse.Namespace(name=who, follow=False, messages=True))
+    return buf.getvalue()
 
 
-room = BASE / 'room'
-subprocess.run([sys.executable, CHAT, 'init', '--room', str(room), '--participants', 'A,B', '--lang', 'en'], capture_output=True)
-cfg = json.loads((room / 'config.json').read_text(encoding='utf-8'))
-cfg['self_names'] = ['LEAD', 'LEAD2']
-(room / 'config.json').write_text(json.dumps(cfg), encoding='utf-8')
+room = make('room')
 r = chat.Room(room)
 r.append('LEAD2', 'second lead plain note ZEBRA')
 r.append('LEAD', 'first lead own note YAK')
@@ -52,11 +62,7 @@ ok('R1 no --as, two leads: the relay says to pass --as', '--as' in o3 and 'LEAD 
 ok('R1 no --as, two leads: the second lead is delivered', 'ZEBRA' in o3, o3)
 ok('R1 no --as, two leads: the first lead is skipped', 'YAK' not in o3, o3)
 # the relay that stays on (--follow) runs the same loop: its ownership flag must not shadow the lead names
-room2 = BASE / 'room2'
-subprocess.run([sys.executable, CHAT, 'init', '--room', str(room2), '--participants', 'A,B', '--lang', 'en'], capture_output=True)
-cfg = json.loads((room2 / 'config.json').read_text(encoding='utf-8'))
-cfg['self_names'] = ['LEAD', 'LEAD2']
-(room2 / 'config.json').write_text(json.dumps(cfg), encoding='utf-8')
+room2 = make('room2')
 chat.Room(room2).append('LEAD2', 'follow note ZEBRA')
 p = subprocess.Popen([sys.executable, '-X', 'utf8', CHAT, 'alerts', '--follow', '--messages', '--as', 'LEAD', '--room', str(room2)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
 try:
