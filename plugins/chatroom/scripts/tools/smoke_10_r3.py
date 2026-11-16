@@ -49,6 +49,13 @@ ok('a command in the same second does not confirm', (room / 'relay_sent_LEAD.jso
 time.sleep(chat.RELAY_CONFIRM_S + 1)
 r.count('LEAD', 'read')
 ok('a command after the hand-over confirms it', not (room / 'relay_sent_LEAD.json').exists())
+import hold  # noqa: E402
+(room / 'research').mkdir(exist_ok=True)
+(room / 'research' / 'gpu.hold').write_text(json.dumps({'by': 'A', 'until': time.time() + 600}), encoding='utf-8')
+(room / 'gone.json').write_text(json.dumps({'A': 1, 'B': 1}))
+it = r.messages()
+ok('a worker with a device hold is not closed', chat.turn_state(r, it, 'A', chat.gone_numbers(r), r.roster()) != 'closed' and chat.turn_state(r, it, 'B', chat.gone_numbers(r), r.roster()) == 'closed')
+(room / 'gone.json').unlink()
 # no command: the lines come again, twice at most
 chat.relay_handover(r, 'LEAD', n, ['WATCH #2 A: @LEAD I need a decision'])
 ok('nothing to redeliver at once', chat.relay_redeliver(r, 'LEAD') == '')
@@ -62,5 +69,7 @@ rec = chat.read_json(room / 'relay_sent_LEAD.json', {})
 rec['ts'] = time.time() - 400
 (room / 'relay_sent_LEAD.json').write_text(json.dumps(rec), encoding='utf-8')
 ok('after two redeliveries it stops and forgets', chat.relay_redeliver(r, 'LEAD') == '' and not (room / 'relay_sent_LEAD.json').exists())
+ev = [json.loads(x) for x in (room / 'events.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+ok('the relay leaves wake and redelivered events', {e['key'] for e in ev if e['kind'] == 'relay'} >= {'wake', 'redelivered'}, ev)
 print('FAILS', fails)
 sys.exit(1 if fails else 0)

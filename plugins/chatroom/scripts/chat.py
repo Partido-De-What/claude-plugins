@@ -612,7 +612,8 @@ def turn_state(room, items, k, gone, roster):
     """closed (it left and nothing of it since), held (its run ended and the hold keeps it), waiting, stopped (its run ended, no hold) or
     working: what `status` shows and the WAKE line counts"""
     ended = agent_ended(roster.get(k))
-    if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) and not used_tools_since_gone(room, k):
+    import hold
+    if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) and not used_tools_since_gone(room, k) and not hold.device_hold(room, k):
         return 'closed'
     return ('held' if ended else 'waiting') if room.in_wait(k) else 'stopped' if ended else 'working'
 
@@ -4430,6 +4431,7 @@ def relay_handover(room, lead, upto, lines):
                                                                   'lines': lines}, ensure_ascii=False))
     from inbox import mark_delivered
     mark_delivered(room.dir, lead, upto)
+    note_event(room, 'relay', 'wake', lead, detail=f'upto #{upto}, {len(lines)} lines')
 
 
 def relay_redeliver(room, lead):
@@ -4443,6 +4445,7 @@ def relay_redeliver(room, lead):
         return ''
     rec['tries'], rec['ts'] = int(rec.get('tries', 0)) + 1, time.time()
     write_atomic(path, json.dumps(rec, ensure_ascii=False))
+    note_event(room, 'relay', 'redelivered', lead, detail=f'try {rec["tries"]} of #{rec.get("upto")}')
     return say('chat.say.cmd_alerts.redelivered', since=time.strftime('%H:%M', time.localtime(float(rec.get('first', 0)))),
                n=rec['tries'], lines=' | '.join(rec.get('lines', [])))
 
