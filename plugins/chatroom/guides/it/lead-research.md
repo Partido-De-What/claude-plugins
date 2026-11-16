@@ -308,7 +308,7 @@ contro le evidenze.
 - Usa una sola installazione: il server MCP mantiene la versione con cui è partito finché la sessione non riparte. Dalla
   0.10.1 il kernel scrive la sua versione nello stato, e un kernel dalla 0.10.1 in poi rifiuta uno stato scritto da una
   versione più nuova (la 0.10.0 non controlla: riavvia la sessione dopo un aggiornamento).
-- Il relay: un solo `alerts --follow --messages` per lead; avviarne uno nuovo ferma il vecchio (non consuma più i
+- Il relay: un solo `alerts --as LEAD --follow --messages` per lead; avviarne uno nuovo ferma il vecchio (non consuma più i
   messaggi).
 - Alla fine riporta da `results.tsv`, `research status` e il report: baseline, migliore (corsa, metrica, modifica), il
   numero finale, le ablazioni, cosa è fallito, e il tag migliore `research/<tag>/att-N`. Decide l'utente se unire.

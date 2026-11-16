@@ -291,7 +291,7 @@ the background; answers are written to the file as they come. Treat them as opin
 - Use one install: the MCP server keeps the version it started with until the session restarts. From 0.10.1 the kernel
   writes its version into the state, and a kernel from 0.10.1 on refuses a state written by a newer one (0.10.0 does
   not check: restart the session after an update).
-- The relay: one `alerts --follow --messages` per lead; starting a new one stops the old (it no longer eats messages).
+- The relay: one `alerts --as LEAD --follow --messages` per lead; starting a new one stops the old (it no longer eats messages).
 - At the end report from `results.tsv`, `research status` and the report: baseline, best (run, metric, change), the
   final number, the ablations, what failed, and the best tag `research/<tag>/att-N`. The user decides whether to merge.
 - Cleaning up, when the user says so, in the repository (one worktree per command):
