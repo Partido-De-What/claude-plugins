@@ -1683,9 +1683,11 @@ def cmd_post(room, a, text=None):
             room.mark_delivered(a.name, missed[-1])
         else:
             room.read(a.name, True)
-        draft = room.dir / 'drafts' / f'{a.name}.txt'
+        import hashlib
+        draft = room.dir / 'drafts' / f"{a.name}.{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}.txt"   # one file for each held text
         draft.parent.mkdir(exist_ok=True)
-        draft.write_text(text, encoding='utf-8')         # a reply never posted ended up only in the CLOSED: the hold reminds it
+        draft.write_text(text, encoding='utf-8')
+        draft.with_name(f'{a.name}.txt').write_text(text, encoding='utf-8')    # a reply never posted ended up only in the CLOSED: the hold reminds it (the last one)
         sys.exit(say('chat.err.cmd_post.crossed', ns=', '.join(f'#{x}' for x in missed[:8]), path=draft))
     try:
         images = [room.store_image_file(p, i) for i, p in enumerate(a.image or [])]
@@ -1713,7 +1715,8 @@ def cmd_post(room, a, text=None):
     print(say('chat.say.posted', n=n) + (say('chat.say.posted_images', images=len(images)) if images else ''))
     if not kind:
         for f in (room.dir / 'drafts').glob(f'{a.name}.*') if (room.dir / 'drafts').is_dir() else ():
-            f.unlink(missing_ok=True)                 # posted: the draft is done
+            if f.read_text(encoding='utf-8', errors='replace') == text:
+                f.unlink(missing_ok=True)             # posted: its own draft is done, the drafts of other texts stay
     if missed:
         print(say('chat.say.unread_for_you', ns=', '.join(f'#{x}' for x in missed[:8])))
         for m in [m for m in room.messages() if m['n'] in missed[:5]]:   # their text here: no read just to see them
