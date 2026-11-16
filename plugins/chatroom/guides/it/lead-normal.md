@@ -102,3 +102,5 @@ Una chiamata di un agente che fallisce per permessi (uno strumento rifiutato, un
 ## 9. Lavoro a lotti e liste
 
 Un lavoro su una lista (file da correggere, stanze da controllare, fonti da leggere) è un solo task per la lista, non uno per elemento: dai all'agente la lista in un file (`notes/` della stanza), la dimensione del lotto (da 5 a 10 elementi) e cosa riporta ogni lotto (quanti fatti, quali restano, una riga per ogni guasto). L'agente lavora il lotto con uno script, posta uno status per lotto con la sua percentuale e passa al lotto dopo senza chiedere. Due liste vanno in parallelo solo se i loro file non si incontrano (la bacheca rifiuta altrimenti il take). Nella stanza che l'ha misurato ha risparmiato 8 minuti e riduce i "fatto?" a uno per lotto.
+
+La mod scrive `agent_types.json` nella cartella di config quando parte un agente, come `{nome: subagentType}`. `chat.py` lo legge per scegliere la cache del prompt: un tipo che comincia con `chatroom:room-agent` ha la cache di un'ora, ogni altro tipo quella breve. La chiave di config `cache_ttl` vince su entrambe.

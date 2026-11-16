@@ -3900,7 +3900,13 @@ def cmd_rooms(room, a):
     """chat.py rooms: the live rooms, to add agents to one of them (add) instead of opening another"""
     rooms = live_rooms()
     if not rooms:
-        return print(say('chat.say.cmd_rooms.no_live_room_on'))
+        from activity import REGISTRY
+        try:
+            newest = max(float(v.get('ts', 0)) for v in json.loads(REGISTRY.read_text(encoding='utf-8')).values())
+            seen = say('chat.say.cmd_rooms.newest_stamp', seconds=int(time.time() - newest))
+        except (OSError, ValueError, AttributeError):
+            seen = ''
+        return print(say('chat.say.cmd_rooms.no_live_room_on') + say('chat.say.cmd_rooms.looked_in', path=REGISTRY) + seen)
     for k, v in sorted(rooms.items()):
         print(say('chat.say.cmd_rooms.room_viewer_participants', v1=v.get('title') or '?', k=k, get=v.get('url'), get_=', '.join(v.get('participants', []))))
 
@@ -3926,7 +3932,7 @@ def cmd_add(room, a):
             config['self_names'].append(a.name)
         return config
     config = room.edit_config(change)
-    print(say('chat.say.cmd_add.room_participants_now', dir=room.dir, participants=', '.join(config['participants'])) + (say('chat.say.cmd_add.posts_as_a_lead', name=a.name) if a.name else ''))
+    print(say('chat.say.cmd_add.room_participants_now', dir=room.dir, participants=', '.join(config['participants']) or say('chat.word.none')) + (say('chat.say.cmd_add.posts_as_a_lead', name=a.name) if a.name else ''))
 
 
 # what the lead writes once about the room for the agents' prompts (chat.py brief); chat.py prompt fills the template
@@ -4281,6 +4287,7 @@ def cmd_remove(room, a):
     def change(config):
         config['participants'] = [n for n in config.get('participants', []) if n not in names]
         config['left'] = sorted(set(config.get('left', [])) | set(names))
+        config['self_names'] = [n for n in config.get('self_names', []) if n not in names]   # a lead that left posts no more as a lead
         return config
     config = room.edit_config(change)
     print(say('chat.say.cmd_remove.room_left_participants_now', dir=room.dir, names=', '.join(names), v3=', '.join(config['participants']) or say('chat.word.none')))
