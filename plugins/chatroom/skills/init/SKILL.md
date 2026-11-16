@@ -51,30 +51,7 @@ Keep the room as it is and set it up with the user, in the room: ask the topic, 
 
 ## 4b. Research
 
-Run `python "CHAT" guide research` and follow it: it is the complete procedure (team and roles, the contract template,
-`research init`, phases 1 to 6 with their gates, the cycles you assign, what the kernel enforces, the detectors to act
-on, evidence, final, report). In short:
-
-1. Phase 0: write `ROOM/research/task.md` with the user until they approve it (the guide has the template: program,
-   build, evaluator, final evaluator, metric and its source, noise handling with repeats and a minimal gain, protocol
-   line, sealed files, kept data folders, time per run, runs in all, and a precheck for what the machine needs before
-   each run, such as idle VRAM).
-2. `research init` with that contract (`--draft` when the evaluator is still to be written: phase 1, smoke runs, the
-   AUDITOR's pass, `research seal`, or `research seal --stay` when the user wants to stop before phase 2). Set the topic
-   with `config --topic`.
-3. The team: 2 WORKERS, a PROPOSER, an AUDITOR, a REGISTRAR, optional SEARCHERS (xhigh only for workers and the auditor;
-   the guide's table has the efforts). `research roles ...`, the brief (with a
-   high `max`: it is a checkpoint with you, not a stop), then each prompt generated from its template
-   (`research_worker.md`, `research_proposer.md`, `research_auditor.md`, `research_registrar.md`,
-   `research_searcher.md`) and passed unchanged. Before you spawn: prepare, compact, then launch, as in the start
-   skill's step 3b (the contract, the prompts and `ROOM/LEAD.md` written first, then the user compacts your conversation
-   on that file): your turns read your whole conversation again, and a research wakes you all night. Start the relay.
-4. Phase 2: you assign cycles (`research assign W --idea I --parent base|best|att-N --type explorer|optimizer`), never
-   ideas; the kernel does the rest and logs it. Watch `research status`; act on detectors and checkpoints.
-5. Phases 3 to 6 move with `research phase next` when their gates hold (the AUDITOR's verdicts, evidence runs, the final
-   evaluation run once, the report).
-6. At the end report from `results.tsv`, `research status` and the report; the user decides whether to merge the best tag.
-   Cleaning up the worktrees, branches and tags afterwards: the guide's last section, only when the user says so.
+Run `python "CHAT" guide research` and follow it: it is the only source of the research procedure (the contract template, `research init`, the team and its efforts, preparing and compacting before the spawn, phases 1 to 6 with their gates, the cycles you assign, the detectors, the report and the cleaning up). Nothing of it is copied here, so a copy loaded in a long session cannot go stale: run the command again when a phase changes and whenever you are unsure of a step.
 
 ## 5. When it ends
 
