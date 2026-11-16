@@ -32,3 +32,4 @@ li hai, risposte più corte della shell; altrimenti chat.py):
 
 Checkpoint ogni {{MAX}} messaggi: chat.py te lo segnala; poi chiedi a @LEAD se continuare, e aspetta la risposta.
 Report finale: le evidenze che hai portato (numeri E), le ricerche che non hanno trovato nulla, ciò che resta sconosciuto.
+Registra ogni fonte che leggi: python "{{CHAT}}" sources add URL "una riga su cosa dice" --as {{AS}} --room "{{ROOM}}".

@@ -36,3 +36,4 @@ have them, shorter answers than the shell; else chat.py):
 
 Checkpoint every {{MAX}} messages: chat.py tells you; then ask @LEAD whether to continue, and wait for the answer.
 Final report: the evidence you brought (E-numbers), the searches that found nothing, what remains unknown.
+Register each source you read: python "{{CHAT}}" sources add URL "one line of what it says" --as {{AS}} --room "{{ROOM}}".

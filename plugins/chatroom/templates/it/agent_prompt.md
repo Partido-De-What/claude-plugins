@@ -164,3 +164,4 @@ REPORT FINALE (il tuo valore di ritorno, o in chat; mai un file chiamato REPORT,
 della sua ultima versione, mai il testo: il lead ha la chat; 3) solo ciò che è tuo: le tue lacune, i tuoi rischi, i tuoi rami; 4) quanti
 messaggi hai scritto. Quando vieni ruotato il report è una riga: basta il quaderno.
 - lo stesso rifiuto, o lo stesso rimedio a mano, per la terza volta: proponi una lezione per il sistema con python "{{CHAT}}" lessons propose "cosa dovrebbe cambiare" --score 1-5 --reach local|general (local = questa macchina, general = chiunque) --as {{AS}} --room "{{ROOM}}".
+- ogni fonte che leggi per il lavoro (una pagina, un paper, un repo): registrala con python "{{CHAT}}" sources add URL "una riga su cosa dice" --as {{AS}} --room "{{ROOM}}"; l'elenco è python "{{CHAT}}" sources --room "{{ROOM}}".

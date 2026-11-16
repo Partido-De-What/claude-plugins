@@ -51,6 +51,9 @@ Commands (the room is --room DIR or the CHATROOM_DIR environment variable):
                                                             keep if better or reset; see research.py)
   chat.py retire NAME --as LEAD                             (the agent behind NAME is replaced: its calls are refused,
                                                             the new one acts as NAME~G)
+  chat.py sources [add URL SUMMARY] --as NAME               (the register of what the room read: link and a line each)
+  chat.py alerts --from NAME --follow                       (a sentinel: ends when NAME writes, printing it)
+  chat.py spawn consult PROMPT.md OUT_DIR [--top N]         (one question to many free models, one file for each answer)
   chat.py pause|resume [WHY] --as LEAD                      (the room stands still: no CHECK, no fall counted, no report asked)
 
 Look options (init) and config keys: --title, --subtitle, --icon (an emoji), --accent (#rrggbb), --theme
@@ -3049,6 +3052,18 @@ def cmd_notebook(room, a):
     print(compress.texts(room, [path.read_text(encoding='utf-8')])[0] if path.exists() else '' if rules.exists() else say('chat.say.cmd_notebook.your_notebook_is_empty'))
 
 
+def cmd_sources(room, a):
+    """chat.py sources [add URL SUMMARY...] --as NAME: the register of what the room read, one row for each URL (sources.py)"""
+    import sources
+    if a.pairs[:1] == ['add']:
+        if len(a.pairs) < 2 or not a.name:
+            sys.exit(say('chat.err.cmd_sources.usage'))
+        print(say('chat.say.cmd_sources.' + sources.add(room, a.name, a.pairs[1], ' '.join(a.pairs[2:])), url=a.pairs[1]))
+        return
+    got = sources.lines(room)
+    print('\n'.join(got) if got else say('chat.say.cmd_sources.none'))
+
+
 def cmd_spawn(room, a):
     """chat.py spawn [create] --room ROOM: the spawn mode here (A in a room made with init --spawn, B in a normal room,
     C in a research room). One line in the chat: keys, models and roles live in the viewer's Spawn view (🛸, ?view=spawn),
@@ -3057,6 +3072,25 @@ def cmd_spawn(room, a):
         from spawn import panel  # noqa: F401  (the view needs it: fails here when Python or the packages are missing)
     except ImportError as exc:                # Python older than 3.14 without uv, or the packages missing
         sys.exit(say('chat.err.main.error', exc=exc))
+    if a.pairs[:1] == ['consult']:                    # spawn consult PROMPT.md OUT_DIR: one question to many free models
+        if len(a.pairs) != 3:
+            sys.exit(say('chat.err.cmd_spawn.consult_usage'))
+        from spawn import consult as sc
+        from spawn.keys import load as load_key
+        from spawn.providers import complete
+        live = None
+        if a.openrouter:
+            import urllib.request
+            req = urllib.request.Request('https://openrouter.ai/api/v1/models', headers={'Authorization': 'Bearer ' + load_key('open_router')['key']})
+            live = json.loads(urllib.request.urlopen(req, timeout=60).read())['data']
+        has_key = lambda adapter: bool(load_key(adapter))
+        picked = sc.pick(a.top or 60, a.ids, a.openrouter, has_key=has_key, live=live)
+        if a.dry:
+            for i, (_, m) in enumerate(picked):
+                print(i + 1, m['canonical'], m.get('ctx', ''), [r['adapter'] for r in m['routes']])
+            return
+        sc.consult(Path(a.pairs[1]).read_text(encoding='utf-8'), a.pairs[2], picked, has_key, complete)
+        return
     if a.pairs[:1] == ['ping']:                       # spawn ping [canonical...] [--top N]: who answers now, with its tools, before a round
         from spawn.catalog import catalog
         if catalog.stale():                           # a catalog a day old offered routes that were gone: brought up to date first
@@ -4550,10 +4584,31 @@ def relay_redeliver(room, lead):
                n=rec['tries'], lines=' | '.join(rec.get('lines', [])))
 
 
+def watch_author(room, author, follow=True):
+    """alerts --from NAME: wait for a message of NAME (another session of the lead, a worker) and print what it wrote, then end: the
+    end is the wake, as for the relay. It keeps its own place (the first start is from now), so what it printed is not printed again"""
+    cur = '_watch_' + author
+    if not (room.dir / f'cursor_{cur}.txt').exists():
+        room.set_cursor(cur, max((m['n'] for m in room.messages() if m['from'] == author), default=0))
+    while True:
+        items = room.messages()
+        new = [m for m in items if m['from'] == author and m['n'] > room.cursor(cur)]
+        if new:
+            for m in new:
+                print(f"#{m['n']} {author}\n{m['text']}\n", flush=True)
+            room.set_cursor(cur, new[-1]['n'])
+            return
+        if not follow or is_shut(room, items):
+            return
+        time.sleep(2)
+
+
 def cmd_alerts(room, a):
     """the lead's relay: print a ping line for each new message of the user (--follow keeps watching);
     with --messages also one WATCH line per real message, so the lead follows the room without reading it all. Each lead
     (--as) keeps its own place; the first time, what is older than ten minutes is not replayed"""
+    if getattr(a, 'author', None):
+        return watch_author(room, a.author, a.follow)
     name, checked, last, shut_checked = '_alerts' + (f'_{a.name}' if a.name else ''), 0, None, 0
     beat_every, beat_at = int(getattr(a, 'heartbeat', None) or 0), time.time()   # --heartbeat N: a wake every N s, even on a quiet room
     quiet, said = {}, time.time()                     # the statuses since the last WATCH line, by author
@@ -6134,7 +6189,7 @@ def _main():
                                         'serve', 'command', 'alerts', 'rooms', 'add', 'remove', 'task', 'board', 'check', 'notebook', 'mcp',
                                         'helpers', 'brief', 'prompt', 'research', 'guide', 'retire', 'look', 'go', 'expand', 'spawn', 'delivered', 'doctor',
                                         'recap', 'cost', 'heavy', 'rotate', 'vision', 'claims', 'lock', 'reopen', 'ack', 'deadline', 'group', 'append',
-                                        'help', 'lessons', 'preview', 'merge', 'procs', 'pause', 'resume'])
+                                        'help', 'lessons', 'preview', 'merge', 'procs', 'pause', 'resume', 'sources'])
     p.add_argument('pairs', nargs='*', help='roster: NAME=<agent ID or path> pairs; config: key=value pairs')
     p.add_argument('--room', default=os.environ.get('CHATROOM_DIR'))
     p.add_argument('--as', dest='name')
@@ -6146,6 +6201,9 @@ def _main():
                    help='an idle status, once: what you wait for and from whom, with your percentage; afterwards '
                         'only a tag wakes you')
     p.add_argument('--follow', action='store_true', help='alerts: keep watching and print each new ping line')
+    p.add_argument('--from', dest='author', help='alerts --follow: end when NAME writes, printing what it wrote (a sentinel on one author)')
+    p.add_argument('--ids', help='spawn consult: a host and the model ids to ask, host:id,id')
+    p.add_argument('--openrouter', action='store_true', help='spawn consult: the live list of free OpenRouter models, not the catalog')
     p.add_argument('--common', action='store_true',
                    help='post/read/wait in the common room (the second coffee room, shared with friends when the user shares it)')
     p.add_argument('--messages', action='store_true',
@@ -6314,7 +6372,7 @@ def _main():
                     'helpers': cmd_helpers, 'brief': cmd_brief, 'prompt': cmd_prompt,
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
                     'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
-                    'lessons': cmd_lessons, 'preview': cmd_preview, 'pause': cmd_pause, 'resume': cmd_resume}
+                    'lessons': cmd_lessons, 'preview': cmd_preview, 'pause': cmd_pause, 'resume': cmd_resume, 'sources': cmd_sources}
         CALL.update(room=room, a=a)
         if a.command in commands:
             if a.command in ('task', 'board', 'notebook') and getattr(a, 'name', None):
