@@ -164,7 +164,7 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
-             'heartbeat': int, 'lead_pace': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
+             'heartbeat': int, 'lead_pace': int, 'lead_pace_runs': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
              'cache_ttl': str, 'thumbs': int, 'vision': int, 'idlefree': str}
 CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h'), 'idlefree': ('on', 'off')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
@@ -554,6 +554,28 @@ def relay_command(room, name):
 
 
 URGENT = re.compile(r'\bURGENT[EI]?\b')              # in capitals, in a message for the lead: it does not wait for the pace
+BLOCKED = re.compile(r'\b(?:blocked|blocker|blocco|bloccat[oaie])\b', re.IGNORECASE)
+
+
+def declares_block(m):
+    """a message that says its author is stuck (a blocked_by in the status, or the word): when it tags the lead it does not
+    wait for the pace either, a viewer was left still for 15 minutes behind one"""
+    st = m.get('state')
+    return bool(isinstance(st, dict) and st.get('blocked_by')) or bool(BLOCKED.search(m.get('text', '')))
+
+
+def relay_pace(room, young=None):
+    """seconds the relay gathers lines for the lead into one wake: close at the start (lead_pace_start, 180, for the first
+    lead_warmup minutes, 20), then lead_pace (900), or lead_pace_runs (300) in phase 2 of a research room, where the lead waits for runs"""
+    c = room.config()
+    if young is None:
+        first = next((float(m.get('ts') or 0) for m in room.messages()), time.time())
+        young = time.time() - first < 60 * int(c.get('lead_warmup', 20))
+    if young:
+        return int(c.get('lead_pace_start', 180))
+    if read_json(room.dir / 'research' / 'state.json', {}).get('phase') == 2:
+        return int(c.get('lead_pace_runs', 300))
+    return int(c.get('lead_pace', 900))
 
 
 def wake_summary(room):
@@ -4219,10 +4241,7 @@ def cmd_alerts(room, a):
             return int(fixed)
         if stream:
             return 20
-        c = room.config()
-        first = next((float(m.get('ts') or 0) for m in room.messages()), time.time())
-        young = time.time() - first < 60 * int(c.get('lead_warmup', 20))
-        return int(c.get('lead_pace_start', 180)) if young else int(c.get('lead_pace', 900))
+        return relay_pace(room)
 
     def out(*x, act=True, urgent=False, **k):
         """--until-line and --stream wake the lead only for what needs it (the user, a tag to it, a plan, a vote, a
@@ -4308,7 +4327,7 @@ def cmd_alerts(room, a):
                     if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
                         line = watch_line(m, users)
                         out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True,
-                            urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0])
+                            urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0] or (tagged and declares_block(m)))
                         said = time.time()
                     elif m['kind'] in ('status', 'idle'):
                         quiet[m['from']] = (m['kind'], m.get('text', '').split(':', 1)[0][:12])
