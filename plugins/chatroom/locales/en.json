@@ -2561,6 +2561,7 @@
  "chat.say.reopen.done": "reopened (#{n}): the agents the room still holds hear it by themselves; one that already ended needs a SendMessage to resume, and the room holds it again",
  "chat.check.gone": "{k} ended its run with the room open, with no idle and nothing taken (its last message is #{n}): if work was left, resume it or put that work on the board",
  "chat.check.gone_task": "{k} ended its run with the room open while it held {ids} (its last message is #{n}): it did not finish that work. Resume it (SendMessage to its id), or give {ids} to another agent",
+ "chat.check.learn": "the same {kind} `{key}` came {n} times in this room ({who}; last: {detail}). It costs time each time: say what should change, now, while you have the case in front of you: lessons propose \"<what to do instead>\" --score <1-5> --reach <local|general> --scope \"<when it applies>\" --note \"{kind}:{key} x{n}\" (add --kind plugin when the fault is the chatroom plugin's own). A 4 or a 5 is applied at once; the rest is kept for the closing.",
  "chat.check.gone_tagged": "{k} ended its run and a message tags it (#{n}, the first it will not read): resume it (SendMessage to its id {aid}, text: read the chat), or give that work to another agent",
  "chat.check.gone_idle": "{k} left the room open after it waited in idle with nothing new for it (hold: {why}; its last message is #{n}): if work was left, resume it or put that work on the board",
  "chat.check.gone_procs": " Still running from it: {procs}. Stop them, or tell it to.",
