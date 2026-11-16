@@ -629,5 +629,28 @@ if section('H4'):                                                     # the hold
         refused = str(e)
     ok('H4 a bad resource name is refused', '--resource' in refused, refused)
 
+# ---------------------------------------------------------------------------------------------------------------- K2b
+if section('K2B'):                                                    # --info and --reference at init, and an info column in results.tsv
+    room, repo, work = research_room('k2b', extra=['--info', 'mem', '--reference', 'mem'])
+    ok('K2b init says the info numbers and the reference arm', 'Info numbers mem' in research_room.last and 'reference arm mem' in research_room.last, research_room.last)
+    ok('K2b the contract has them', contract(room).get('info') == ['mem'] and contract(room).get('reference') == 'mem', contract(room))
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    rows = (room / 'research' / 'results.tsv').read_text(encoding='utf-8').splitlines()
+    ok('K2b results.tsv has an info column', rows[0].split('\t')[-1] == 'info' and rows[1].split('\t')[-1] == 'mem=50', rows)
+    ok('K2b the run line shows the info number', 'mem 50' in o, o)
+    try:
+        research_room('k2c', extra=['--info', 'mem', '--reference', 'nope'])
+        refused = ''
+    except AssertionError as e:
+        refused = str(e)
+    ok('K2b a reference that is not an info number is refused at init', 'name it in --info first' in refused, refused)
+    room, repo, work = research_room('k2d')                            # a room that began before the column: rows keep their shape
+    tsv = room / 'research' / 'results.tsv'
+    tsv.write_text(tsv.read_text(encoding='utf-8').replace('\tinfo\n', '\n'), encoding='utf-8')
+    c, o = run(room, 'research', 'amend', '--info', 'mem', '--as', 'LEAD')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    rows = tsv.read_text(encoding='utf-8').splitlines()
+    ok('K2b an old header gets old-shape rows', c == 0 and len(rows[0].split('\t')) == 11 and len(rows[1].split('\t')) == 11, rows)
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)

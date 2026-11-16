@@ -83,6 +83,11 @@ più basso è meglio, come per `--direction`: una velocità è `max` (`--guard p
 (una per guardia) e TOL può essere `abs=X`: la mediana non deve superare X, qualunque cosa abbia misurato la baseline
 (`--guard peak_mb:min:abs=9000`). `seal` rifiuta una guardia che l'ultima smoke non ha mai stampato. Il
 valutatore finale non viene controllato dalle guardie.
+Una metrica che è un rapporto con un braccio di riferimento misurato nella stessa corsa nasconde un riferimento che
+deriva: stampa anche i valori assoluti ("NOME: valore") e nominali con `--info NOME,...` (e il braccio di riferimento con
+`--reference NOME`), a `init` o dopo con `amend`. Si registrano a ogni corsa, si mostrano sulla sua riga e in status, e
+vanno nella colonna `info` di results.tsv (`NOME=valore;...`), mai giudicati; una corsa il cui riferimento si è mosso del
+2 per cento o più dalla corsa con cui compete lo dice.
 
 Chiedi in fase 0: il valutatore (e ogni guardia) esercita i percorsi di codice che il programma cambierà? Un controllo
 che esegue solo il prefill non controlla una modifica ai kernel di decoding.

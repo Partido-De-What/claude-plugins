@@ -40,7 +40,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from i18n import say  # noqa: E402
 
-TSV_HEAD = 'n\tcommit\tmetric\tstatus\tseconds\tlines\tby\tdescription\tkind\tidea\tspread\n'
+TSV_HEAD = 'n\tcommit\tmetric\tstatus\tseconds\tlines\tby\tdescription\tkind\tidea\tspread\tinfo\n'
 NUMBER = r'([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)'
 PHASES = ('contract', 'drafting', 'investigation', 'evidence', 'final', 'report', 'closed')
 ROLES = ('PROPOSER', 'WORKER', 'REGISTRAR', 'AUDITOR', 'SEARCHER')
@@ -365,7 +365,7 @@ def _better(c, value, than):
 # ---------------------------------------------------------------------------------------------------------- contract
 def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, max_evals=100, repo='.', sealed=(), tag=None,
          result_file=False, keep=(), draft=False, final=None, build=None, build_min=None, repeats=1, min_gain=None, guards=None,
-         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None, artifacts=None, resource=None):
+         provenance=False, precheck=None, build_dir=None, final_dry=None, round_max=None, artifacts=None, resource=None, info=None, reference=None):
     """the lead or the user writes the contract: which file changes, how it is built and evaluated, what is sealed, the
     budget, how noise is handled. --draft starts at phase 1 (the evaluator is still being written, sealed later)"""
     if by not in room.user_names():
@@ -388,6 +388,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
         raise ValueError(say('kernel.init.build_min_the_minutes'))
     if resource is not None and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 _.-]{0,23}', str(resource).strip()):
         raise ValueError(say('kernel.init.resource_name'))
+    info_names = _info_check(info, reference)
     guards = parse_guards(guards)
     task = _dir(room) / 'task.md'
     if not task.is_file() or not task.read_text(encoding='utf-8', errors='replace').strip():
@@ -445,7 +446,8 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
                 'build': build or '', 'build_s': max(1, int(float(build_min) * 60)) if build_min else 0,
                 'repeats': int(repeats or 1), 'min_gain': str(min_gain) if min_gain is not None else '', 'roles': {}, 'guards': guards, 'provenance': bool(provenance),
                 'precheck': precheck or '', 'build_dir': _build_dir(room, build_dir), 'final_dry': final_dry or '', 'task_sha': _sha(task), 'created': time.strftime('%Y-%m-%d %H:%M:%S'),
-                'round_max': int(round_max or ROUND_MAX), 'artifacts': artifacts, 'resource': (resource or '').strip()}
+                'round_max': int(round_max or ROUND_MAX), 'artifacts': artifacts, 'resource': (resource or '').strip(),
+                **({'info': info_names} if info_names is not None else {}), **({'reference': reference} if reference else {})}
     _save(room, 'contract.json', contract)
     st = _migrate(contract, {'evals': 0, 'best': None, 'head': base, 'pending': None, 'phase': 1 if draft else 2})
     _save(room, 'state.json', st)
@@ -462,7 +464,22 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
                if build and not keep else '') + subs
             + say('kernel.init.one_evaluate_call_can', max_run_seconds=max_run_seconds(contract))
             + say('kernel.init.budget_rule', budget_s=contract['budget_s'], kill=2 * contract['budget_s'], round=contract['round_max'])
+            + (say('kernel.init.info', names=', '.join(info_names), reference=(', ' + say('kernel.amend.reference', name=reference)) if reference else '') if info_names else '')
             + (say('kernel.init.phase_write_and_smoke') if draft else say('kernel.init.the_first_run_is')))
+
+
+def _info_check(info, reference, have=()):
+    """K2b, for init and amend: --info as a clean list of names (None when not given), --reference checked to be one of
+    the info names the contract will have (the new ones, else the ones it has)"""
+    names = None
+    if info is not None:
+        names = [x.strip() for x in ','.join(info if isinstance(info, (list, tuple)) else [info]).split(',') if x.strip()]
+        bad = [x for x in names if not re.fullmatch(r'[A-Za-z0-9_.-]+', x)]
+        if bad:
+            raise ValueError(say('kernel.amend.info_names', names=', '.join(bad)))
+    if reference and reference not in (have if names is None else names):
+        raise ValueError(say('kernel.amend.reference_not_info', name=reference))
+    return names
 
 
 def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=None, build=None, build_min=None,
@@ -485,16 +502,11 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
         new = [g['name'] for g in parse_guards(guards) if g['name'] not in measured_g and not g['tol'].startswith('abs=')]   # an absolute limit needs no baseline value
         if new:
             raise ValueError(say('kernel.word.guard_not_in_baseline', names=', '.join(new)))
+    names = _info_check(info, reference, c.get('info', []))
     if info is not None:                                  # numbers the evaluator prints, recorded and shown, never judged
-        names = [x.strip() for x in ','.join(info if isinstance(info, (list, tuple)) else [info]).split(',') if x.strip()]
-        bad = [x for x in names if not re.fullmatch(r'[A-Za-z0-9_.-]+', x)]
-        if bad:
-            raise ValueError(say('kernel.amend.info_names', names=', '.join(bad)))
         c['info'] = names
         said.append(say('kernel.amend.info', names=', '.join(names) or say('kernel.word.none')))
     if reference is not None:                             # the info number that is the reference arm measured in every run
-        if reference and reference not in c.get('info', []):
-            raise ValueError(say('kernel.amend.reference_not_info', name=reference))
         c['reference'] = reference
         said.append(say('kernel.amend.reference', name=reference or say('kernel.word.none')))
     for key, value, label in (('evaluate', evaluate, say('kernel.word.evaluator')), ('build', build, say('kernel.word.build')), ('final', final, say('kernel.word.final_evaluator'))):
@@ -904,10 +916,14 @@ def _reason(out):
     return ((py[-1:] or named[:1] or lines[-1:]) or [''])[0][:160]
 
 
-def _row(room, n, commit, value, status, secs, lines, name, desc, kind='attempt', idea='', spread=''):
-    with open(_dir(room) / 'results.tsv', 'a', encoding='utf-8') as f:
+def _row(room, n, commit, value, status, secs, lines, name, desc, kind='attempt', idea='', spread='', info=None):
+    path = _dir(room) / 'results.tsv'
+    with open(path, encoding='utf-8') as f:
+        wide = f.readline().rstrip('\r\n').endswith('\tinfo')        # K2b: a room that began before the column keeps its rows as they were
+    with open(path, 'a', encoding='utf-8') as f:
         f.write('\t'.join([str(n), commit, '' if value is None else f'{value:.6g}', status, f'{secs:.0f}', lines, name,
-                           ' '.join(desc.split()), kind, idea or '', spread]) + '\n')
+                           ' '.join(desc.split()), kind, idea or '', spread]
+                          + ([';'.join(f'{k}={v:.6g}' for k, v in (info or {}).items())] if wide else [])) + '\n')
 
 
 def _info_of(c, source):
@@ -1574,7 +1590,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, 
             s2['aux'] += 1
         s2['pending'] = None
     _edit(room, apply)
-    _row(room, n, commit, value, status, secs, lines, name, desc + (f' (seed {seed})' if seed is not None else ''), 'invalid' if status == 'invalid' else kind, idea or '', spread)
+    _row(room, n, commit, value, status, secs, lines, name, desc + (f' (seed {seed})' if seed is not None else ''), 'invalid' if status == 'invalid' else kind, idea or '', spread, info)
     _log(room, name, 'run-invalid' if status == 'invalid' else 'run', {'n': n, 'kind': kind, 'status': status, 'metric': value, 'why': why, 'commit': commit, 'idea': idea,
                              'of': of, 'seed': seed, 'spread': spread})
     with open(d / f'findings-{key}.md', 'a', encoding='utf-8') as f:     # the line's own log: facts only, no advice
@@ -3397,7 +3413,7 @@ def _cmd(room, a):
                          getattr(a, 'build_min', None), getattr(a, 'repeats', None) or 1, getattr(a, 'min_gain', None),
                          getattr(a, 'guard', None), getattr(a, 'provenance', None), getattr(a, 'precheck', None),
                          getattr(a, 'build_dir', None), getattr(a, 'final_dry', None), getattr(a, 'round', None),
-                         getattr(a, 'artifacts', None), getattr(a, 'resource', None)))
+                         getattr(a, 'artifacts', None), getattr(a, 'resource', None), getattr(a, 'info', None), getattr(a, 'reference', None)))
     if act == 'round' and rest[:1] == ['open']:
         return post(round_open(room, a.name, getattr(a, 'round', None), a.text or a.desc or ''))
     if act == 'round' and rest[:1] == ['close']:

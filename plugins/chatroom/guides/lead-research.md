@@ -80,6 +80,11 @@ or in `$CHATROOM_RESULT` with `--result-file`), and `--guard NAME:min|max:TOL` c
 (`--guard prefill_tps:max:3%`), a memory `min`. `--guard` repeats (one per guard) and TOL can be `abs=X`: the median
 must not pass X itself (`--guard peak_mb:min:abs=9000`), whatever the baseline measured. `seal` refuses a guard the last smoke
 run never printed. The final evaluator is not checked for guards.
+A metric that is a ratio against a reference arm measured in the same run hides a reference that drifts: print the
+absolute values too ("NAME: value") and name them with `--info NAME,...` (and the reference arm with `--reference NAME`),
+at `init` or later with `amend`. They are recorded with every run, shown on its line and in status, and written in the
+`info` column of results.tsv (`NAME=value;...`), never judged; a run whose reference moved 2 percent or more since the run
+it competes with says so.
 
 Ask in phase 0: does the evaluator (and each guard) exercise the code paths the program will change? A gate that runs
 only the prefill does not check a change to the decoding kernels.

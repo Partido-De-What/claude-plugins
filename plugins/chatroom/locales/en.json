@@ -2517,6 +2517,7 @@
  "kernel.init.resource_name": "--resource: a short name (letters, digits, space . _ -, up to 24), the one resource runs and holds queue for",
  "kernel.stray.owner": "of {who}",
  "kernel.stray.age": "{minutes} min old",
+ "kernel.init.info": ". Info numbers {names}{reference}: recorded with every run (also in the info column of results.tsv) and shown, never judged",
  "kernel.queue.done": "your queued run is done: {line}",
  "kernel.plan.only_the_lead": "only the lead or the user plans runs",
  "kernel.plan.no_such_run": "{of}: no such run",

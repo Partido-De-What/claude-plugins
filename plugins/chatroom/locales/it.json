@@ -2517,6 +2517,7 @@
  "kernel.init.resource_name": "--resource: un nome breve (lettere, cifre, spazio . _ -, fino a 24), l'unica risorsa per cui corse e blocchi fanno coda",
  "kernel.stray.owner": "di {who}",
  "kernel.stray.age": "{minutes} min di vita",
+ "kernel.init.info": ". Numeri info {names}{reference}: registrati a ogni corsa (anche nella colonna info di results.tsv) e mostrati, mai giudicati",
  "kernel.queue.done": "la tua corsa in coda è finita: {line}",
  "kernel.plan.only_the_lead": "solo il lead o l'utente pianificano corse",
  "kernel.plan.no_such_run": "{of}: corsa inesistente",
