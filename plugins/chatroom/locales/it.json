@@ -219,6 +219,7 @@
  "chat.say.closing_refusal.there_is_no_plan2": "non c'è nessun PIANO v{v} nella chat",
  "chat.say.cmd_add.posts_as_a_lead": "; {name} scrive come lead",
  "chat.say.cmd_add.room_participants_now": "stanza {dir}: ora i partecipanti sono {participants}",
+ "chat.say.cmd_alerts.pass_as": "RELAY questa stanza ha più lead: questo relay parla solo per {name}. Avviane uno per ogni lead con --as NOME",
  "chat.say.cmd_alerts.relay_a_newer_relay": "RELAY un relay più nuovo di questo lead ha preso il posto: questo si ferma",
  "chat.say.cmd_alerts.relay_closed": "RELAY la stanza è chiusa: questo relay si ferma (il lead lo riavvia se la stanza si riapre)",
  "chat.say.cmd_brief.brief_saved": "brief salvato: ",

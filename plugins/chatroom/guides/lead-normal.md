@@ -41,7 +41,7 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    From then on talk to the agents in the room (`@NAME`), not with SendMessage: a stopped agent is held by the room's
    hook, and a SendMessage reaches it only when the hold ends (up to 9 minutes). Steps of your own that must reach every
    agent (a style, a rule) go in the brief, or right after the spawn, before they first go idle.
-8. Relay: `alerts --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
+8. Relay: `alerts --as LEAD --follow --messages` under Monitor (longest timeout, re-armed when it ends) in Claude Code; in Codex a
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
    In Claude Code run it as a background shell command with `--until-line` (no `--batch`: the room's pace, 3 minutes at the start and 15 after 20 minutes, `config lead_pace=...`; the user, a closing, a crash and URGENT never wait; each wake ends with a WAKE line to answer from) / `--until-tag`: no 30-minute cap;
    the relay exits only for what needs you, and you start it again after handling the lines. A post of yours says when the
@@ -137,7 +137,7 @@ room works: cache rewrites, and the protocol over half of an agent's tokens).
 
 Shared resources: agents take a test bench or a port with `lock acquire NAME` and leave it with `lock release NAME`: a queue, the next one tagged by itself, an expiry (`--ttl`), `lock status`. You never set the order by hand. The browser panel is one for everyone (a tab change under another's eyes spoils his screenshots): whoever drives it takes `lock acquire browser` first (10 minutes by default) and releases it when done, you too.
 After a CLOSED: `reopen --as LEAD --reason "..."` opens the room again and voids the votes; a held agent hears it, one that already ended needs a SendMessage, and the next PLAN version is voted as usual. A message of yours that opens with CHALLENGE suspends the votes on the current version until a new one comes.
-The board: `board` is short (open and taken tasks, done ones as ids), `board T12` is one task in full, `board --all` everything. Two rooms with one lead: `alerts --room A --room B --follow --messages --until-line --batch 60` is one relay, each line with its room in front; `cost` keeps you out of the room's total.
+The board: `board` is short (open and taken tasks, done ones as ids), `board T12` is one task in full, `board --all` everything. Two rooms with one lead: `alerts --room A --room B --as LEAD --follow --messages --until-line --batch 60` is one relay, each line with its room in front; `cost` keeps you out of the room's total.
 Lines that only inform (a task closed with gaps, a proof that names no file, compactions, the protocol's share, a bare "received") do not wake you: they come in the digest with the next wake, and `recap` lists the gaps.
 Replacing an agent: `python CHAT retire NAME --room ROOM --as LEAD`, then generate its prompt again (it acts as `NAME~1`), spawn the new agent and `roster` it. The retired agent's calls are refused, so a stopped agent woken by a message cannot post again; its call count starts over.
 

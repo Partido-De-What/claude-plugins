@@ -4205,7 +4205,9 @@ def cmd_alerts(room, a):
     stream = getattr(a, 'stream', False)
     until, fixed = getattr(a, 'until_line', False) or stream, getattr(a, 'batch', None)
     held, rush = [], []
-    mine = [a.name] if a.name else room.config().get('self_names', [])            # the leads this relay speaks for: a message of another lead is news to it
+    relay_leads = [a.name] if a.name else room.config().get('self_names', [])[:1]   # the lead this relay speaks for: a message of another lead is news to it
+    if not a.name and len(room.config().get('self_names', [])) > 1:
+        print(say('chat.say.cmd_alerts.pass_as', name=relay_leads[0]), flush=True)
 
     def batch():
         """how long lines for the lead are gathered into one wake. --batch N: N seconds. Without it the pace of the room:
@@ -4254,7 +4256,7 @@ def cmd_alerts(room, a):
         kind = line.split(' ', 3)[2] if line.startswith('WATCH #') else ''
         if m.get('kind') == 'board':                  # the kernel: a new global best, a crash or a verdict (the lead moves the phase), not every run
             return bool(re.search(r'NEW GLOBAL BEST|NUOVO MIGLIORE GLOBALE|CRASH|(?i:verdetto|verdict)', m.get('text', '')))
-        return kind != 'MSG' or (any(tags(m.get('text', ''), n) for n in mine) and not is_ack(m.get('text', '')))
+        return kind != 'MSG' or (any(tags(m.get('text', ''), n) for n in relay_leads) and not is_ack(m.get('text', '')))
     seen_path = room.dir / f'checks_seen{name}.json'   # the relay restarts every 30 min: what it said stays said
     try:
         seen_checks = set(json.loads(seen_path.read_text(encoding='utf-8')))
@@ -4300,9 +4302,9 @@ def cmd_alerts(room, a):
             if a.messages:
                 research_room = (room.dir / 'research' / 'contract.json').is_file()
                 for m in new:
-                    if m.get('from') in mine:
+                    if m.get('from') in relay_leads:
                         continue
-                    tagged = any(tags(m.get('text', ''), n) for n in mine)   # a status or a finding that tags the lead wakes it too
+                    tagged = any(tags(m.get('text', ''), n) for n in relay_leads)   # a status or a finding that tags the lead wakes it too
                     if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
                         line = watch_line(m, users)
                         out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True,
@@ -4316,7 +4318,7 @@ def cmd_alerts(room, a):
                     quiet.clear()
                     said = time.time()
                 from inbox import mark_delivered     # the lead has them from its relay: the alarm clock and the mod stay quiet
-                for lead in mine[:1]:
+                for lead in relay_leads[:1]:
                     mark_delivered(room.dir, lead, new[-1]['n'])
             room.set_cursor(name, new[-1]['n'])
         for line in lend_lines(room) + study_lines(room) + skill_lines(room):

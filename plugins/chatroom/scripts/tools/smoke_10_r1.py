@@ -26,7 +26,7 @@ def ok(name, cond, info=''):
 
 
 def relay(room, who):
-    r = subprocess.run([sys.executable, '-X', 'utf8', CHAT, 'alerts', '--as', who, '--messages', '--room', str(room)], capture_output=True, timeout=120)
+    r = subprocess.run([sys.executable, '-X', 'utf8', CHAT, 'alerts', *(['--as', who] if who else []), '--messages', '--room', str(room)], capture_output=True, timeout=120)
     return (r.stdout + r.stderr).decode('utf-8', errors='replace')
 
 
@@ -46,5 +46,24 @@ o2 = relay(room, 'LEAD2')
 ok('R1 relay of LEAD2 delivers a message of LEAD', 'YAK' in o2, o2)
 ok('R1 relay of LEAD2 skips its own message', 'ZEBRA' not in o2, o2)
 ok('R1 relay of LEAD2 wakes on a tag to LEAD2', 'question for the second lead' in o2, o2)
+# without --as and with two leads: the relay speaks for the first lead only, says so, and still delivers the other lead
+o3 = relay(room, None)
+ok('R1 no --as, two leads: the relay says to pass --as', '--as' in o3 and 'LEAD ' in o3, o3)
+ok('R1 no --as, two leads: the second lead is delivered', 'ZEBRA' in o3, o3)
+ok('R1 no --as, two leads: the first lead is skipped', 'YAK' not in o3, o3)
+# the relay that stays on (--follow) runs the same loop: its ownership flag must not shadow the lead names
+room2 = BASE / 'room2'
+subprocess.run([sys.executable, CHAT, 'init', '--room', str(room2), '--participants', 'A,B', '--lang', 'en'], capture_output=True)
+cfg = json.loads((room2 / 'config.json').read_text(encoding='utf-8'))
+cfg['self_names'] = ['LEAD', 'LEAD2']
+(room2 / 'config.json').write_text(json.dumps(cfg), encoding='utf-8')
+chat.Room(room2).append('LEAD2', 'follow note ZEBRA')
+p = subprocess.Popen([sys.executable, '-X', 'utf8', CHAT, 'alerts', '--follow', '--messages', '--as', 'LEAD', '--room', str(room2)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8')
+try:
+    first = p.stdout.readline()
+finally:
+    p.kill()
+    p.wait()
+ok('R1 a following relay of LEAD delivers a message of LEAD2', 'ZEBRA' in first, first)
 print('fails', fails)
 sys.exit(1 if fails else 0)
