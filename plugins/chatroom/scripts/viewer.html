@@ -451,6 +451,10 @@
       <div class="field"><span data-t="fWall"></span><select id="fWall"><option value="dots"></option><option value="grid"></option><option value="plain"></option></select></div>
       <div class="field"><span data-t="fLang"></span><select id="fLang"><option value="en">English</option><option value="it">Italiano</option></select></div>
     </div>
+    <div class="field-row">
+      <div class="field"><span data-t="fViewerIdle"></span><input type="text" id="fViewerIdle" inputmode="decimal" maxlength="6"></div>
+      <div class="field"><span data-t="fProvaIdle"></span><input type="text" id="fProvaIdle" inputmode="decimal" maxlength="6"></div>
+    </div>
     <div class="section" data-t="people"></div>
     <div id="people"></div>
     <div class="section" data-t="view"></div>
@@ -1112,6 +1116,7 @@ function openPanel() {
   $('fTitle').value = config.title || config.topic || ''; $('fSubtitle').value = config.subtitle || ''; $('fIcon').value = config.icon || '💬';
   $('fAccent').value = config.accent || '#00a884'; $('fTheme').value = config.theme || 'auto';
   $('fWall').value = config.wallpaper || 'dots'; $('fLang').value = config.lang || 'en'; $('saved').textContent = '';
+  fetch('settings.json', {cache: 'no-store'}).then(r => r.json()).then(s => { $('fViewerIdle').value = s.viewer_idle_min; $('fProvaIdle').value = s.prova_idle_min; }).catch(() => {});
   const names = [...new Set([...(config.participants || []), ...all.map(m => m.from)])].filter(n => !SELF.has(n));
   $('people').innerHTML = names.map(n => {
     const p = profile(n);
@@ -1132,6 +1137,9 @@ async function savePanel() {
   const body = {title: $('fTitle').value.trim() || 'Chat room', subtitle: $('fSubtitle').value.trim(), icon: $('fIcon').value.trim() || '💬',
                 accent: $('fAccent').value, theme: $('fTheme').value, wallpaper: $('fWall').value, lang: $('fLang').value, profiles};
   try {
+    const idle = {viewer_idle_min: $('fViewerIdle').value.trim(), prova_idle_min: $('fProvaIdle').value.trim()};   // minutes, 0 = never; the server says if one is not a number
+    const rs = idle.viewer_idle_min === '' || idle.prova_idle_min === '' ? null : await fetch('settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(idle)});
+    if (rs && !rs.ok) { $('saved').textContent = t().notSent + await rs.text(); return; }
     const r = await fetch('config', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     if (!r.ok) { $('saved').textContent = t().notSent + await r.text(); return; }
     config = Object.assign({}, config, await r.json()); await I18N.load(config.lang); applyLook(); rerender(); header();
