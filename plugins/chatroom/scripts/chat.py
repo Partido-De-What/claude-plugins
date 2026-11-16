@@ -1654,6 +1654,19 @@ def post_text(a):
     return sys.stdin.buffer.read().decode('utf-8', errors='replace').strip()
 
 
+def idle_short(room, name, text):
+    """an idle that says again what the author's last message said (16% of a night's messages were such): its first line and the number
+    of that message. A new reason to wait, or a short idle, passes as it is"""
+    import difflib
+    last = next((m for m in reversed(room.messages()) if m['from'] == name), None)
+    body = lambda t: ' '.join(re.sub(r'\d+(?:[.,]\d+)?%|\W+', ' ', t).lower().split())
+    if not last or last.get('kind') == IDLE or len(body(text)) < 80:
+        return text
+    if (len(text.strip().splitlines()) < 2 and len(text) <= 200) or difflib.SequenceMatcher(None, body(text), body(last.get('text', '')), autojunk=False).ratio() < 0.8:
+        return text
+    return say('chat.say.idle_short', first=cut(text.strip().splitlines()[0], 200), n=last['n'])
+
+
 def cmd_post(room, a, text=None):
     if text is None:
         text = post_text(a)
@@ -1692,6 +1705,8 @@ def cmd_post(room, a, text=None):
         text = text.replace('{ora}', time.strftime('%H:%M')).replace('{time}', time.strftime('%H:%M'))
     if kind and not text:
         sys.exit(say('chat.err.cmd_post.error_a_status_needs'))
+    if kind == IDLE:
+        text = idle_short(room, a.name, text)
     if kind == IDLE and not PERCENT.search(text):   # an idle keeps the percentage of its last status
         last = next((re.search(r'\d+(?:[.,]\d+)?%', m.get('text', '')) for m in reversed(room.messages())
                      if m['from'] == a.name and m.get('kind') in ('status', IDLE) and re.search(r'\d+(?:[.,]\d+)?%', m.get('text', ''))), None)
