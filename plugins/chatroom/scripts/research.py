@@ -445,6 +445,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
             + (say('kernel.init.warning_the_build_output')
                if build and not keep else '') + subs
             + say('kernel.init.one_evaluate_call_can', max_run_seconds=max_run_seconds(contract))
+            + say('kernel.init.budget_rule', budget_s=contract['budget_s'], kill=2 * contract['budget_s'], round=contract['round_max'])
             + (say('kernel.init.phase_write_and_smoke') if draft else say('kernel.init.the_first_run_is')))
 
 
@@ -1006,6 +1007,7 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
                           say('kernel._measure.build_exit', code=code) + (f': {_reason(text)}' if _reason(text) else '')), secs, '', [], text
     values, protocol, envs, proved, gvals = [], [], [], [], {g['name']: [] for g in c.get('guards', [])}
     c['_env'] = envs                                      # filled as the repeats go: a crash keeps what was printed
+    c['_slow'] = 0                                        # the longest single measure: over the budget it is said, over twice it is killed
     wants = _shas(Path(work) / c['program']) if env.get('CHATROOM_PROGRAM_SHA') else set()
     pattern = rf"^\s*{re.escape(c['metric'])}\s*:\s*{NUMBER}\s*$"
     for k in range(c.get('repeats', 1)):
@@ -1018,6 +1020,7 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         code, s = _run(c['evaluate'], work, log, 2 * c['budget_s'], run_env, mode='ab' if (c.get('build') or k) else 'wb',
                        on_start=on_start)
         secs += s
+        c['_slow'] = max(c['_slow'], s)
         text = log.read_text(encoding='utf-8', errors='replace')
         out = text[start:] if len(text) >= start else text
         for line in re.findall(r'^\s*protocol\s*:\s*(.+?)\s*$', out, re.MULTILINE | re.IGNORECASE):
@@ -1397,6 +1400,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     guards = c.pop('_guards', {}) if value is not None else {}
     info = c.pop('_info', {}) if value is not None else {}
     env_lines, built_ok, values = c.pop('_env', [])[:12], c.pop('_built', False), c.pop('_values', [])
+    slow = c.pop('_slow', 0)
     base_g = (st.get('baseline') or {}).get('guards') or {}
     if value is not None and kind == 'attempt' and not first:
         broken = []                                       # all the guards, not the first one that breaks
@@ -1440,9 +1444,11 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
                 (say('kernel._evaluate.by_more_than', min_gain=c['min_gain']) if c.get('min_gain') else '')
     if status == 'keep' and kind == 'attempt' and not first and not fix and line_best and line_best.get('metric') \
             and abs(value - line_best['metric']) < REPLICA_GAIN * abs(line_best['metric']):
+        room.append(name, say('kernel._evaluate.replica_running', n=n, value=f'{value:.6g}', best=f"{line_best['metric']:.6g}", gain=f'{100 * REPLICA_GAIN:.0f}'), 'board')   # K13: not in silence
         v2, _, s_2, _, _, _ = _measure(c, work, d, n, env, log.with_name(f'{n}-replica.log'), started, None)
         for k in ('_guards', '_env', '_built', '_values'):
             c.pop(k, None)
+        slow = max(slow, c.pop('_slow', 0))
         secs += s_2
         both = None if v2 is None else (value + v2) / 2
         if both is None or not _better(c, both, line_best['metric']):
@@ -1526,10 +1532,12 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
             gain = float(str(c3.get('min_gain') or '0').rstrip('%') or 0) if str(c3.get('min_gain') or '').endswith('%') else None
             flags += say('kernel._evaluate.noise_hint', noise=f'{noise:.1f}', want=f'{2 * noise:.1f}') + (
                 say('kernel._evaluate.noise_low', gain=c3['min_gain']) if gain is not None and gain < 2 * noise else '')
-        elif c3.get('repeats', 1) < 2:
+        elif c3.get('repeats', 1) < 2 and not (c3.get('reference') or c3.get('info')):   # K12: a contract that prints a reference arm measures its noise itself
             flags += say('kernel._evaluate.noise_unknown')
         if secs > 600:                                     # 12 repeats once (3 in the contract x 4 in the evaluator): over 30 minutes a run
             flags += say('kernel._evaluate.run_long', minutes=f'{secs / 60:.0f}', repeats=c3.get('repeats', 1))
+    if slow > c3['budget_s']:                              # K11: the soft budget; the hard one kills at twice
+        flags += say('kernel._evaluate.over_budget', secs=f'{slow:.0f}', budget_s=c3['budget_s'], kill=2 * c3['budget_s'])
     if kind == 'attempt' and status == 'keep' and s3['best']:     # a keep beats the line's best; the global best wants min_gain more
         flags += (say('kernel._evaluate.new_global_best') if s3['best']['n'] == n else
                   say('kernel._evaluate.line_keep', best=s3['best']['n'], metric=f"{s3['best']['metric']:.6g}", gain=c.get('min_gain') or '0'))

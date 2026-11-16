@@ -204,7 +204,7 @@ La fase 2 va a round corti, mai a un budget grande deciso prima (`--max-evals` r
 |---|---|---|
 | 1. Analizza | tu, AUDITOR | la situazione e i numeri finora; alla baseline il kernel stampa il rumore che ha misurato e il `--min-gain` che consiglia (il doppio del rumore) |
 | 2. Ricerca online | SEARCHER, PROPOSER | idee con le fonti, ciascuna controllata su ciò che la stanza ha già misurato |
-| 3. Test | WORKER | 5-10 corse corte (`--round N` in init, 10 di default); un tenuto che guadagna meno del 10% viene rimisurato da solo prima di contare |
+| 3. Test | WORKER | 5-10 corse corte (`--round N` in init, 10 di default); un tenuto che guadagna meno del 10% viene rimisurato da solo prima di contare (la board dice "misura ancora una volta"; la replica non è una delle corse). `--budget-min` è il budget di ogni misura: oltre, la riga della corsa lo dice, oltre il doppio la misura è uccisa; `init` stampa i due limiti e la grandezza del round |
 | 4. Analisi dei risultati | REGISTRAR, AUDITOR | la conclusione del round dalle sue corse; l'auditor legge ogni tenuto |
 | 5. Ricerca online | SEARCHER | su quei risultati |
 | 6. Decisione | tu, con l'utente | `research round close --decision more --text "..."` apre il round dopo, `--decision done` lascia seguire la fase 3 |

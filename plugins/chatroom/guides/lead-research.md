@@ -194,7 +194,7 @@ Phase 2 goes by short rounds, never by a big budget decided before (`--max-evals
 |---|---|---|
 | 1. Analyse | you, AUDITOR | the situation and the numbers so far; at the baseline the kernel prints the noise it measured and the `--min-gain` it suggests (twice the noise) |
 | 2. Search the web | SEARCHER, PROPOSER | ideas with their sources, each checked against what the room already measured |
-| 3. Test | WORKER | 5-10 short runs (`--round N` in init, 10 by default); a keep that gains under 10% is measured again by itself before it counts |
+| 3. Test | WORKER | 5-10 short runs (`--round N` in init, 10 by default); a keep that gains under 10% is measured again by itself before it counts (the board says "measuring once more"; the replica is not one of the runs). `--budget-min` is the budget of each measure: over it the run line says so, over twice it the measure is killed; `init` prints both limits and the round size |
 | 4. Read the results | REGISTRAR, AUDITOR | the round's conclusion from its runs; the auditor reads every keep |
 | 5. Search the web | SEARCHER | on those results |
 | 6. Decide | you, with the user | `research round close --decision more --text "..."` opens the next round, `--decision done` lets phase 3 follow |

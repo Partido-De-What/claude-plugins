@@ -65,6 +65,7 @@ def research_room(name, participants='W', extra=(), evaluate=None, eval_src=EVAL
             '--tag', name, '--as', 'LEAD', *extra]
     c, o = run(room, *args)
     assert c == 0, o
+    research_room.last = o                            # the init's own output
     return room, repo, room / 'research' / 'work'
 
 
@@ -508,6 +509,27 @@ if section('K17'):                                                    # a wake f
     text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
     ok('K17 the runner says once the list is finished and tags the auditor and the author', text.count('the queued list is finished:') == 1
        and '@A @W' in text and 'list is finished: 1 runs closed' in text, text[-600:])
+
+# ---------------------------------------------------------------------------------------------------------------- K11
+if section('K11'):                                                    # soft budget, --round confirmed, replica said, noise advice only when the noise is unknown
+    SLOW = 'import program, time\ntime.sleep(1.4)\nprint("loss:", 100 - program.X)\n'
+    room, repo, work = research_room('k11', extra=['--budget-min', '0.02', '--round', '7'], eval_src=SLOW)
+    init = research_room.last
+    ok('K11 init says what the budget is and when it kills', 'Budget: 1 s' in init and 'over 2 s' in init and 'does not count in the runs' in init, init)
+    ok('K11 init confirms --round', '7 runs (--round)' in init, init)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K11 a measure over the budget (not yet the kill) is said on the run line', c == 0 and 'KEEP' in o and 'over the 1 s budget' in o and 'killed at 2 s' in o, o)
+    ok('K12 without a reference or repeats the baseline still says the noise is unknown', 'noise is unknown' in o, o)
+    (work / 'program.py').write_text('X = 6\n')                        # 94 against 95: a gain of about 1%, under the 10% that gets a second measure
+    c, o = run(room, 'research', 'evaluate', '--desc', 'small gain', '--as', 'W')
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K13 the automatic replica is announced on the board before it runs', c == 0 and 'measuring att-2 once more' in text, text[-400:])
+    room, repo, work = research_room('k12', extra=['--draft'])
+    c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke', '--as', 'W')
+    ok('K12 a smoke says the noise is unknown while the contract has no reference', 'noise is unknown' in o, o)
+    c, o = run(room, 'research', 'amend', '--info', 'mem', '--reference', 'mem', '--reason', 'reference arm', '--as', 'LEAD')
+    c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke 2', '--as', 'W')
+    ok('K12 with a reference arm in the contract the advice is silent', c == 0 and 'noise is unknown' not in o, o)
 
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
