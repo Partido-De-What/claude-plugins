@@ -495,7 +495,8 @@ def waits_for_lead(room, items=None, only=None, now=None):
     return out
 
 
-UNTIL_CMD_EVERY = 10      # seconds between two tries of a wait's --until-cmd, and the most one try may take
+UNTIL_CMD_EVERY = 10      # seconds between two tries of a wait's --until-cmd
+UNTIL_CMD_TRY = 30        # the most one try may take: on a loaded machine a command that starts python takes seconds
 STATE_OLD_MIN = 20       # minutes: a task command of an agent whose notebook state is older says to rewrite it (S5)
 READ_MAX = 40             # new messages past which a plain read gives the digest (155k characters re-read by a lead after a compaction)
 LEAD_CTX = 300_000        # tokens of the lead's context: past this, recap and a fresh start cost less than every turn
@@ -1487,7 +1488,7 @@ class Room:
             if until_cmd and time.time() - tried >= UNTIL_CMD_EVERY:
                 tried = time.time()
                 try:
-                    got = subprocess.run(until_cmd, shell=True, capture_output=True, text=True, errors='replace', timeout=UNTIL_CMD_EVERY)
+                    got = subprocess.run(until_cmd, shell=True, capture_output=True, text=True, errors='replace', timeout=UNTIL_CMD_TRY)
                 except (OSError, subprocess.SubprocessError):
                     got = None
                 if got is not None and got.returncode == 0:

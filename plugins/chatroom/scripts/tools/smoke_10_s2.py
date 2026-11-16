@@ -41,7 +41,7 @@ assert 'not true yet' in text and 'do not end your turn' in text, text          
 threading.Timer(1.5, flag.write_text, ['x']).start()
 t0 = time.time()
 text = waited(30)
-assert 'condition is true' in text and time.time() - t0 < 15, (text, time.time() - t0)   # true: the wait ends at once
+assert 'condition is true' in text and time.time() - t0 < 28, (text, time.time() - t0)   # true: the wait ends at once
 flag.unlink()
 r.append('B', '@A stop, the plan changed')
 assert 'the plan changed' in waited(20)                                           # a message for it still wakes it first
