@@ -855,6 +855,15 @@ def _lines(stat):
     return f"+{add.group(1) if add else 0} -{rem.group(1) if rem else 0}"
 
 
+def _reason(out):
+    """the line of a failed run's output that says why it stopped, for the board line: the last Python exception line, else
+    the first line that names an error, else the last line. '' when the run printed nothing"""
+    lines = [l.strip() for l in (out or '').splitlines() if l.strip() and not l.strip().startswith('File "')]
+    py = [l for l in lines if re.match(r'^[\w.]*(Error|Exception)\b', l)]
+    named = [l for l in lines if re.search(r'\b(error|exception|assert\w*|fail\w*|fatal|invalid|out of memory|oom|refused|cannot|busy)\b', l, re.I)]
+    return ((py[-1:] or named[:1] or lines[-1:]) or [''])[0][:160]
+
+
 def _row(room, n, commit, value, status, secs, lines, name, desc, kind='attempt', idea='', spread=''):
     with open(_dir(room) / 'results.tsv', 'a', encoding='utf-8') as f:
         f.write('\t'.join([str(n), commit, '' if value is None else f'{value:.6g}', status, f'{secs:.0f}', lines, name,
@@ -897,8 +906,8 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         if code == 0:
             mark.write_text(sha, encoding='utf-8')        # the same program next time needs no forced rebuild
         if code != 0:
-            return None, (say('kernel._measure.build_over_s_killed', v1=c.get('build_s') or 2 * c['budget_s']) if code is None else say('kernel._measure.build_exit', code=code)), \
-                secs, '', [], text
+            return None, (say('kernel._measure.build_over_s_killed', v1=c.get('build_s') or 2 * c['budget_s']) if code is None else
+                          say('kernel._measure.build_exit', code=code) + (f': {_reason(text)}' if _reason(text) else '')), secs, '', [], text
     values, protocol, envs, proved, gvals = [], [], [], [], {g['name']: [] for g in c.get('guards', [])}
     c['_env'] = envs                                      # filled as the repeats go: a crash keeps what was printed
     wants = _shas(Path(work) / c['program']) if env.get('CHATROOM_PROGRAM_SHA') else set()
@@ -923,7 +932,7 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         if code is None:
             return None, say('kernel.word.killed_over', s=2 * c['budget_s']), secs, '', protocol, text
         if code != 0:
-            return None, say('kernel.word.exit_code', code=code), secs, '', protocol, text
+            return None, say('kernel.word.exit_code', code=code) + (f': {_reason(out)}' if _reason(out) else ''), secs, '', protocol, text
         built = re.findall(r'^[ \t]*built[ \t]*:[ \t]*([0-9a-fA-F]{8,64})[ \t]*$', out, re.MULTILINE | re.IGNORECASE)
         want = env.get('CHATROOM_PROGRAM_SHA', '')
         bad = [b for b in built if (c.get('provenance') or len(b) == 64) and not any(w.startswith(b.lower()) for w in wants)]
@@ -944,10 +953,11 @@ def _measure_free(c, work, d, n, env, log, on_start=None, enough=None):
         if v != v or abs(v) == float('inf'):
             return None, say('kernel._measure.the_metric_is_not'), secs, '', protocol, text
         values.append(v)
-        for g in gvals:
-            got = re.findall(rf"^\s*{re.escape(g)}\s*:\s*{NUMBER}\s*$", source, re.MULTILINE)
-            if len(got) != 1:
-                return None, say('kernel._measure.guard_lines_exactly_one', g=g, len_got=len(got)), secs, '', protocol, text
+        gots = {g: re.findall(rf"^\s*{re.escape(g)}\s*:\s*{NUMBER}\s*$", source, re.MULTILINE) for g in gvals}
+        bad_g = [say('kernel._measure.guard_lines_exactly_one', g=g, len_got=len(got)) for g, got in gots.items() if len(got) != 1]
+        if bad_g:                                         # every guard is looked at before the verdict: one report names them all
+            return None, '; '.join(bad_g), secs, '', protocol, text
+        for g, got in gots.items():
             gvals[g].append(float(got[0]))
         if enough and len(values) < c.get('repeats', 1) and stop_early(values, c.get('repeats', 1), enough):
             break                                         # the median can no longer win: the last repeats would only confirm a loss
@@ -1251,14 +1261,15 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     env_lines, built_ok, values = c.pop('_env', [])[:12], c.pop('_built', False), c.pop('_values', [])
     base_g = (st.get('baseline') or {}).get('guards') or {}
     if value is not None and kind == 'attempt' and not first:
+        broken = []                                       # all the guards, not the first one that breaks
         for g in c.get('guards', []):
             if _guard_broken(g, guards[g['name']], base_g.get(g['name'])):
                 if g['tol'].startswith('abs='):
-                    why = say('kernel._evaluate.guard_beyond_limit', name=g['name'], v2=format(guards[g['name']], '.6g'), limit=g['tol'][4:])
+                    broken.append(say('kernel._evaluate.guard_beyond_limit', name=g['name'], v2=format(guards[g['name']], '.6g'), limit=g['tol'][4:]))
                 else:
-                    why = say('kernel._evaluate.guard_median_worse_than', name=g['name'], v2=format(guards[g['name']], '.6g'), v3=format(base_g[g['name']], '.6g'), tol=g['tol'])
-                value = None
-                break
+                    broken.append(say('kernel._evaluate.guard_median_worse_than', name=g['name'], v2=format(guards[g['name']], '.6g'), v3=format(base_g[g['name']], '.6g'), tol=g['tol']))
+        if broken:
+            why, value = '; '.join(broken), None
     proto = ' | '.join(protocol)
     if value is not None and kind == 'attempt' and st.get('protocol') is not None and proto != st['protocol']:
         value, why = None, say('kernel._evaluate.the_evaluation_protocol_changed', proto=proto[:120], protocol=st['protocol'][:120])
