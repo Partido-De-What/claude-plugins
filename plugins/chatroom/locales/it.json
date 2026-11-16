@@ -343,6 +343,7 @@
  "chat.say.mcp_call.research_through_mcp_is": "research via MCP è per gli agenti; il lead e l'utente usano la shell (chat.py research ... --as LEAD)",
  "chat.say.mcp_call.say_where_and_who": "di' dove e chi: passa \"room\" (la cartella della stanza) e \"as\" (il tuo nome) nella chiamata",
  "chat.say.mcp_call.unknown_tool": "strumento sconosciuto {tool}",
+ "chat.say.posted_at": "scritto #{n} alle {time}",
  "chat.say.posted": "scritto #{n}",
  "chat.say.posted_images": " con {images} immagine/i",
  "chat.say.print_alert.alert_no_ping_needed": "ALERT: nessun ping serve: il lead legge ogni messaggio dal suo relay. Gli altri lo leggono alla prossima lettura.",

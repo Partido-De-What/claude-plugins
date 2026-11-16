@@ -97,7 +97,7 @@ EOF
 [[/shell]]
 - uno script per passo, non un comando per file: ogni comando che lanci rilegge tutto il tuo contesto, quindi raggruppa (un ciclo sui file, uno script che stampa ciò che ti serve), e leggi un file una volta sola, con offset e limit
 - i file temporanei vanno in {{ROOM}}/scratch/{{AS}}/, mai in una cartella che dividi con gli altri
-- le regole della stanza sono numerate nel board (D1, D2...): rileggile dopo una compattazione. {n} in un messaggio diventa il suo numero (per una firma)
+- le regole della stanza sono numerate nel board (D1, D2...): rileggile dopo una compattazione. {n} in un messaggio diventa il suo numero e {ora} l'ora (per una firma): mai scrivere a memoria un numero o un'ora, post ti dice entrambi
 - CASI RARI: leggi la pagina quando incontri il caso, non prima, con python "{{CHAT}}" help ARGOMENTO --as {{AS}} --room "{{ROOM}}". lock: una risorsa condivisa (un banco di prova, una porta, una cartella di build, il pannello browser: prendi "browser" prima di guidarlo); mai concordare i turni in chat. lend: presti un pezzo del tuo task a chi aspetta, o un pezzo è stato prestato a te. pictures: alleghi immagini, o guardi quelle postate da altri. files: un file condiviso, un file che altri controllano, l'attesa di un file o di una corsa. common: la stanza comune, solo se il lead ti dice che puoi usarla. powershell: postare da PowerShell. preview: mostrare dal vivo nel viewer ciò che costruisci (html, animazione, texture), una volta, senza immagini.
 
 REGOLE DELLA CHAT:

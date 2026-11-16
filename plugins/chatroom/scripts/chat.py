@@ -1700,8 +1700,7 @@ def cmd_post(room, a, text=None):
     for g, members in (room.config().get('groups') or {}).items():   # @arbitri reaches its members, and only them
         if tags(text, g):
             text = re.sub(rf'(?<![\w@])@{re.escape(g)}(?![\w-])', lambda m: f"{m[0]} ({' '.join('@' + x for x in members)})", text, count=1, flags=re.IGNORECASE)
-    if a.name in room.user_names():                   # the lead's clock is a guess: chat.py writes the hour
-        text = text.replace('{ora}', time.strftime('%H:%M')).replace('{time}', time.strftime('%H:%M'))
+    text = text.replace('{ora}', time.strftime('%H:%M')).replace('{time}', time.strftime('%H:%M'))   # an agent's clock is a guess too: chat.py writes the hour
     if kind and not text:
         sys.exit(say('chat.err.cmd_post.error_a_status_needs'))
     if kind == IDLE:
@@ -1781,7 +1780,7 @@ def cmd_post(room, a, text=None):
             except OSError:
                 pass
         sys.exit(say('chat.err.cmd_post.error_you_already_said2', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
-    print(say('chat.say.posted', n=n) + (say('chat.say.posted_images', images=len(images)) if images else ''))
+    print(say('chat.say.posted_at', n=n, time=time.strftime('%H:%M:%S')) + (say('chat.say.posted_images', images=len(images)) if images else ''))
     if not kind:
         for f in (room.dir / 'drafts').glob(f'{a.name}.*') if (room.dir / 'drafts').is_dir() else ():
             if f.read_text(encoding='utf-8', errors='replace') == text:
