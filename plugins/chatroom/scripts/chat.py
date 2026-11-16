@@ -641,19 +641,12 @@ def relay_down(room):
         except (OSError, ValueError, IndexError):
             return False
     found = list(room.dir.glob('relay_alerts*.owner'))
-    if any(time.time() - _stamp_time(p) < RELAY_RESTART_S for p in room.dir.glob('relay_alerts*.exit')):
+    if any(time.time() - (_stamp(p) or (0, 0))[0] / 1e9 < RELAY_RESTART_S for p in room.dir.glob('relay_alerts*.exit')):
         return False                                  # it ended by itself (its exit is the wake) and the lead is starting it again
     return bool(found) and not any(up(p) for p in found)
 
 
 RELAY_RESTART_S = 120                             # after a clean exit of the relay, how long the room waits for its restart before saying it is off
-
-
-def _stamp_time(path):
-    try:
-        return float(path.read_text(encoding='utf-8').strip())
-    except (OSError, ValueError):
-        return 0.0
 
 
 def file_stamp(path):
