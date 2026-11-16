@@ -214,6 +214,35 @@ if section('K6'):
     ok('K6 every broken guard is named in the verdict', 'mem' in head(o) and 'cold' in head(o), head(o))
     ok('K6 the guard values of the run are kept', state(room)['attempts'][-1]['guards'] == {'mem': 25.0, 'cold': 25.0}, state(room)['attempts'][-1])
 
+# ---------------------------------------------------------------------------------------------------------------- K7
+if section('K7'):
+    block = lambda o: o.split('next constraints', 1)[1].split('\n| ', 1)[0].split('\nn\tcommit', 1)[0] if 'next constraints' in o else ''
+    room, repo, work = research_room('k7a', extra=['--draft', '--guard', 'mem:min:abs=40'])
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    b = block(o)
+    ok('K7 phase 1 status names the seal order', 'smoke' in b and 'seal' in b and 'auditor' in b and 'mem' in b, o[-900:])
+    ok('K7 phase 1 status says the contract can still change', 'no baseline yet' in b, b)
+    room, repo, work = research_room('k7')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    b = block(o)
+    ok('K7 phase 2 status counts the runs and says which kinds count', '1/30' in b and 'only attempts and fixes' in b, b)
+    ok('K7 phase 2 before the first attempt: the round opens by itself', 'opens round 1' in b, b)
+    ok('K7 phase 2 after the baseline the amend rule is the strict one', 'frozen' in b and '--reason' in b, b)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    b = block(o)
+    ok('K7 phase 2 shows the round and its attempts', 'round 1: 1/' in b and '2/30' in b, b)
+    # the evidence and family lines need roles and assigns: the function itself, on a state
+    c1 = {'max_evals': 30, 'roles': {'WORKER': ['W1']}, 'guards': []}
+    st1 = {'phase': 2, 'evals': 7, 'rounds': [], 'workers': {'W1': {'since_evidence': 4}, '_main': {}}, 'best': {'n': 1},
+           'assigns': [{'family': 'f1'}, {'family': 'f1'}, {'family': 'f1'}]}
+    t = research._next_constraints(c1, st1)
+    ok('K7 evidence line shows each worker against the limit', 'W1 4/5' in t, t)
+    ok('K7 family line shows the recent families', 'f1, f1, f1' in t and '--force' in t, t)
+    ok('K7 phase 3 names the kinds', 'ablation' in research._next_constraints(c1, dict(st1, phase=3)))
+
 # ---------------------------------------------------------------------------------------------------------------- T1
 if section('T1'):
     # a research prompt carries the brief's constraints and closing, as agent_prompt.md does

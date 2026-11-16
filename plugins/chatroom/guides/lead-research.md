@@ -138,7 +138,13 @@ python CHAT prompt S1 --room ROOM --template research_searcher.md --out ROOM/pro
 ```
 
 `max` in the brief is the checkpoint: every N messages an agent asks you whether to continue (set it high for a long
-research; answer every checkpoint). `constraints` and `closing` in the brief reach every research prompt too. Generate a worker's prompt after its `assign`, so it names its own worktree.
+research; answer every checkpoint). `constraints` and `closing` in the brief reach every research prompt too.
+Plan with the rules the kernel enforces: `research status` prints them as "next constraints", with where the room stands.
+Seal: a smoke run that printed the metric and every guard, the auditor's pass after the LAST smoke, HEAD equal to that smoke.
+Runs: only attempts and fixes count in `max_evals` (crashes too; smoke, explore and phase 3 kinds do not). A round holds
+`round_max` attempts, then the lead closes it. A worker with 5 attempts and no evidence is stopped. Four cycles in a row
+of one family are refused without `--force`. Amend: before a baseline anything; after it only budgets, and min_gain,
+guards, provenance with `--reason`; a relative guard needs a baseline value, `abs=X` does not. Generate a worker's prompt after its `assign`, so it names its own worktree.
 Spawn the workers as `chatroom:room-agent-long` and the other roles as `chatroom:room-agent` (1-hour cache, compacting at
 300k / 200k tokens), each with its model and effort.
 

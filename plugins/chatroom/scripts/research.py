@@ -2738,6 +2738,29 @@ def detectors(c, st):
     return out
 
 
+def _next_constraints(c, st):
+    """the rules that will refuse the next step, with where the room stands on each: so a plan is made once, not
+    rediscovered one refusal at a time. One line per rule, only the ones that apply to this phase"""
+    phase, out = st['phase'], []
+    if phase == 1:
+        out.append(say('kernel.status.next_seal', guards=', '.join(g['name'] for g in c.get('guards', [])) or '-'))
+    if phase == 2:
+        r = _round(st)
+        out.append(say('kernel.status.next_runs', n=st['evals'], max=c['max_evals']))
+        out.append(say('kernel.status.next_round', k=r['k'], done=st['evals'] - r['start'], max=r['max']) if r else
+                   say('kernel.status.next_round_none') if st.get('rounds') else say('kernel.status.next_round_auto', max=c.get('round_max') or ROUND_MAX))
+        if c.get('roles'):
+            out.append(say('kernel.status.next_evidence', S_MAX=S_MAX, items=', '.join(f"{k} {w.get('since_evidence', 0)}/{S_MAX}" for k, w in st['workers'].items() if k != '_main') or '-'))
+        recent = [a['family'] for a in st.get('assigns', [])[-4:]]
+        if recent:
+            out.append(say('kernel.status.next_family', items=', '.join(recent)))
+    if phase == 3:
+        out.append(say('kernel.status.next_kinds', kinds=', '.join(AUX_KINDS)))
+    if phase in (1, 2):
+        out.append(say('kernel.status.next_amend_open') if st.get('best') is None else say('kernel.status.next_amend_closed'))
+    return say('kernel.status.next_title') + '\n' + '\n'.join('- ' + x for x in out) if out else ''
+
+
 def status(room):
     reap(room)
     c, st = _state(room)
@@ -2811,6 +2834,9 @@ def status(room):
         head += '\n' + (say('kernel.round.status', k=r['k'], stage=stage(st, r), goal=r['goal'] or '-') if r else
                         say('kernel.round.none_open', k=st['rounds'][-1]['k'], decision=st['rounds'][-1].get('decision')))
     lines = [head]
+    nxt = _next_constraints(c, st)
+    if nxt:
+        lines.append(nxt)
     if len(st['workers']) > 1 or '_main' not in st['workers']:
         last = {k: max((a.get('ts', 0) for a in st['attempts'] if a.get('worker') == k), default=0) for k in st['workers']}
         waiting = {x['by'] for x in q} | ({st['pending'].get('worker')} if st.get('pending') else set())
