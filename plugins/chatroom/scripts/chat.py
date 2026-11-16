@@ -768,6 +768,30 @@ def used_tools_since_gone(room, k):
         return False
 
 
+LEFT_ROSTER_HOURS = 3     # hours an agent that left with nothing in hand stays in the roster before the relay takes it out
+
+
+def sweep_left(room, items=None, now=None):
+    """an agent that left with nothing in hand (gone.json: no task, no run, no process left), silent for LEFT_ROSTER_HOURS and not
+    used since: its address goes to roster.left.json, out of the roster and the pings. Its next chat command writes it back (the roster
+    hook). Returns the names taken out"""
+    items, now, out = room.messages() if items is None else items, now or time.time(), []
+    if is_shut(room, items) or winding(room, items):
+        return out
+    roster = room.roster()
+    for k, got in read_json(room.dir / 'gone.json', {}).items():
+        quiet = room.silence(k, items)
+        if (k in roster and isinstance(got, dict) and not got.get('tasks') and not got.get('procs') and got.get('why', '') in ('', 'idle')
+                and quiet is not None and quiet >= LEFT_ROSTER_HOURS * 3600 and not used_tools_since_gone(room, k)):
+            out.append(k)
+    if out:
+        gone = {}
+        room.update_roster(lambda r: gone.update({k: r.pop(k) for k in out if k in r}))
+        path = room.dir / 'roster.left.json'
+        write_atomic(path, json.dumps({**read_json(path, {}), **gone}, indent=2))
+    return out
+
+
 def redeliver_missed(room, name):
     """what a typed post (status, finding) of `name` went through without reading: shown at its next command, once, with the text
     (a post that only reported a status never read the tag). True when something was shown"""
@@ -4497,6 +4521,7 @@ def cmd_alerts(room, a):
                     dead = ''
                 if dead:
                     out(f'CHECK {dead}', urgent=True, flush=True)
+            sweep_left(room)
             for key, text in failures(room):
                 if key not in seen_checks:
                     seen_checks.add(key)
@@ -4658,9 +4683,10 @@ def cmd_status(room, a):
     mine = [m['n'] for m in items if m['from'] in leads and not m.get('kind')][-3:]
     acks = read_json(room.dir / 'acks.json', {})
     read_by = {n: {'read': [k for k in idle if room.cursor(k) >= n or k in acks.get(str(n), [])],
-                   'not_yet': [k for k in idle if room.cursor(k) < n and k not in acks.get(str(n), [])]} for n in mine}
+                   'not_yet': [k for k in idle if room.cursor(k) < n and k not in acks.get(str(n), []) and turn[k] != 'closed'],
+                   'left': [k for k in idle if room.cursor(k) < n and k not in acks.get(str(n), []) and turn[k] == 'closed']} for n in mine}   # one that left reads nothing more: not "not yet"
     print(json.dumps({'total': len(items), 'per_participant': counts, 'seconds_silent': silent, 'idle': idle, 'turn': turn, 'waiting_lead': lead,
-                      'closing': closing_, 'read_by': read_by, 'calls': calls, 'budget_calls': call_budget(room),
+                      'closing': closing_, 'read_by': read_by, 'calls': calls, 'budget_calls_per_agent': call_budget(room),
                       'deadline': deadline_line(room).strip() or None, 'locks': Locks(room).lines()}, ensure_ascii=False))
 
 
