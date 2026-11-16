@@ -1807,7 +1807,9 @@ def long_to_notes(room, name, text):
     if not path.is_file():
         path.parent.mkdir(exist_ok=True)
         path.write_text(text, encoding='utf-8')
-    head = text[:LONG_HEAD].rsplit('\n', 1)[0] if '\n' in text[:LONG_HEAD] else cut(text, LONG_HEAD)
+    head = text[:LONG_HEAD].rsplit('\n', 1)[0]
+    if len(head) < LONG_HEAD // 3 or head == text[:LONG_HEAD]:                  # a short first line and a long second one: cut at a word instead
+        head = cut(text, LONG_HEAD)
     lost = [t for t in dict.fromkeys(re.findall(r'(?<![\w@])@([\w-]+)', text)) if not tags(head, t)]
     return '\n'.join([head.rstrip(), *(['@' + ' @'.join(lost)] if lost else []), say('chat.say.long_to_notes', n=len(text), path=path, sha=sha[:12])])
 
