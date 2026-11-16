@@ -4164,16 +4164,17 @@ def alert_lines(room, items, users):
     return out
 
 
-def watch_line(m, users):
+def watch_line(m, users, whole=False):
     """one compact line per real message, for a lead that watches the room on a budget: no statuses, no tools; a no vote
-    is marked, because the lead reviews a split"""
+    is marked, because the lead reviews a split. whole: the text is not cut (a message that tags the lead)"""
     text = ' '.join(m.get('text', '').split())
     votes = votes_in(m.get('text', ''))
     pv = plan_version(m.get('text', ''))
     kind = ('PLAN' + (' (v{} > {}: LEAD DECIDES)'.format(pv, PLAN_MAX) if pv > PLAN_MAX else '') if pv is not None
             else 'VOTE-NO (LEAD REVIEW)' if any(not yes for _, yes in votes) else 'VOTE' if votes
             else 'CLOSED' if closing(m.get('text', ''))[0] else 'USER' if m.get('from') in users else 'MSG')
-    return f"WATCH #{m['n']} {kind} {m['from']}: {text[:220]}" + (' [...]' if len(text) > 220 else '')
+    cut_at = len(text) if whole else 220
+    return f"WATCH #{m['n']} {kind} {m['from']}: {text[:cut_at]}" + (' [...]' if len(text) > cut_at else '')
 
 
 IDLEFREE_AFTER = 120      # seconds an agent sleeps next to a free task before the harness gives it the task
@@ -4325,7 +4326,7 @@ def cmd_alerts(room, a):
                         continue
                     tagged = any(tags(m.get('text', ''), n) for n in relay_leads)   # a status or a finding that tags the lead wakes it too
                     if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
-                        line = watch_line(m, users)
+                        line = watch_line(m, users, whole=tagged)
                         out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True,
                             urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0] or (tagged and declares_block(m)))
                         said = time.time()
