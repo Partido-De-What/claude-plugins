@@ -190,6 +190,11 @@ a lui al tuo release, prima della fila, o subito se la GPU è libera, e aspetta 
 Un titolare che cade (il suo turno è finito e nessuna attesa o trattenimento lo tiene) perde il blocco subito, non alla
 scadenza: il kernel lo rilascia al primo `research status`, `evaluate`, `hold` o giro del runner, fa avanzare la fila e lo
 dice sulla board, col nome del titolare e ciò che ha lasciato in esecuzione.
+Il lavoro a lotti (una lista di corse in coda) non chiede di leggere il log a intervalli né un marcatore "LISTA FINITA"
+tuo: `research wait --runs N [--minutes M]` (lancialo in background) torna quando N corse nuove sono chiuse, o quando la
+lista in coda è finita, o dopo M minuti (default 60), con le righe delle corse chiuse. Quando la coda si svuota dopo corse
+che ha avviato, il kernel scrive una riga che tagga gli auditor e gli autori ("la lista in coda è finita: N corse chiuse,
+migliore att-X"), e un keep che è un nuovo migliore della sua linea tagga l'auditor.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 

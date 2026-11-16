@@ -471,5 +471,43 @@ if section('K5'):                                                     # a queued
     ok('K5 the runner ends with the queue', not th.is_alive())
     research.QUEUE_RETRY_S = old_retry
 
+# ---------------------------------------------------------------------------------------------------------------- K17
+if section('K17'):                                                    # a wake for "N runs closed" or "the list is finished", and the auditor told
+    import threading
+    room, repo, work = research_room('k17', participants='W,A')
+    c, o = run(room, 'research', 'roles', 'WORKER=W', 'AUDITOR=A', '--as', 'LEAD')
+    c, o = run(room, 'research', 'wait', '--as', 'LEAD')
+    ok('K17 wait with nothing queued and no count says so at once', c == 0 and 'nothing to wait for' in o, o)
+    c, o = run(room, 'research', 'wait', '--runs', '1', '--minutes', '0.03', '--as', 'LEAD')
+    ok('K17 wait --runs gives up at --minutes and says how many closed', c == 0 and 'min passed with 0 new runs' in o, o)
+    room_obj = chat.Room(str(room))
+    got = {}
+    th = threading.Thread(target=lambda: got.update(t=research.wait_runs(room_obj, runs=2, minutes=1, poll=0.2)), daemon=True)
+    th.start()
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K17 one run closed does not wake a wait for two', th.is_alive() or 'att-1' not in got.get('t', ''), got)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    th.join(15)
+    ok('K17 two closed runs wake it with their lines', not th.is_alive() and 'att-1' in got['t'] and 'att-2' in got['t'] and 'are closed' in got['t'], got)
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K17 a keep tags the auditor on the run line (not the baseline)', text.count('a new best to check') == 1 and '@A' in text, text.count('a new best to check'))
+    # the queued list: wait without a count returns when the runner has emptied the queue
+    (work / 'program.py').write_text('X = 4\n')
+    research._queue_edit(room_obj, lambda q: q.append({'by': 'W', 'desc': 'queued X 4', 'idea': None, 'kind': 'attempt', 'after': None,
+                                                       'of': None, 'seed': None, 'env': {}, 'ts': time.time()}))
+    got.clear()
+    tw = threading.Thread(target=lambda: got.update(t=research.wait_runs(room_obj, minutes=1, poll=0.2)), daemon=True)
+    tw.start()
+    tr = threading.Thread(target=research.run_queue, args=(room_obj, 0.2), daemon=True)
+    tr.start()
+    tw.join(40)
+    ok('K17 wait returns when the queued list is finished, with the run', not tw.is_alive() and 'list is finished' in got.get('t', '')
+       and 'att-3' in got['t'], got)
+    tr.join(15)
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K17 the runner says once the list is finished and tags the auditor and the author', text.count('the queued list is finished:') == 1
+       and '@A @W' in text and 'list is finished: 1 runs closed' in text, text[-600:])
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)

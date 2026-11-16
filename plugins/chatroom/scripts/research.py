@@ -1541,7 +1541,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     line = (say('kernel._evaluate.att_by', n=n, kind=kind, name=name, desc=desc[:100], metric=c['metric'], v6='—' if value is None else f'{value:.6g}')
             + (f' ({spread})' if spread else '') + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
             + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' and status != 'invalid' else ''))
-    room.append(name, line, 'board')
+    audit = [a for a in c.get('roles', {}).get('AUDITOR') or [] if a != name] if kind == 'attempt' and status == 'keep' and not first else []
+    room.append(name, line + (say('kernel._evaluate.for_auditor', who=' '.join(f'@{a}' for a in audit)) if audit else ''), 'board')   # K17: a keep is the auditor's to check
     tail = '\n'.join(text.strip().splitlines()[-30:])[-3000:] if status in ('crash', 'invalid') else ''   # the end of the log, bounded: everyone who reads the line pays it
     warn = say('kernel._evaluate.warning_some_files_could', held=held[:300]) if held else ''
     nudge = ''
@@ -2232,11 +2233,47 @@ def _requeue(room, lead, x, why):
         room.append(lead, f"@{x['by']} " + say('kernel.queue.retry', desc=x['desc'][:80], minutes=QUEUE_RETRY_S // 60, tries=tries, why=why), 'board')
 
 
+WAIT_MINUTES = 60         # `research wait` gives up after this many minutes unless told otherwise
+
+
+def wait_runs(room, runs=None, minutes=None, poll=5):
+    """K17: returns when `runs` new runs are closed since the call, or when the queued list is finished (it had runs at the
+    call, now nothing is queued or running), or after `minutes`. The runs it saw close are in the text. A list that is
+    finished is read on two polls in a row: a run is between the queue and its lock for an instant"""
+    first, listed, quiet = len(_state(room)[1]['attempts']), bool(_queue(room)), 0
+    if not runs and not listed:
+        return say('kernel.wait.nothing')
+    end = time.time() + 60 * (minutes or WAIT_MINUTES)
+    while True:
+        c, st = _state(room)
+        new = st['attempts'][first:]
+        quiet = quiet + 1 if listed and not _queue(room) and not _run_alive(room) and not st.get('pending') else 0
+        why = 'runs' if runs and len(new) >= runs else 'list' if quiet >= 2 else 'timeout' if time.time() >= end else ''
+        if why:
+            lines = '\n'.join(say('kernel.wait.line', n=a['n'], kind=a['kind'], status=a['status'], by=a.get('worker', ''),
+                                  metric='-' if a['metric'] is None else format(a['metric'], '.6g'), desc=a['desc'][:80]) for a in new)
+            return say(f'kernel.wait.{why}', n=len(new), want=runs or '-', minutes=minutes or WAIT_MINUTES) + (f'\n{lines}' if lines else '')
+        time.sleep(poll)
+
+
+def _list_done(room, lead, authors, first):
+    """the queue ran dry after runs it started: one line tells the auditors and the authors the list is finished (the
+    lead reads the board, and `research wait` wakes it), so nobody polls the log or invents a "list finished" marker"""
+    c, st = _state(room)
+    new = st['attempts'][first:]
+    if not new:
+        return
+    best, who = st['best'], list(dict.fromkeys([*(c.get('roles', {}).get('AUDITOR') or []), *authors]))
+    room.append(lead, ' '.join(f'@{w}' for w in who if w != lead) + ' ' + say('kernel.queue.list_done', n=len(new), best=(
+        say('kernel.queue.list_best', n=best['n'], metric=format(best['metric'], '.6g')) if best else '')), 'board')
+
+
 def run_queue(room, poll=15):
     """the runner: the first queued run whose turn has come, when no run is alive and the GPU is not held by another.
     A run that can never come (after a number past the budget, or out of its phase) is dropped with a line; any fault
     of one run is told on the board and the runner goes on"""
     lead = (room.config().get('self_names') or ['LEAD'])[0]
+    first, authors = len(_state(room)[1]['attempts']), []
     try:
         while True:
             c, st = _state(room)
@@ -2262,11 +2299,13 @@ def run_queue(room, poll=15):
             _hold_promote(room)
             ready = _queue_edit(room, take)
             if ready == 'empty':
+                _list_done(room, lead, authors, first)
                 return
             if not ready:
                 time.sleep(poll)
                 continue
             started = time.time()
+            authors.append(ready['by'])
             try:
                 line = evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt',
                                 ready.get('of'), ready.get('seed'), ready.get('env') or None)
@@ -3223,6 +3262,8 @@ def _cmd(room, a):
         return print('\n'.join(f"{x['by']}: {x['desc'][:100]}" for x in _queue(room)) or say('kernel.plan.empty'))
     if act == 'run-queue':
         return run_queue(room)
+    if act == 'wait':
+        return print(wait_runs(room, getattr(a, 'runs', None), getattr(a, 'minutes', None)))
     if act == 'evaluate':
         if not a.name:
             sys.exit(say('kernel._cmd.as_name_required'))

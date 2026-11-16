@@ -180,6 +180,11 @@ for them to claim it with their own `research hold`.
 A holder that falls (its run ended and no wait or stop hold keeps it) loses the hold at once, not at its expiry: the
 kernel releases it at the next `research status`, `evaluate`, `hold` or turn of the runner, moves the line on and says so
 on the board, naming the holder and what it left running.
+Work in batches (a list of queued runs) needs no polling of the log and no "LIST FINISHED" marker of your own:
+`research wait --runs N [--minutes M]` (run it in the background) returns when N new runs are closed, or when the queued
+list is finished, or after M minutes (default 60), with the closed runs' lines. When the queue runs dry after runs it
+started, the kernel posts one line tagging the auditors and the authors ("the queued list is finished: N runs closed,
+best att-X"), and a keep that is a new best on its line tags the auditor.
 
 ## 4. Phase 2: investigation, the loop you run
 
