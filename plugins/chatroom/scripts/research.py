@@ -1251,7 +1251,7 @@ def _reconcile(room, c, st):
             else:
                 s2['aux'] += 1
             s2['attempts'].append({'n': p['n'], 'worker': key, 'commit': p.get('commit') or '', 'metric': None, 'status': 'crash',
-                                   'kind': p.get('kind', 'attempt'), 'idea': p.get('idea'), 'state': 'committed', 'parent_n': None,
+                                   'kind': p.get('kind', 'attempt'), 'idea': p.get('idea'), 'cls': p.get('cls'), 'level': p.get('level'), 'state': 'committed', 'parent_n': None,
                                    'desc': say('kernel.lost.interrupted_worktree_lost') + p.get('desc', ''), 'ts': time.time()})
             s2['pending'] = None
         _edit(room, lost)
@@ -1279,7 +1279,7 @@ def _reconcile(room, c, st):
         else:
             s2['aux'] += 1                                # smoke and evidence runs: the next number moves on
         s2['attempts'].append({'n': p['n'], 'worker': key, 'commit': commit, 'metric': None, 'status': 'crash', 'kind': p.get('kind', 'attempt'),
-                               'idea': p.get('idea'), 'state': 'committed', 'parent_n': (s2['workers'][key].get('best') or {}).get('n'),
+                               'idea': p.get('idea'), 'cls': p.get('cls'), 'level': p.get('level'), 'state': 'committed', 'parent_n': (s2['workers'][key].get('best') or {}).get('n'),
                                'desc': 'INTERRUPTED: ' + p.get('desc', ''), 'ts': time.time()})
         s2['pending'] = None
     _edit(room, apply)

@@ -6098,7 +6098,7 @@ def _main():
     p.add_argument('--of', help='research evaluate: what an ablation or baseline is measured against (att-N)')
     p.add_argument('--seed', help='research evaluate: a seed handed to the evaluator as CHATROOM_SEED')
     p.add_argument('--env', help='research plan add: K=V,K2=V2, the environment a planned ablation switches; research evaluate/queue with --kind probe or explore: the environment of that run, registered in its line')
-    p.add_argument('--worker', help='research plan add: the worktree to run it in (default: the one that made --of)')
+    p.add_argument('--worker', help='research plan add: the worktree to run it in (default: the one that made --of); research dry-eval: the worktree to try the evaluator in (default: yours)')
     p.add_argument('--text', help='research propose-evidence/conclude: the text')
     p.add_argument('--source', help='research propose-evidence: att-N, E-number or a link, comma separated')
     p.add_argument('--accept', help='research curate: evidence to accept')
