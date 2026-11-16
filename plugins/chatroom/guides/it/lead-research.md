@@ -162,6 +162,11 @@ per usare (dimensione dei dati, passi).
 (`research evaluate --kind smoke`), l'AUDITOR lo approva (`research verdict --phase 1 --outcome pass`), e tu lo sigilli
 (`research seal --sealed eval.py,...`; `--stay` sigilla senza aprire la fase 2 fino a `phase next`; un pass dato prima dell'ultima corsa di prova non vale più). Poi
 `config --topic "..." --subtitle "<obiettivo>"`.
+La fase 1 è anche la ricognizione: lì il `research propose-idea` di un PROPOSER fa un'idea in bozza (il numero successivo,
+non assegnabile), puoi avviare un worker di ricognizione con `research assign NOME` (solo dalla base, suo worktree, gli
+smoke girano lì) e un worker consegna il suo riepilogo con `research report --draft`. Prima del sigillo decidi le bozze:
+`research gate --accept I1,I2 --reject I3`; `seal` rifiuta finché ne resta una. In fase 2 un'idea è accettata subito,
+come prima.
 
 `init` stampa la durata massima di una chiamata evaluate (build + ripetizioni x 2 x budget + lavoro git) e avvisa
 quando una build non ha una cartella `--keep` (ricostruirebbe da zero a ogni corsa). Senza `--build-min` una build può
