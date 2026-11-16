@@ -787,7 +787,7 @@
  "kernel.panel.panel_free_models_on": "# Panel (free models on OpenRouter)\n\nThe question below was sent to third-party providers, which may keep it.\n\n## Question\n\n{strip}\n\n",
  "kernel.panel.panel_of_free_models": "🗣️ panel of {len_answers} free models written to {path}: these are opinions, to weigh against the evidence (the question went to third-party providers)",
  "kernel.panel.set_openrouter_api_key": "set OPENROUTER_API_KEY in the environment of this shell (never in the room or in the chat)",
- "kernel.parse_guards.guard_name_min_max": "--guard {v1}: NAME:min|max:TOL (min = lower is better; TOL a number or N%)",
+ "kernel.parse_guards.guard_name_min_max": "--guard {v1}: NAME:min|max:TOL (min = lower is better; TOL a number, N% or abs=X)",
  "kernel.phase.closed": "closed",
  "kernel.phase.contract": "contract",
  "kernel.phase.drafting": "drafting",

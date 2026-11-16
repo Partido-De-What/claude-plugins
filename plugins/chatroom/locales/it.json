@@ -787,7 +787,7 @@
  "kernel.panel.panel_free_models_on": "# Pannello (modelli gratuiti su OpenRouter)\n\nLa domanda qui sotto è stata inviata a fornitori terzi, che potrebbero conservarla.\n\n## Domanda\n\n{strip}\n\n",
  "kernel.panel.panel_of_free_models": "🗣️ pannello di modelli liberi: {len_answers}, scritto in {path}: sono opinioni, da confrontare con le evidenze (la domanda è andata a provider terzi)",
  "kernel.panel.set_openrouter_api_key": "imposta OPENROUTER_API_KEY nell'ambiente di questa shell (mai nella stanza o in chat)",
- "kernel.parse_guards.guard_name_min_max": "--guard {v1}: NAME:min|max:TOL (min = più basso è meglio; TOL un numero o N%)",
+ "kernel.parse_guards.guard_name_min_max": "--guard {v1}: NAME:min|max:TOL (min = più basso è meglio; TOL un numero, N% o abs=X)",
  "kernel.phase.closed": "chiusa",
  "kernel.phase.contract": "contratto",
  "kernel.phase.drafting": "stesura",
