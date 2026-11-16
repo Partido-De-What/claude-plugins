@@ -107,6 +107,12 @@ vanno nella colonna `info` di results.tsv (`NOME=valore;...`), mai giudicati; un
 rimisura nella stessa corsa il programma del migliore (il file del programma scambiato per la misura, rimesso dopo) e il
 verdetto sta tra i due numeri della stessa ora; la riga della corsa dice "misura appaiata", il record ha `paired`. Costa una
 misura in più alla corsa.
+Uno strumento difettoso scoperto dopo la baseline torna in stesura con `research reseal --reason "..."` (le corse
+tengono il loro numero e portano il segno della loro era). L'harness corretto si porta nel worktree condiviso senza merge a
+mano: `research promote SORGENTE [--files a,b]` (SORGENTE: un worker con il worktree committato, o un ref git; file di
+default: i sigillati) fa un solo commit del kernel, fa ripartire da lì ogni worktree e toglie valore allo smoke di prima;
+poi uno smoke, l'auditor, `research seal`, una nuova baseline. Il kernel scrive `-text` per ogni file sigillato in
+`info/attributes` del repository, così git non ne converte mai i fine riga e la sha sigillata è la stessa su ogni macchina.
 
 Chiedi in fase 0: il valutatore (e ogni guardia) esercita i percorsi di codice che il programma cambierà? Un controllo
 che esegue solo il prefill non controlla una modifica ai kernel di decoding.

@@ -6384,7 +6384,7 @@ def _main():
                    'without (Codex); both by default')
     p.add_argument('--state', action='store_true', help='notebook: where you are now (goal, done, files, pending, next); it replaces the previous state')
     p.add_argument('--deps', help='task add: the tasks it waits for, comma separated (T1,T2)')
-    p.add_argument('--files', help='task add: the files it changes, comma separated; two taken tasks cannot share one')
+    p.add_argument('--files', help='task add: the files it changes, comma separated; two taken tasks cannot share one; research promote: the files to bring (default: the sealed ones)')
     p.add_argument('--proof', help='task done: what shows it works (a test, a command, a photo)')
     p.add_argument('--force', action='store_true', help='task take: take it although it is taken or its files are')
     p.add_argument('--gaps', help='task done: what you did not do (it stays on the board)')

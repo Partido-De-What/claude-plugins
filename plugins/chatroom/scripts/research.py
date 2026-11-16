@@ -127,6 +127,23 @@ def _seal_holds(work, rel, want):
                     _git(work, '-c', 'core.autocrlf=true', 'hash-object', '--', rel, check=False))
 
 
+def _no_eol(top, rels):
+    """K14: a sealed file is never converted by git (core.autocrlf, a .gitattributes of the project): `-text` for it in the
+    repository's info/attributes, so the sha sealed is the sha on disk on every machine. Nothing tracked is touched; a failure
+    to write is not fatal (the seal check still reads both endings)"""
+    try:
+        path = Path(_git(top, 'rev-parse', '--git-path', 'info/attributes'))
+        path = path if path.is_absolute() else Path(top) / path
+        have = path.read_text(encoding='utf-8') if path.is_file() else ''
+        new = [line for line in (f'"/{r}" -text' if ' ' in r else f'/{r} -text' for r in rels) if line not in have.splitlines()]
+        if new:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, 'a', encoding='utf-8', newline='\n') as f:
+                f.write(('' if not have or have.endswith('\n') else '\n') + '\n'.join(new) + '\n')
+    except (OSError, ValueError):
+        pass
+
+
 def _load(room, name):
     """a research file, read with the retries a file being replaced needs on Windows"""
     from chat import read_json
@@ -426,6 +443,7 @@ def init(room, by, program, evaluate, metric, direction='min', budget_min=5.0, m
     if work.exists():
         raise ValueError(say('kernel.init.already_exists_a_research', work=work))
     (d / 'runs').mkdir(parents=True, exist_ok=True)
+    _no_eol(top, seals)                                    # before the worktree is written: its sealed files come out as the repository has them
     _git(top, 'worktree', 'add', '-b', branch, str(work), 'HEAD')   # its own folder: the user's checkout is never touched
     subs = _submodules(work)
     try:                                                  # a room inside the project: out of the user's git status and git add
@@ -2781,6 +2799,67 @@ def reseal(room, by, reason):
     return say('kernel.reseal.done', by=by, era=era, runs=runs, reason=' '.join(reason.split())[:200], program=c['program'], tag=c.get('tag', ''))
 
 
+def promote(room, by, source, files=()):
+    """K14: in the drafting (phase 1, after reseal) the lead brings the corrected harness into the shared worktree without a
+    merge by hand: the files (default: all the sealed ones) as they are at SOURCE, a worker's worktree (committed) or any
+    git ref, in one commit of the kernel. The other worktrees follow it, so that the next smoke and the seal start from it;
+    the smoke before it no longer counts. The seals themselves are written by `seal`, from the file as it then is"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.promote.only_the_lead'))
+    c, st = _state(room)
+    if st['phase'] != 1:
+        raise ValueError(say('kernel.promote.phase', phase=st['phase'], name=phase_name(st['phase'])))
+    if not (source or '').strip():
+        raise ValueError(say('kernel.promote.say_source'))
+    return _locked(room, c, by, lambda: _promote(room, by, source.strip(), files))
+
+
+def _promote(room, by, source, files):
+    c, st = _settle(room, *_state(room), locked=True)
+    main = st['workers'].get('_main')
+    shared = _check_work(c, main or {'work': c['work'], 'branch': c['branch']})
+    dirty = lambda w: _git(w, 'status', '--porcelain', '--untracked-files=no', '--', '.', *_excludes(w, c), check=False).strip()
+    for who, w in [('_main', main or {'work': c['work']}), *((k, v) for k, v in st['workers'].items() if k != '_main')]:
+        if Path(w['work']).is_dir() and dirty(Path(w['work'])):
+            raise ValueError(say('kernel.promote.unsaved', who=who, work=w['work']))
+    if source in st['workers'] and source != '_main':
+        commit = _git(_check_work(c, st['workers'][source]), 'rev-parse', 'HEAD')
+    else:
+        commit = _git(shared, 'rev-parse', '--verify', '-q', f'{source}^{{commit}}', check=False)
+        if not commit:
+            raise ValueError(say('kernel.promote.bad_source', source=source[:60]))
+    rels = [(_rel(Path(c['repo']), f) if Path(f).is_absolute() else Path(f).as_posix()) for f in files] or list(c['sealed'])
+    if not rels:
+        raise ValueError(say('kernel.promote.no_files'))
+    for rel in rels:
+        if rel == c['program']:
+            raise ValueError(say('kernel.promote.program', rel=rel))
+        if not _git(shared, 'rev-parse', '--verify', '-q', f'{commit}:{rel}', check=False):
+            raise ValueError(say('kernel.promote.missing', rel=rel, source=source[:60], commit=commit[:7]))
+    changed = [r for r in rels if _git(shared, 'rev-parse', '--verify', '-q', f'{commit}:{r}', check=False) != _git(shared, 'rev-parse', '--verify', '-q', f'HEAD:{r}', check=False)]
+    if not changed:
+        return say('kernel.promote.same', files=', '.join(rels), source=source[:60])
+    _git(shared, 'checkout', '-q', commit, '--', *changed)
+    _git(shared, 'commit', '--no-verify', '-q', '-m', f"promote: {', '.join(changed)} from {source}", ident=by)
+    head = _git(shared, 'rev-parse', 'HEAD')
+    moved = []
+    for k, w in st['workers'].items():                    # every worktree starts from it: a smoke drafted anywhere has the corrected harness
+        if k != '_main' and Path(w['work']).is_dir() and _git(_check_work(c, w), 'rev-parse', 'HEAD') != head:
+            _git(Path(w['work']), 'reset', '-q', '--hard', head)
+            _clean(Path(w['work']), c)
+            moved.append(k)
+
+    def apply(c2, s2):
+        for k, w in s2['workers'].items():
+            w['head'] = head
+            w['best'] = None
+        s2['smoke_ok'] = None                              # a smoke that ran the old harness proves nothing for the new
+    _edit(room, apply)
+    _log(room, by, 'promote', {'source': source, 'commit': commit, 'files': changed, 'head': head, 'moved': moved})
+    return say('kernel.promote.done', by=by, files=', '.join(changed), source=source[:60], commit=commit[:7], head=head[:7],
+               moved=(say('kernel.promote.moved', names=', '.join(moved)) if moved else ''))
+
+
 def _seal(room, by, sealed, stay=False):
     c, st = _state(room)
     if st['phase'] != 1:
@@ -2826,6 +2905,7 @@ def _seal(room, by, sealed, stay=False):
     elif c.get('final'):
         dry = say('kernel.final_dry.none')
     c['sealed'], c['base_commit'] = seals, commit
+    _no_eol(c['repo'], seals)                             # the files sealed now (the drafted ones, the --sealed given here)
     _save(room, 'contract.json', c)
 
     def apply(c2, s2):
@@ -3516,6 +3596,8 @@ def _cmd(room, a):
                             data.get('notes', '')))
     if act == 'reseal':
         return post(reseal(room, a.name, getattr(a, 'reason', None)))
+    if act == 'promote':
+        return post(promote(room, a.name, rest[0] if rest else None, split(getattr(a, 'files', None))))
     if act == 'seal':
         return post(seal(room, a.name, split(a.sealed), bool(getattr(a, 'stay', False))))
     if act == 'phase':
