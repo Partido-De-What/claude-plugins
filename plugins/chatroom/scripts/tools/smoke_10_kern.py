@@ -395,5 +395,40 @@ if section('K16'):
     left = sorted(p.parent.name for p in (d / 'runs').glob('*/artifacts'))
     ok('K16 pruning keeps the keep and the newest runs', left == ['1', '4', '5'], left)
 
+# ---------------------------------------------------------------------------------------------------------------- K4
+if section('K4'):                                                     # a run that dies with the machine is invalid: not a run of the 40
+    flag = BASE / 'k4-machine-down'
+    pre = BASE / 'k4_precheck.py'
+    pre.write_text(f'import os, sys\nsys.exit(1 if os.path.exists(r"{flag}") else 0)\n')
+    ev = (f'import program, os, sys\nif program.X == 3 and not os.path.exists(r"{flag}.once"):\n    open(r"{flag}", "w").write("x")\n    open(r"{flag}.once", "w").write("x")\n    sys.exit(1)\n'    # X 3: the machine goes down, once
+          'if program.X == 9:\n    sys.exit(1)\nprint("loss:", (program.X - 2) ** 2)\n')                         # X 9: the program itself dies
+    room, repo, work = research_room('k4', extra=['--precheck', f'"{sys.executable}" "{pre}"'], eval_src=ev)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K4 baseline runs', c == 0 and 'KEEP' in o, o)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'machine dies', '--as', 'W')
+    st = state(room)
+    ok('K4 a run that dies while the precheck now fails is INVALID, not a crash', 'INVALID' in o and 'CRASH' not in o, o)
+    ok('K4 the budget does not move', st['evals'] == 1 and not st['pending'], (st['evals'], st['pending']))
+    ok('K4 recorded as an invalid aux-numbered run', [a['status'] for a in st['attempts']] == ['keep', 'invalid']
+       and st['attempts'][-1]['n'] > 100000 and st['aux'] == 1, st['attempts'])
+    wk = list(st['workers'].values())[0]
+    ok('K4 the worker is not counted as crashing', wk.get('crashes', 0) == 0 and len(wk['programs']) == 1, wk)
+    tsv = (room / 'research' / 'results.tsv').read_text(encoding='utf-8').splitlines()
+    ok('K4 results.tsv has the invalid row', tsv[-1].split('\t')[3] == 'invalid', tsv[-1])
+    ok('K4 the log says run-invalid', '"run-invalid"' in (room / 'research' / 'log.jsonl').read_text(encoding='utf-8'))
+    ok('K4 the tag att-2 is free and the code stays staged', not git('tag', '--list', '*/att-2', cwd=work).stdout.strip()
+       and (work / 'program.py').read_text().strip() == 'X = 3' and git('log', '--oneline', cwd=work).stdout.count('att-') == 1,
+       git('tag', '--list', cwd=work).stdout)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('K4 status counts it apart', 'invalid 1' in o and '1/30 runs' in o, o)
+    flag.unlink()
+    c, o = run(room, 'research', 'evaluate', '--desc', 'machine dies', '--as', 'W')       # the same code, the machine is back
+    ok('K4 the same code runs again as att-2', c == 0 and 'att-2' in o and 'KEEP' in o and state(room)['evals'] == 2, o)
+    (work / 'program.py').write_text('X = 9\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'program dies', '--as', 'W')
+    ok('K4 a crash with the machine fine is still a crash and counts', 'CRASH' in o and state(room)['evals'] == 3
+       and list(state(room)['workers'].values())[0]['crashes'] == 1, o)
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
