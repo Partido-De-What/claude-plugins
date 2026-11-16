@@ -1071,6 +1071,17 @@ class Room:
             pass
         self.note_session(name)
         self.came_back(name)
+        self.relay_confirmed(name)
+
+    def relay_confirmed(self, name):
+        """a command of the lead some seconds after its relay handed it lines: it has them in its context, so they are not
+        handed again (relay_redeliver). shortcut: a command is the sign of reading, not proof of it; a read receipt needs the mod"""
+        path = self.dir / f'relay_sent_{name}.json'
+        try:
+            if time.time() - path.stat().st_mtime >= RELAY_CONFIRM_S:
+                path.unlink()
+        except OSError:
+            pass
 
     def came_back(self, name):
         """a command of an agent whose stop hook left it in gone.json: it is back at work, so it is no longer gone (the entry
@@ -4363,6 +4374,35 @@ def dissolve_idlefree(room, now=None):
     return out
 
 
+RELAY_CONFIRM_S = 3                               # a command of the lead this long after the hand-over confirms it
+REDELIVER_MIN = 5                                 # minutes without a command of the lead before the lines come again
+REDELIVER_MAX = 2
+
+
+def relay_handover(room, lead, upto, lines):
+    """the relay has put its lines in front of the lead: only now they count as delivered (they were marked when queued, and a
+    relay that died with them queued lost them), and the lead has REDELIVER_MIN minutes to show a command"""
+    write_atomic(room.dir / f'relay_sent_{lead}.json', json.dumps({'upto': upto, 'first': time.time(), 'ts': time.time(), 'tries': 0,
+                                                                  'lines': lines}, ensure_ascii=False))
+    from inbox import mark_delivered
+    mark_delivered(room.dir, lead, upto)
+
+
+def relay_redeliver(room, lead):
+    """the text to print again when the lead has shown no command since the hand-over; '' when there is nothing to say"""
+    path = room.dir / f'relay_sent_{lead}.json'
+    rec = read_json(path, None)
+    if not isinstance(rec, dict) or time.time() - float(rec.get('ts', 0)) < REDELIVER_MIN * 60:
+        return ''
+    if int(rec.get('tries', 0)) >= REDELIVER_MAX:
+        path.unlink(missing_ok=True)
+        return ''
+    rec['tries'], rec['ts'] = int(rec.get('tries', 0)) + 1, time.time()
+    write_atomic(path, json.dumps(rec, ensure_ascii=False))
+    return say('chat.say.cmd_alerts.redelivered', since=time.strftime('%H:%M', time.localtime(float(rec.get('first', 0)))),
+               n=rec['tries'], lines=' | '.join(rec.get('lines', [])))
+
+
 def cmd_alerts(room, a):
     """the lead's relay: print a ping line for each new message of the user (--follow keeps watching);
     with --messages also one WATCH line per real message, so the lead follows the room without reading it all. Each lead
@@ -4374,6 +4414,7 @@ def cmd_alerts(room, a):
     stream = getattr(a, 'stream', False)
     until, fixed = getattr(a, 'until_line', False) or stream, getattr(a, 'batch', None)
     held, rush = [], []
+    shown, queued = [], [0]                           # the lines given to out() since the last hand-over; the last message they carry
     relay_leads = [a.name] if a.name else room.config().get('self_names', [])[:1]   # the lead this relay speaks for: a message of another lead is news to it
     if not a.name and len(room.config().get('self_names', [])) > 1:
         print(say('chat.say.cmd_alerts.pass_as', name=relay_leads[0]), flush=True)
@@ -4395,11 +4436,14 @@ def cmd_alerts(room, a):
         closing, a CHECK); the rest comes with it as a short digest, never as a wake of its own"""
         if until and not act:
             info.append(' '.join(map(str, x)))
+            shown.append(info[-1][:240])
             return
         if stream:
             held.append(' '.join(map(str, x)))
         else:
             print(*x, **k)
+        shown.append(' '.join(map(str, x))[:240])
+        del shown[:-40]
         if act:
             spoke.append(time.time())
         if urgent:
@@ -4415,8 +4459,15 @@ def cmd_alerts(room, a):
             print('\n'.join(held + tail), flush=True)
         if not stream and fixed is None:               # what the lead needs with the wake, so it runs no status of its own
             print(wake_summary(room), flush=True)
+        hand_over()
         held.clear(), info.clear(), spoke.clear(), rush.clear()
         return not stream
+
+    def hand_over():
+        if queued[0] and relay_leads:
+            relay_handover(room, relay_leads[0], queued[0], shown[-20:])
+        queued[0] = 0
+        shown.clear()
 
     def needs_lead(m, line):
         kind = line.split(' ', 3)[2] if line.startswith('WATCH #') else ''
@@ -4448,6 +4499,10 @@ def cmd_alerts(room, a):
         if a.follow and beat_every and time.time() - beat_at >= beat_every:
             beat_at = time.time()
             out(say('chat.say.cmd_alerts.heartbeat', seconds=beat_every), urgent=True, flush=True)
+        if a.messages and relay_leads:                # lines the lead did not answer with a command: they come again
+            again = relay_redeliver(room, relay_leads[0])
+            if again:
+                out(again, flush=True)
         # the chat and the lend log are read again only when one of them changed: a long chat parsed every second
         # kept a CPU core 20% busy for each room watched
         sig = tuple(_stamp(f) for f in (room.chat, room.dir / 'common' / 'lend.jsonl', room.dir / 'spawn' / 'study.jsonl', room.dir / 'skills.json'))
@@ -4486,9 +4541,9 @@ def cmd_alerts(room, a):
                               who='; '.join(f"{k} {p}{' idle' if kind == 'idle' else ''}" for k, (kind, p) in quiet.items())), act=False, flush=True)
                     quiet.clear()
                     said = time.time()
-                from inbox import mark_delivered     # the lead has them from its relay: the alarm clock and the mod stay quiet
-                for lead in relay_leads[:1]:
-                    mark_delivered(room.dir, lead, new[-1]['n'])
+                queued[0] = new[-1]['n']              # the lead has them from its relay once they are in front of it: the alarm clock and the mod stay quiet
+                if not (until or stream):
+                    hand_over()
             room.set_cursor(name, new[-1]['n'])
         for line in lend_lines(room) + study_lines(room) + skill_lines(room):
             out(line, flush=True)
@@ -4519,6 +4574,7 @@ def cmd_alerts(room, a):
         if not a.follow:
             if until and (info or held):
                 print('\n'.join(held + ([say('chat.say.cmd_alerts.info_digest', n=len(info), lines=' | '.join(l[:200] for l in info[-20:]))] if info else [])), flush=True)
+            hand_over()
             return
         if until and due():
             return

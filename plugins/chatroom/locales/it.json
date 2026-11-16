@@ -222,6 +222,7 @@
  "chat.say.cmd_alerts.heartbeat": "HEARTBEAT {seconds} s: il relay è vivo, nient'altro ti chiede qualcosa",
  "chat.say.cmd_alerts.pass_as": "RELAY questa stanza ha più lead: questo relay parla solo per {name}. Avviane uno per ogni lead con --as NOME",
  "chat.say.cmd_alerts.relay_a_newer_relay": "RELAY un relay più nuovo di questo lead ha preso il posto: questo si ferma",
+ "chat.say.cmd_alerts.redelivered": "DI NUOVO ({n}), nessun tuo comando da quando il relay ti ha dato questo alle {since}: {lines}",
  "chat.say.cmd_alerts.relay_closed": "RELAY la stanza è chiusa: questo relay si ferma (il lead lo riavvia se la stanza si riapre)",
  "chat.say.cmd_brief.brief_saved": "brief salvato: ",
  "chat.say.cmd_check.check_nothing_wrong_seen": "CHECK nessun problema visto",
