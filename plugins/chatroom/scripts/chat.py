@@ -4131,7 +4131,7 @@ def cmd_add(room, a):
 
 # what the lead writes once about the room for the agents' prompts (chat.py brief); chat.py prompt fills the template
 # from it and from the config, so a prompt is never rewritten by hand and every agent gets the same rules
-BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests')
+BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests', 'permissions')
 
 
 def valve_line(room, name, mine=None):
@@ -4184,10 +4184,16 @@ def cmd_brief(room, a):
         key = key.strip()
         if key not in BRIEF_KEYS:
             raise ValueError(say('chat.err.cmd_brief.unknown_brief_key_use', v1=repr(key), BRIEF_KEYS=", ".join(BRIEF_KEYS)))
+        if key == 'permissions':                      # what the user allowed: only the lead (or the user) writes it, and signs it
+            if a.name not in room.user_names():
+                raise ValueError(say('chat.err.cmd_brief.permissions_signer'))
+            data['permissions_by'], data['permissions_at'] = a.name, time.strftime('%H:%M')
         data[key] = value.strip()
     if a.pairs:
         room.locked(lambda: write_atomic(room.dir / 'brief.json', json.dumps(data, indent=2, ensure_ascii=False)))
     print((say('chat.say.cmd_brief.brief_saved') if a.pairs else 'brief: ') + json.dumps(data, ensure_ascii=False))
+    if any(p.partition('=')[0].strip() == 'permissions' for p in a.pairs):    # the running agents read their prompt once: they are told where the change is
+        room.append(a.name, say('chat.say.cmd_brief.permissions_changed', by=a.name, text=cut(data['permissions'], 300) or '-') + ' @all', 'board')
 
 
 def room_agents_md(room):
@@ -4234,6 +4240,8 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
                                                str(room.dir / 'research' / 'task.md').replace('\\', '/')
                                                if (room.dir / 'research' / 'task.md').is_file() else '-'),
         **{k.upper(): data.get(k) or tr(lang, f'brief.default.{k}') for k in ('style', 'constraints', 'closing', 'max')}}
+    values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.permissions', by=data.get('permissions_by') or '-', at=data.get('permissions_at') or '-',
+                                       text=data.get('permissions') or tr(lang, 'prompt.permissions_none'))   # a permission the lead names in the chat is not in the brief: it is not the agents'
     if data.get('tests'):
         values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.tests', dirs=data['tests'])
     if data.get('lessons') != 'off':                  # what earlier rooms taught and the user kept (brief lessons=trial: the ones on trial too)
