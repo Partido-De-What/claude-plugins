@@ -1909,7 +1909,8 @@ def run_queue(room, poll=15):
             try:
                 line = evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt',
                                 ready.get('of'), ready.get('seed'), ready.get('env') or None)
-                room.append(lead, f"@{ready['by']} " + say('kernel.queue.done', line=line.splitlines()[0][:300]), 'board')
+                run = re.search(r'att-(\d+)', line)          # the run's own line is already in the chat: this one only wakes its author
+                room.append(lead, f"@{ready['by']} " + (say('kernel.queue.done_ref', n=run.group(1)) if run else say('kernel.queue.done', line=line.splitlines()[0][:300])), 'board')
             except Exception as exc:                      # one bad run never stops the queue
                 room.append(lead, f"@{ready['by']} " + say('kernel.queue.refused', desc=ready['desc'][:80], exc=str(exc)[:300]), 'board')
     finally:
