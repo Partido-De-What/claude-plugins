@@ -1247,6 +1247,17 @@ def _reconcile(room, c, st):
     return line
 
 
+def _precheck(room, c, work, d, name):
+    """the contract's precheck: None when it passes (or there is none), else (exit code, the end of its output)"""
+    if not c.get('precheck'):
+        return None
+    code, _ = _run(c['precheck'], work, d / 'runs' / 'precheck.log', 120, _env(CHATROOM_KIND='precheck', CHATROOM_BY=name, CHATROOM_ROOM=str(room.dir)))
+    if code == 0:
+        return None
+    tail = (d / 'runs' / 'precheck.log').read_text(encoding='utf-8', errors='replace').strip().splitlines()[-5:]
+    return code, ' | '.join(tail)[:300]
+
+
 def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     d = _dir(room)
     c, st = _state(room)
@@ -1340,11 +1351,9 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     tag = f"{c['branch']}/att-{n}"
     if _git(work, 'tag', '--list', tag):
         raise ValueError(say('kernel._evaluate.tag_already_exists_while', tag=tag))
-    if c.get('precheck'):                                 # the machine as the contract wants it (idle VRAM, no stray server, the device lock...)
-        code, _ = _run(c['precheck'], work, d / 'runs' / 'precheck.log', 120, _env(CHATROOM_KIND='precheck', CHATROOM_BY=name, CHATROOM_ROOM=str(room.dir)))
-        if code != 0:
-            tail = (d / 'runs' / 'precheck.log').read_text(encoding='utf-8', errors='replace').strip().splitlines()[-5:]
-            raise ValueError(say('kernel.precheck.failed', code=code, tail=' | '.join(tail)[:300]))
+    refused = _precheck(room, c, work, d, name)           # the machine as the contract wants it (idle VRAM, no stray server, the device lock...)
+    if refused:
+        raise ValueError(say('kernel.precheck.failed', code=refused[0], tail=refused[1]))
     pending = {'n': n, 'by': name, 'worker': key, 'desc': desc, 'ts': time.time(), 'kind': kind, 'idea': idea}
     _edit(room, lambda c2, s2: s2.update(pending=pending))  # from here a cut-off run is a crash at the next call
     try:
@@ -1380,6 +1389,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     loses = (lambda v: not _better(c, v, line_best['metric'])) if kind == 'attempt' and not first and not fix and line_best else None
     _cache_restore(room, c)
     value, why, secs, spread, protocol, text = _measure(c, work, d, n, env, log, started, loses)
+    sick = _precheck(room, c, work, d, name) if value is None and kind == 'attempt' else None   # K4: the run died, and the machine is no longer as the contract wants it
     guards = c.pop('_guards', {}) if value is not None else {}
     info = c.pop('_info', {}) if value is not None else {}
     env_lines, built_ok, values = c.pop('_env', [])[:12], c.pop('_built', False), c.pop('_values', [])
@@ -1397,7 +1407,9 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     proto = ' | '.join(protocol)
     if value is not None and kind == 'attempt' and st.get('protocol') is not None and proto != st['protocol']:
         value, why = None, say('kernel._evaluate.the_evaluation_protocol_changed', proto=proto[:120], protocol=st['protocol'][:120])
-    if value is None:
+    if sick:
+        status, why = 'invalid', say('kernel._evaluate.invalid', code=sick[0], tail=sick[1], why=why)
+    elif value is None:
         status = 'crash'
     elif kind == 'smoke':
         status, why = 'smoke', say('kernel._evaluate.the_evaluator_runs_and')
@@ -1434,7 +1446,16 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         else:
             why += say('kernel._evaluate.replica_held', v2=f'{v2:.6g}')
             value = both
-    if status != 'keep' or kind != 'attempt':
+    if status == 'invalid':                               # K4: not a run at all: no number of the budget or the round; the code stays staged for the same run again
+        old, n = n, AUX_BASE + _state(room)[1]['aux'] + 1
+        _git(work, 'tag', f"{c['branch']}/att-{n}", tag, ident=name)
+        _git(work, 'tag', '-d', tag)
+        _git(work, 'reset', '-q', '--soft', 'HEAD~1')
+        for src, dst in ((d / 'runs' / f'{old}.log', d / 'runs' / f'{n}.log'), (d / 'runs' / str(old), d / 'runs' / str(n))):
+            if src.exists() and not dst.exists():
+                src.rename(dst)
+        log = d / 'runs' / f'{n}.log'
+    elif status != 'keep' or kind != 'attempt':
         if kind != 'smoke':
             _git(work, 'reset', '-q', '--hard', wk['head'])   # back to the best: the attempt keeps its tag
     held = _clean(work, c) or held
@@ -1445,13 +1466,16 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         w = s2['workers'][key]
         deleted = set(w.get('deleted', []))
         readded = sum(1 for l in added if l.strip() and l in deleted)
-        w['deleted'] = list((deleted | {l for l in removed if l.strip()}))[-2000:]
-        rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': kind, 'idea': idea,
+        if status != 'invalid':                            # the run that did not happen forgets nothing: its replica is the run
+            w['deleted'] = list((deleted | {l for l in removed if l.strip()}))[-2000:]
+        rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': 'invalid' if status == 'invalid' else kind, 'idea': idea,
                'state': 'committed', 'parent_n': (w.get('best') or {}).get('n'), 'desc': desc, 'lines': lines,
                'added': len(added), 'readded': readded, 'tuning': tuning, 'spread': spread, 'of': of, 'seed': seed,
                'guards': guards, 'info': info, 'fix': fix, 'env': env_lines, **({'env_set': extra_env} if kind == 'probe' and extra_env else {}), 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
         s2['attempts'].append(rec)
-        if kind == 'attempt':
+        if status == 'invalid':
+            s2['aux'] += 1                                 # numbered like evidence: the budget and the round do not move
+        elif kind == 'attempt':
             s2['evals'] = n
             w['programs'] = (w.get('programs', []) + [{'n': n, 'sha': program_sha}])[-500:]
             w['since_evidence'] = w.get('since_evidence', 0) + 1
@@ -1481,12 +1505,12 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
             s2['aux'] += 1
         s2['pending'] = None
     _edit(room, apply)
-    _row(room, n, commit, value, status, secs, lines, name, desc + (f' (seed {seed})' if seed is not None else ''), kind, idea or '', spread)
-    _log(room, name, 'run', {'n': n, 'kind': kind, 'status': status, 'metric': value, 'why': why, 'commit': commit, 'idea': idea,
+    _row(room, n, commit, value, status, secs, lines, name, desc + (f' (seed {seed})' if seed is not None else ''), 'invalid' if status == 'invalid' else kind, idea or '', spread)
+    _log(room, name, 'run-invalid' if status == 'invalid' else 'run', {'n': n, 'kind': kind, 'status': status, 'metric': value, 'why': why, 'commit': commit, 'idea': idea,
                              'of': of, 'seed': seed, 'spread': spread})
     with open(d / f'findings-{key}.md', 'a', encoding='utf-8') as f:     # the line's own log: facts only, no advice
         f.write(f"- att-{n} [{kind}] {desc} | {c['metric']} = {'—' if value is None else f'{value:.6g}'} | {status}"
-                + (f' ({why})' if status in ('crash', 'discard') else '') + '\n')
+                + (f' ({why})' if status in ('crash', 'discard', 'invalid') else '') + '\n')
     c3, s3 = _state(room)
     flags = (say('kernel._evaluate.only_numbers_changed_tuning') if tuning and kind == 'attempt' else '') + \
             (say('kernel._evaluate.line_s_put_back', readded=readded) if readded else '')
@@ -1512,9 +1536,9 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         flags += say('kernel._evaluate.reference_drift', name=c['reference'], pct=f'{100 * drift:+.1f}', n=line_best['n'])
     line = (say('kernel._evaluate.att_by', n=n, kind=kind, name=name, desc=desc[:100], metric=c['metric'], v6='—' if value is None else f'{value:.6g}')
             + (f' ({spread})' if spread else '') + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
-            + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' else ''))
+            + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' and status != 'invalid' else ''))
     room.append(name, line, 'board')
-    tail = '\n'.join(text.strip().splitlines()[-30:])[-3000:] if status == 'crash' else ''   # the end of the log, bounded: everyone who reads the line pays it
+    tail = '\n'.join(text.strip().splitlines()[-30:])[-3000:] if status in ('crash', 'invalid') else ''   # the end of the log, bounded: everyone who reads the line pays it
     warn = say('kernel._evaluate.warning_some_files_could', held=held[:300]) if held else ''
     nudge = ''
     if kind == 'attempt' and s3['workers'][key].get('paused'):
@@ -1671,7 +1695,7 @@ def propose_evidence(room, by, text, source):
         elif not re.fullmatch(r'https?://\S{4,}', s):
             raise ValueError(say('kernel.propose_evidence.source_att_n_e', s=s))
 
-    measured = all(re.fullmatch(r'att-\d+', s) and next(x for x in st['attempts'] if f"att-{x['n']}" == s)['status'] != 'crash'
+    measured = all(re.fullmatch(r'att-\d+', s) and next(x for x in st['attempts'] if f"att-{x['n']}" == s)['status'] not in ('crash', 'invalid')
                    for s in srcs)
     # no REGISTRAR in the room: the kernel commits what rests only on runs it measured itself (the bookkeeping that made the
     # registrar the costliest role of a night); links and other evidence wait for the lead or a registrar spawned for it
@@ -2890,15 +2914,16 @@ def status(room):
     _release_fallen(room)
     c, st = _state(room)
     rows = (_dir(room) / 'results.tsv').read_text(encoding='utf-8').splitlines()[1:]
-    counts = {k: sum(1 for r in rows if r.split('\t')[3] == k) for k in ('keep', 'discard', 'crash')}
+    counts = {k: sum(1 for r in rows if r.split('\t')[3] == k) for k in ('keep', 'discard', 'crash', 'invalid')}
     best = st['best']
     head = (say('kernel.status.research_phase_metric_from', tag=c['tag'], phase=st['phase'], PHASES=phase_name(st['phase']), program=c['program'], metric=c['metric'], direction=c['direction'], v7=say('kernel.word.result_file') if c.get('metric_source') == 'file' else say('kernel.word.output_unsafe'))
             + (say('kernel.status.median_of', repeats=c['repeats']) if c.get('repeats', 1) > 1 else '') + (say('kernel.status.min_gain', min_gain=c['min_gain']) if c.get('min_gain') else '') + say('kernel.status.runs_of_s_keep', evals=st['evals'], max_evals=c['max_evals'], budget_s=c['budget_s'], keep=counts['keep'], discard=counts['discard'], crash=counts['crash'])
+            + (say('kernel.status.invalid_runs', n=counts['invalid']) if counts['invalid'] else '')
             + (say('kernel.status.best_att', n=best['n'], v2=format(best['metric'], '.6g'), commit=best['commit'], get=best.get('worker', '')) if best else say('kernel.status.no_baseline_yet'))
             + (say('kernel.status.att_in_progress_or', n=st['pending']['n']) if st.get('pending') else '')
             + (say('kernel.status.degraded_phase_closed_without') if st.get('degraded') else '')
             + (say('kernel._seal.waits_for_go') if st.get('wait_go') else ''))
-    took = [float(r.split('\t')[4]) for r in rows[-10:] if r.split('\t')[3] != 'crash' and r.split('\t')[4:5] and r.split('\t')[4].replace('.', '', 1).isdigit()]
+    took = [float(r.split('\t')[4]) for r in rows[-10:] if r.split('\t')[3] not in ('crash', 'invalid') and r.split('\t')[4:5] and r.split('\t')[4].replace('.', '', 1).isdigit()]
     if took:                                              # the contract's budget is per measure: what a whole run really takes
         head += say('kernel.status.run_time', median=f'{statistics.median(took) / 60:.1f}', n=len(took),
                     budget=f"{c['budget_s'] * max(1, int(c.get('repeats') or 1)) / 60:.1f}", longest=f'{max_run_seconds(c) / 60:.0f}')
@@ -2934,7 +2959,7 @@ def status(room):
             continue                                      # an old prebuild (a worker stopped days ago) is noise in every status
         code = f.read_text(errors='replace').strip()
         head += say('kernel.status.prebuild_of', stem=f.stem[9:]) + (say('kernel.status.done_exit') if code == '0' else say('kernel.status.failed_exit_log', code=code, with_suffix=f.with_suffix(".log")))
-    measured = [a for a in st['attempts'] if 'built' in a and a['status'] != 'crash']
+    measured = [a for a in st['attempts'] if 'built' in a and a['status'] not in ('crash', 'invalid')]
     if measured:
         declared = [a['built'] for a in measured if isinstance(a['built'], str)]
         head += say('kernel.word.provenance_status', state='on' if c.get('provenance') else 'off',
