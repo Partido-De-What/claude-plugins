@@ -185,6 +185,14 @@ Work in batches (a list of queued runs) needs no polling of the log and no "LIST
 list is finished, or after M minutes (default 60), with the closed runs' lines. When the queue runs dry after runs it
 started, the kernel posts one line tagging the auditors and the authors ("the queued list is finished: N runs closed,
 best att-X"), and a keep that is a new best on its line tags the auditor.
+A run's class and level are fields, not a description prefix: `evaluate` and `queue` take `--class X --level N` (short
+words), kept in the attempt's record and said on its line. Ideas set aside go to the kernel's register, not to a file kept
+by hand: `research shelve --text "..." [--class X --level N --value V]`, `research shelved` (the list, with the count and
+the sum of the values per class), `research unshelve S2`; status counts them per class.
+`research dry-eval [--evaluate "CMD"] [--worker NAME]` tries the evaluator once in a worktree, with the contract's
+environment, under the evaluator's lock, and prints the metric, the guards, the protocol and the seconds, or why it
+failed. It records nothing (no commit, number, row or state) and does not run the build; `--evaluate` tries a candidate
+command in place of the contract's.
 
 ## 4. Phase 2: investigation, the loop you run
 

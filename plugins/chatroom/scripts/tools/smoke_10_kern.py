@@ -531,5 +531,59 @@ if section('K11'):                                                    # soft bud
     c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke 2', '--as', 'W')
     ok('K12 with a reference arm in the contract the advice is silent', c == 0 and 'noise is unknown' not in o, o)
 
+# ---------------------------------------------------------------------------------------------------------------- K10
+if section('K10'):                                                    # class and level in the attempt; a register of shelved ideas with its sums
+    room, repo, work = research_room('k10')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--class', 'explore', '--level', '2', '--as', 'W')
+    st = state(room)
+    ok('K10 an attempt keeps its class and level as fields', c == 0 and st['attempts'][0].get('cls') == 'explore' and st['attempts'][0].get('level') == '2', (c, o))
+    ok('K10 the run line says them', 'class explore, level 2' in o, o)
+    (work / 'program.py').write_text('X = 4\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'bad class', '--class', 'not a word!', '--as', 'W')
+    ok('K10 a class that is not a short word is refused before the run', c != 0 and 'short word' in o and state(room)['evals'] == 1, o)
+    c, o = run(room, 'research', 'queue', '--desc', 'queued one', '--class', 'tuning', '--level', '1', '--as', 'W')
+    ok('K10 queue takes them too', c == 0 and '"cls": "tuning"' in (room / 'research' / 'log.jsonl').read_text(encoding='utf-8'), o)
+    t0 = time.time()
+    while time.time() - t0 < 40 and state(room)['evals'] < 2:
+        time.sleep(1)
+    last = state(room)['attempts'][-1]
+    ok('K10 the queued run carries them into its record', last.get('cls') == 'tuning' and last.get('level') == '1', last)
+    c, o = run(room, 'research', 'shelve', '--text', 'wider search', '--class', 'explore', '--level', '1', '--value', '0.5', '--as', 'W')
+    ok('K10 shelve registers an idea', c == 0 and 'S1' in o, o)
+    c, o = run(room, 'research', 'shelve', '--text', 'bigger batch', '--class', 'explore', '--value', '1.5', '--as', 'W')
+    c, o = run(room, 'research', 'shelve', '--text', 'other thing', '--class', 'misc', '--as', 'W')
+    c, o = run(room, 'research', 'shelved', '--as', 'LEAD')
+    ok('K10 shelved lists them with the sum per class', c == 0 and 'S1 [explore L1]' in o and 'S3' in o and 'explore 2 (sum 2)' in o and 'misc 1 (sum 0)' in o and '3 shelved' in o, o)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('K10 status counts them per class', 'shelved: 3 (explore 2, misc 1)' in o, o)
+    c, o = run(room, 'research', 'unshelve', 'S2', '--as', 'W')
+    c2, o2 = run(room, 'research', 'unshelve', 'S2', '--as', 'W')
+    c3, o3 = run(room, 'research', 'shelved', '--as', 'LEAD')
+    ok('K10 unshelve takes one off, an unknown id is refused', c == 0 and c2 != 0 and 'S2' not in o3 and '2 shelved' in o3, (o, o2, o3))
+    c, o = run(room, 'research', 'shelve', '--text', 'x', '--value', 'many', '--as', 'W')
+    ok('K10 a value that is not a number is refused', c != 0 and 'not a number' in o, o)
+
+# ---------------------------------------------------------------------------------------------------------------- K18
+if section('K18'):                                                    # the evaluator tried outside the kernel: nothing recorded
+    cand = BASE / 'k18_cand.py'
+    cand.write_text('print("loss: 4")\nprint("protocol: dry")\n')
+    bad = BASE / 'k18_bad.py'
+    bad.write_text('import sys\nprint("boom")\nsys.exit(3)\n')
+    room, repo, work = research_room('k18')
+    c, o = run(room, 'research', 'dry-eval', '--as', 'W')
+    ok('K18 dry-eval runs the contract evaluator and prints the metric', c == 0 and 'loss = 9' in o and 'Nothing recorded' in o, o)
+    ok('K18 it guards: the guard-less contract prints no guard', 'mem' not in o, o)
+    c, o = run(room, 'research', 'dry-eval', '--evaluate', f'"{sys.executable}" "{cand}"', '--as', 'W')
+    ok('K18 a candidate command can be tried instead', c == 0 and 'loss = 4' in o and 'protocol dry' in o, o)
+    c, o = run(room, 'research', 'dry-eval', '--evaluate', f'"{sys.executable}" "{bad}"', '--as', 'W')
+    ok('K18 a failing evaluator says why, still records nothing', 'dry-eval failed' in o and 'exit' in o, o)
+    st = state(room)
+    tsv = (room / 'research' / 'results.tsv').read_text(encoding='utf-8').splitlines()
+    ok('K18 no run, no number, no pending, no row', st['evals'] == 0 and not st['attempts'] and not st['pending'] and st['aux'] == 0 and len(tsv) == 1, (st, tsv))
+    ok('K18 no commit and no tag in the worktree, no lock left', git('log', '--oneline', cwd=work).stdout.count('att-') == 0
+       and not git('tag', '--list', cwd=work).stdout.strip() and not (room / 'research' / 'eval.lock').exists(), git('log', '--oneline', cwd=work).stdout)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K18 the real baseline is still att-1', c == 0 and 'att-1' in o and 'KEEP' in o, o)
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
