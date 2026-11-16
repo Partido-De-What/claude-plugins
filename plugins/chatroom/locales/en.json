@@ -2665,6 +2665,7 @@
  "chat.word.state.dropped": "dropped",
  "spawn.coverage.line": "catalog: {models} models on {routes} routes, {read} providers read.",
  "spawn.coverage.no_key": " No key, skipped ({n}): {names}.",
+ "spawn.coverage.empty": " Listed models but no free route, a quota may be over ({n}): {names}.",
  "spawn.coverage.failed": " Failed to read, their routes may be gone or old ({n}): {names}.",
  "spawn.ping.old_catalog": "The catalog is {days} days old and could not be updated just now (no network?): routes may be gone. Press Update in the Spawn view, or run the ping again once you are online, before a long round.",
  "chat.say.hold.draft": "Your message was NOT posted, {name}: a tag crossed it. Here it is; post it again if it still stands, or say why not:\n{text}",

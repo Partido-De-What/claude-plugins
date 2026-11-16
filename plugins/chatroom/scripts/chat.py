@@ -3099,6 +3099,8 @@ def coverage_line(cat, has_key):
     line = say('spawn.coverage.line', models=c['models'], routes=c['routes'], read=len(c['read']))
     if c['no_key']:
         line += say('spawn.coverage.no_key', n=len(c['no_key']), names=', '.join(c['no_key']))
+    if c['empty']:
+        line += say('spawn.coverage.empty', n=len(c['empty']), names=', '.join(c['empty']))
     if c['failed']:
         line += say('spawn.coverage.failed', n=len(c['failed']), names='; '.join(f'{p} ({" ".join(e.split())[:60]})' for p, e in c['failed']))
     return line

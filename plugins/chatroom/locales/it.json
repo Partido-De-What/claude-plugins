@@ -2665,6 +2665,7 @@
  "chat.word.state.dropped": "lasciato",
  "spawn.coverage.line": "catalogo: {models} modelli su {routes} rotte, {read} provider letti.",
  "spawn.coverage.no_key": " Senza chiave, saltati ({n}): {names}.",
+ "spawn.coverage.empty": " Modelli in lista ma nessuna rotta gratuita, forse una quota è finita ({n}): {names}.",
  "spawn.coverage.failed": " Lettura fallita, le loro rotte possono mancare o essere vecchie ({n}): {names}.",
  "spawn.ping.old_catalog": "Il catalogo ha {days} giorni e ora non si è potuto aggiornare (manca la rete?): alcune rotte possono non esserci più. Premi Aggiorna nella vista Spawn, oppure rilancia il ping quando sei online, prima di un giro lungo.",
  "chat.say.hold.draft": "Il tuo messaggio NON è stato pubblicato, {name}: un tag l'ha incrociato. Eccolo; ripostalo se vale ancora, o di' perché no:\n{text}",
