@@ -51,7 +51,7 @@ From the request and the conversation, decide:
 
   Anything the user specified in the request (a title, colours, names, a theme) wins over your choice.
 
-Ask the user only if the topic or the goal is genuinely unclear. Choose roles and the look yourself.
+Ask the user only if the topic or the goal is genuinely unclear. Choose roles and the look yourself. Always ask which topic profile the room joins (`python "CHAT" lessons topic list --room "ROOM"`, or a new short name) and bind it with `python "CHAT" lessons topic use SLUG --confirmed --room "ROOM" --as LEAD` only on their answer: the room's lessons, sources and skills stay for the next rooms of that topic. The ten lines to tell them are in the guide (`guide normal`, "What the room remembers").
 
 **Rooms already open.** Run `python "CHAT" rooms` first. A room stays alive after its task while its viewer runs, and its agents stay at their desks. If the user wants more agents in a live room (theirs or one opened by another session), do not open a new one: `python "CHAT" add --room "THAT_ROOM" --participants NEW1,NEW2 --profile "NEW1|🦉|#2d98da|role"` (add `--as LEAD2` when you lead from a second session, so you post as a lead), then spawn them as in step 4 with that ROOM, write them in its roster (step 5) and follow it as in step 6. If the user wants a separate chat while one or two are already live, open it normally: up to three live rooms share one office (each room's agents at their own desks, each lead at its own table, nothing else shared), and the viewer lets the user read this room, another one or all of them.
 
