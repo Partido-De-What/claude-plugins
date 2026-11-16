@@ -258,21 +258,49 @@ def _submodules(work):
 
 
 def parse_guards(text):
-    """--guard prefill_tps:max:3%,vram_mb:min:200 -> [{name, direction, tol}]: a secondary number the evaluator prints
-    ("NAME: value") on every measure; its median may not be worse than the baseline's by more than tol"""
+    """--guard prefill_tps:max:3%,vram_mb:min:200,peak_mb:min:abs=9000 -> [{name, direction, tol}]: a secondary number the
+    evaluator prints ("NAME: value") on every measure; its median may not be worse than the baseline's by more than tol, or
+    (tol abs=X) than X itself. text: one string or the list of every --guard given"""
+    if isinstance(text, (list, tuple)):
+        text = ','.join(x or '' for x in text)
     out = []
     for item in [x.strip() for x in (text or '').split(',') if x.strip()]:
-        m = re.fullmatch(r'([A-Za-z0-9_.-]+):(min|max):(\d+(?:\.\d+)?%?)', item)
+        m = re.fullmatch(r'([A-Za-z0-9_.-]+):(min|max):(\d+(?:\.\d+)?%?|abs=-?\d+(?:\.\d+)?)', item)
         if not m:
             raise ValueError(say('kernel.parse_guards.guard_name_min_max', v1=repr(item)))
         out.append({'name': m.group(1), 'direction': m.group(2), 'tol': m.group(3)})
     return out
 
 
-def _guard_broken(g, value, base):
-    """value is worse than base by more than the guard's tolerance"""
+def _guard_limit(g, base):
+    """the value a guard's median may not pass: the absolute one, or the baseline's moved by the tolerance; None when
+    the guard is relative and the baseline never measured it"""
+    if g['tol'].startswith('abs='):
+        return float(g['tol'][4:])
+    if base is None:
+        return None
     tol = abs(base) * float(g['tol'][:-1]) / 100 if g['tol'].endswith('%') else float(g['tol'])
-    return value > base + tol if g['direction'] == 'min' else value < base - tol
+    return base + tol if g['direction'] == 'min' else base - tol
+
+
+def _guard_broken(g, value, base):
+    """value is worse than the guard's limit (see _guard_limit)"""
+    limit = _guard_limit(g, base)
+    return limit is not None and (value > limit if g['direction'] == 'min' else value < limit)
+
+
+def _guard_line(g, base):
+    """one guard as status shows it: `mem <= 25` (the limit), with the baseline it came from when relative"""
+    limit = _guard_limit(g, base)
+    if limit is None:
+        return f"{g['name']} {g['direction']} {g['tol']} ({say('kernel.status.guard_no_baseline')})"
+    rel = '' if g['tol'].startswith('abs=') else f" (baseline {format(base, '.6g')} {g['tol']})"
+    return f"{g['name']} {'<=' if g['direction'] == 'min' else '>='} {format(limit, '.6g')}{rel}"
+
+
+def _guards_text(guards):
+    """the contract's guards as one line: name direction tolerance"""
+    return ', '.join(f"{g['name']} {g['direction']} {g['tol']}" for g in guards) or say('kernel.word.none')
 
 
 def _rel(top, f):
@@ -429,7 +457,7 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
         raise ValueError(say('kernel.word.amend_needs_reason'))
     if guards is not None and st['best'] is not None:
         measured_g = (st.get('baseline') or {}).get('guards') or {}
-        new = [g['name'] for g in parse_guards(guards) if g['name'] not in measured_g]
+        new = [g['name'] for g in parse_guards(guards) if g['name'] not in measured_g and not g['tol'].startswith('abs=')]   # an absolute limit needs no baseline value
         if new:
             raise ValueError(say('kernel.word.guard_not_in_baseline', names=', '.join(new)))
     for key, value, label in (('evaluate', evaluate, say('kernel.word.evaluator')), ('build', build, say('kernel.word.build')), ('final', final, say('kernel.word.final_evaluator'))):
@@ -445,8 +473,8 @@ def amend(room, by, evaluate=None, budget_min=None, max_evals=None, result_file=
         c['repeats'] = int(repeats)
         said.append(say('kernel.amend.median_of_measures', repeats=repeats))
     if guards is not None:
-        c['guards'] = parse_guards(guards)
-        said.append(say('kernel.word.guards', names=', '.join(g['name'] for g in c['guards']) or say('kernel.word.none')))
+        old_guards, c['guards'] = c.get('guards', []), parse_guards(guards)
+        said.append(say('kernel.word.guards_changed', old=_guards_text(old_guards), new=_guards_text(c['guards'])))
     if min_gain is not None:
         if not re.fullmatch(r'\d+(\.\d+)?%?', str(min_gain)):
             raise ValueError(say('kernel.amend.min_gain_a_number'))
@@ -1224,8 +1252,12 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     base_g = (st.get('baseline') or {}).get('guards') or {}
     if value is not None and kind == 'attempt' and not first:
         for g in c.get('guards', []):
-            if g['name'] in base_g and _guard_broken(g, guards[g['name']], base_g[g['name']]):
-                value, why = None, (say('kernel._evaluate.guard_median_worse_than', name=g['name'], v2=format(guards[g['name']], '.6g'), v3=format(base_g[g['name']], '.6g'), tol=g['tol']))
+            if _guard_broken(g, guards[g['name']], base_g.get(g['name'])):
+                if g['tol'].startswith('abs='):
+                    why = say('kernel._evaluate.guard_beyond_limit', name=g['name'], v2=format(guards[g['name']], '.6g'), limit=g['tol'][4:])
+                else:
+                    why = say('kernel._evaluate.guard_median_worse_than', name=g['name'], v2=format(guards[g['name']], '.6g'), v3=format(base_g[g['name']], '.6g'), tol=g['tol'])
+                value = None
                 break
     proto = ' | '.join(protocol)
     if value is not None and kind == 'attempt' and st.get('protocol') is not None and proto != st['protocol']:
@@ -2155,6 +2187,9 @@ def _seal(room, by, sealed, stay=False):
     later = [a['n'] for a in st['attempts'] if a['kind'] == 'smoke' and a['n'] > smoke['n']]
     if later:
         raise ValueError(say('kernel._seal.the_last_good_smoke', n=smoke['n'], later=later[-1]))
+    unseen = [g['name'] for g in c.get('guards', []) if g['name'] not in (smoke.get('guards') or {})]
+    if unseen:                                            # a guard added after the smoke: its evaluator may never print it, and every run would die
+        raise ValueError(say('kernel._seal.guard_never_printed', names=', '.join(unseen), n=smoke['n']))
     commit = _git(work, 'rev-parse', smoke['commit'])
     drafter = st['workers'].get(smoke.get('worker')) or {}
     if drafter.get('work') and Path(drafter['work']).is_dir():   # what is sealed is what the last smoke ran: nothing after it
@@ -2522,6 +2557,9 @@ def status(room):
     left = [] if _run_alive(room) else strays(room)
     if left:
         head += say('kernel.word.strays', items=', '.join(left[:6]))
+    if c.get('guards'):                                   # the limit each guard enforces now, not only its tolerance
+        base_g = (st.get('baseline') or {}).get('guards') or {}
+        head += say('kernel.status.guards', items='; '.join(_guard_line(g, base_g.get(g['name'])) for g in c['guards']))
     base = st.get('baseline') and next((a for a in st['attempts'] if a['n'] == st['baseline']['n']), None)
     if base and len(base.get('values') or []) >= 2 and best and best['n'] != base['n']:
         sigma = statistics.stdev(base['values'])               # report only: the keep rule stays the contract's

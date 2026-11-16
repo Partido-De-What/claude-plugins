@@ -1,5 +1,6 @@
 """1.0, KERN items (research kernel, hold, templates), one section per ID. Run: python -X utf8 smoke_10_kern.py
 ONLY=K3 runs one section. A fake HOME: nothing is written in ~/.claude."""
+import json
 import os
 import subprocess
 import sys
@@ -42,13 +43,16 @@ def git(*a, cwd):
     return subprocess.run(['git', *a], cwd=cwd, capture_output=True, text=True)
 
 
-def research_room(name, participants='W', extra=(), evaluate=None):
+EVAL = 'import program\nprint("loss:", (program.X - 2) ** 2)\nprint("mem:", program.X * 10)\n'   # mem: a guard number, 10 per X
+
+
+def research_room(name, participants='W', extra=(), evaluate=None, eval_src=EVAL):
     """a repo (program.py, eval.py) and a research room on it, phase 2 unless --draft is in extra"""
     repo = BASE / f'repo-{name}'
     repo.mkdir()
     git('init', '-q', '-b', 'main', cwd=repo); git('config', 'user.email', 't@t', cwd=repo); git('config', 'user.name', 't', cwd=repo)
     (repo / 'program.py').write_text('X = 5\n')
-    (repo / 'eval.py').write_text('import program\nprint("loss:", (program.X - 2) ** 2)\n')
+    (repo / 'eval.py').write_text(eval_src)
     git('add', '-A', cwd=repo); git('commit', '-qm', 'base', cwd=repo)
     room = BASE / f'room-{name}'
     subprocess.run([sys.executable, CHAT, 'init', '--room', str(room), '--participants', participants, '--lang', 'en'], capture_output=True)
@@ -91,6 +95,50 @@ if section('K3'):
     c, o = run(room, 'research', 'seal', '--as', 'LEAD')
     ok('K3 seal prints the python a contract command resolves', c == 0 and 'sealed' in o and 'python' in o.split('sealed', 1)[1].lower()
        and research.resolved_python() in o, o)
+
+
+def state(room):
+    return json.loads((room / 'research' / 'state.json').read_text(encoding='utf-8'))
+
+
+def contract(room):
+    return json.loads((room / 'research' / 'contract.json').read_text(encoding='utf-8'))
+
+
+# ---------------------------------------------------------------------------------------------------------------- K8
+if section('K8'):
+    room, repo, work = research_room('k8', extra=['--guard', 'cold:min:5%', '--guard', 'mem:min:abs=40'])
+    ok('K8 --guard repeated: both kept', [g['name'] for g in contract(room)['guards']] == ['cold', 'mem'], contract(room)['guards'])
+    ok('K8 abs guard parsed', contract(room)['guards'][1]['tol'] == 'abs=40', contract(room)['guards'])
+    # eval prints cold too: patch the sealed eval in the worktree is refused, so a new room with both lines
+    room, repo, work = research_room('k8b', extra=['--guard', 'mem:min:abs=40'])
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K8 baseline X=5 (mem 50 > 40) is not judged by the abs guard', c == 0 and 'KEEP' in o, o)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    ok('K8 attempt within the abs limit (mem 30 <= 40) kept', c == 0 and 'KEEP' in o, o)
+    (work / 'program.py').write_text('X = 4\n')                      # mem 40 is on the limit (fine), loss 4 is worse than 1
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 4', '--as', 'W')
+    ok('K8 attempt on the abs limit is not a guard breach', 'DISCARD' in o and 'guard' not in o.lower(), o)
+    c, o = run(room, 'research', 'amend', '--guard', 'mem:min:abs=20', '--reason', 'tighter absolute limit', '--as', 'LEAD')
+    ok('K8 amend to an abs guard after the baseline needs no baseline value', c == 0 and 'mem' in o, o)
+    ok('K8 amend line shows old and new', 'abs=40' in o and 'abs=20' in o, o)
+    (work / 'program.py').write_text('X = 2.5\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 2.5 over the limit', '--as', 'W')
+    ok('K8 attempt over the new abs limit is refused with the limit in the line', 'mem' in o and '20' in o and ('CRASH' in o or 'DISCARD' in o), o)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('K8 status prints the effective guard limit', 'mem <= 20' in o, o)
+
+if section('K8S'):                                                    # seal: a guard the smoke never measured
+    room, repo, work = research_room('k8s', extra=['--draft'])
+    c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke', '--as', 'W')
+    c, o = run(room, 'research', 'amend', '--guard', 'nothing:min:5%', '--as', 'LEAD')
+    c, o = run(room, 'research', 'seal', '--as', 'LEAD')
+    ok('K8 seal refuses a guard the smoke run never printed', c != 0 and 'nothing' in o and state(room)['phase'] == 1, o)
+    c, o = run(room, 'research', 'amend', '--guard', 'mem:min:5%', '--as', 'LEAD')
+    c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke 2', '--as', 'W')
+    c, o = run(room, 'research', 'seal', '--as', 'LEAD')
+    ok('K8 seal passes once the smoke printed every guard', c == 0 and state(room)['phase'] == 2, o)
 
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
