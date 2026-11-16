@@ -16,7 +16,7 @@ os.environ['CHATROOM_RELAUNCHED'] = '1'
 (BASE / 'claude' / 'chatroom').mkdir(parents=True)
 sys.path.insert(0, SCRIPTS)
 import chat  # noqa: E402
-import sources  # noqa: E402
+import room_sources as sources  # noqa: E402
 from spawn import consult as sc  # noqa: E402
 
 CHAT = str(Path(SCRIPTS) / 'chat.py')

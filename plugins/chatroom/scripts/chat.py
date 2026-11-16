@@ -3053,8 +3053,8 @@ def cmd_notebook(room, a):
 
 
 def cmd_sources(room, a):
-    """chat.py sources [add URL SUMMARY...] --as NAME: the register of what the room read, one row for each URL (sources.py)"""
-    import sources
+    """chat.py sources [add URL SUMMARY...] --as NAME: the register of what the room read, one row for each URL (room_sources.py)"""
+    import room_sources as sources
     if a.pairs[:1] == ['add']:
         if len(a.pairs) < 2 or not a.name:
             sys.exit(say('chat.err.cmd_sources.usage'))
@@ -6280,7 +6280,7 @@ def _main():
     p.add_argument('--now', action='store_true', help='rotate: retire the agent now and write its fresh prompt (after it wrote its notebook)')
     p.add_argument('--batch', type=int, help='alerts --until-line: after the first line that needs the lead, gather N s more into the same wake')
     p.add_argument('--until-line', action='store_true', help='alerts --follow: return after the first lines (run it as a background shell: its exit wakes the lead)')
-    p.add_argument('--top', type=int, help='spawn ping: only the N models highest in the catalog')
+    p.add_argument('--top', type=int, help='spawn ping, spawn consult: only the N models highest in the catalog')
     p.add_argument('--vision', action='store_true', help='spawn ping: send a small picture instead (who reads images)')
     p.add_argument('--until-cmd', dest='until_cmd', help='wait: also end when this shell command exits 0 (checked every 10 s): a run that finished, a device back on power, a process that ended')
     p.add_argument('--until-path', dest='until_path', help='wait: also end when this file appears or changes (the material you wait for)')
