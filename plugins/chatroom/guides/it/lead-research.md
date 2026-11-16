@@ -195,6 +195,14 @@ tuo: `research wait --runs N [--minutes M]` (lancialo in background) torna quand
 lista in coda è finita, o dopo M minuti (default 60), con le righe delle corse chiuse. Quando la coda si svuota dopo corse
 che ha avviato, il kernel scrive una riga che tagga gli auditor e gli autori ("la lista in coda è finita: N corse chiuse,
 migliore att-X"), e un keep che è un nuovo migliore della sua linea tagga l'auditor.
+Classe e livello di una corsa sono campi, non un prefisso della descrizione: `evaluate` e `queue` prendono `--class X
+--level N` (parole brevi), salvati nel record del tentativo e detti sulla sua riga. Le idee accantonate vanno nel registro
+del kernel, non in un file tenuto a mano: `research shelve --text "..." [--class X --level N --value V]`, `research
+shelved` (l'elenco, con conteggio e somma dei valori per classe), `research unshelve S2`; lo status le conta per classe.
+`research dry-eval [--evaluate "CMD"] [--worker NOME]` prova il valutatore una volta in un worktree, con l'ambiente del
+contratto, sotto il blocco del valutatore, e stampa metrica, guard, protocollo e secondi, o perché è fallito. Non
+registra nulla (nessun commit, numero, riga o stato) e non lancia la build; `--evaluate` prova un comando candidato al
+posto di quello del contratto.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 

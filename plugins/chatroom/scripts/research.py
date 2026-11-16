@@ -1099,7 +1099,19 @@ def _check_env(kind, extra_env):
             raise ValueError(say('kernel.evaluate.env_name', name=k))
 
 
-def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, extra_env=None):
+def _mark(cls, level):
+    """K10: the class and the level of a run or of a shelved idea, short words the worker states (never read out of a
+    description): (cls, level), each None when not given"""
+    out = []
+    for what, v in (('class', cls), ('level', level)):
+        v = str(v).strip() if v is not None else ''
+        if v and not re.fullmatch(r'[A-Za-z0-9_.-]{1,24}', v):
+            raise ValueError(say('kernel.mark.bad', what=what, value=v[:30]))
+        out.append(v or None)
+    return tuple(out)
+
+
+def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, extra_env=None, cls=None, level=None):
     """one run: seal and scope checks, commit, build, measure, keep or reset; the result goes to results.tsv and to the
     chat. kind=attempt (phase 2) competes for the best; ablation, baseline, control, repeat (phase 3) only measure;
     smoke (phase 1) checks the evaluator runs"""
@@ -1107,6 +1119,7 @@ def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, ex
     if kind not in ('attempt', 'fix', 'smoke', 'explore', 'probe', *AUX_KINDS):
         raise ValueError(say('kernel.evaluate.kind_attempt_fix_smoke', AUX_KINDS=", ".join(AUX_KINDS)))
     extra_env = env_pairs(extra_env) or None
+    cls, level = _mark(cls, level)
     _check_env(kind, extra_env)
     _need(room, c, name, 'WORKER')
     if st.get('wait_go') and kind in ('attempt', 'fix'):
@@ -1115,7 +1128,37 @@ def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, ex
     held = _gpu_hold(room)
     if held and held['by'] != name:
         raise ValueError(say('kernel.evaluate.the_gpu_is_held', by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
-    return _locked(room, c, name, lambda: _evaluate(room, name, desc, idea, kind, of, seed, extra_env))
+    return _locked(room, c, name, lambda: _evaluate(room, name, desc, idea, kind, of, seed, extra_env, cls, level))
+
+
+def dry_eval(room, name, worker=None, evaluate_cmd=None):
+    """K18: the contract's evaluator (or a candidate command) run once in a worker's worktree, as a run would, and nothing
+    else: no commit, no number, no state, no results row. The build is not run. Returns the text to print"""
+    c, st = _state(room)
+    _need(room, c, name, 'WORKER')
+    held = _gpu_hold(room)
+    if held and held['by'] != name:
+        raise ValueError(say('kernel.evaluate.the_gpu_is_held', by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
+    key, wk = _worker(st, worker or name)
+    work = _check_work(c, wk)
+    if not (c.get('evaluate') or evaluate_cmd):
+        raise ValueError(say('kernel._evaluate.the_contract_has_no'))
+    if not (work / c['program']).is_file():
+        raise ValueError(say('kernel._evaluate.is_missing_from_restore', program=c['program'], work=work, head=wk['head']))
+
+    def run():
+        d = _dir(room)
+        c2 = dict(c, repeats=1, evaluate=evaluate_cmd or c['evaluate'])
+        for k in ('build', 'artifacts'):
+            c2.pop(k, None)
+        env = _env(**_build_env(room, c), CHATROOM_RUN='dry', CHATROOM_KIND='dry', CHATROOM_PROGRAM_SHA=_sha(work / c['program']))
+        log = d / 'runs' / 'dry.log'
+        value, why, secs, spread, protocol, text = _measure(c2, work, d, 'dry', env, log)
+        if value is None:
+            return say('kernel.dry.failed', why=why, secs=f'{secs:.0f}', log=log)
+        extra = ''.join([f"; {k} {format(v, '.6g')}" for k, v in c2.pop('_guards', {}).items()] + [f"; {k} {format(v, '.6g')}" for k, v in c2.pop('_info', {}).items()])
+        return say('kernel.dry.done', metric=c['metric'], value=format(value, '.6g'), secs=f'{secs:.0f}', protocol=' | '.join(protocol) or '-', extra=extra, log=log)
+    return _locked(room, c, name, run)
 
 
 def _locked(room, c, name, fn):
@@ -1208,7 +1251,7 @@ def _reconcile(room, c, st):
             else:
                 s2['aux'] += 1
             s2['attempts'].append({'n': p['n'], 'worker': key, 'commit': p.get('commit') or '', 'metric': None, 'status': 'crash',
-                                   'kind': p.get('kind', 'attempt'), 'idea': p.get('idea'), 'state': 'committed', 'parent_n': None,
+                                   'kind': p.get('kind', 'attempt'), 'idea': p.get('idea'), 'cls': p.get('cls'), 'level': p.get('level'), 'state': 'committed', 'parent_n': None,
                                    'desc': say('kernel.lost.interrupted_worktree_lost') + p.get('desc', ''), 'ts': time.time()})
             s2['pending'] = None
         _edit(room, lost)
@@ -1236,7 +1279,7 @@ def _reconcile(room, c, st):
         else:
             s2['aux'] += 1                                # smoke and evidence runs: the next number moves on
         s2['attempts'].append({'n': p['n'], 'worker': key, 'commit': commit, 'metric': None, 'status': 'crash', 'kind': p.get('kind', 'attempt'),
-                               'idea': p.get('idea'), 'state': 'committed', 'parent_n': (s2['workers'][key].get('best') or {}).get('n'),
+                               'idea': p.get('idea'), 'cls': p.get('cls'), 'level': p.get('level'), 'state': 'committed', 'parent_n': (s2['workers'][key].get('best') or {}).get('n'),
                                'desc': 'INTERRUPTED: ' + p.get('desc', ''), 'ts': time.time()})
         s2['pending'] = None
     _edit(room, apply)
@@ -1265,7 +1308,7 @@ def _precheck(room, c, work, d, name):
     return code, ' | '.join(tail)[:300]
 
 
-def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
+def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, level=None):
     d = _dir(room)
     c, st = _state(room)
     fix = kind == 'fix'                                   # an attempt kept at equal metric: a correction, not a gain
@@ -1361,7 +1404,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     refused = _precheck(room, c, work, d, name)           # the machine as the contract wants it (idle VRAM, no stray server, the device lock...)
     if refused:
         raise PrecheckRefused(say('kernel.precheck.failed', code=refused[0], tail=refused[1]))
-    pending = {'n': n, 'by': name, 'worker': key, 'desc': desc, 'ts': time.time(), 'kind': kind, 'idea': idea}
+    pending = {'n': n, 'by': name, 'worker': key, 'desc': desc, 'ts': time.time(), 'kind': kind, 'idea': idea, 'cls': cls, 'level': level}
     _edit(room, lambda c2, s2: s2.update(pending=pending))  # from here a cut-off run is a crash at the next call
     try:
         if phase == 1 or explore:                         # the drafted files, never the kept data or build folders
@@ -1478,7 +1521,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         readded = sum(1 for l in added if l.strip() and l in deleted)
         if status != 'invalid':                            # the run that did not happen forgets nothing: its replica is the run
             w['deleted'] = list((deleted | {l for l in removed if l.strip()}))[-2000:]
-        rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': 'invalid' if status == 'invalid' else kind, 'idea': idea,
+        rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': 'invalid' if status == 'invalid' else kind, 'idea': idea, 'cls': cls, 'level': level,
                'state': 'committed', 'parent_n': (w.get('best') or {}).get('n'), 'desc': desc, 'lines': lines,
                'added': len(added), 'readded': readded, 'tuning': tuning, 'spread': spread, 'of': of, 'seed': seed,
                'guards': guards, 'info': info, 'fix': fix, 'env': env_lines, **({'env_set': extra_env} if kind == 'probe' and extra_env else {}), 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
@@ -1547,7 +1590,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     if drift is not None and abs(drift) >= DRIFT_SAY:
         flags += say('kernel._evaluate.reference_drift', name=c['reference'], pct=f'{100 * drift:+.1f}', n=line_best['n'])
     line = (say('kernel._evaluate.att_by', n=n, kind=kind, name=name, desc=desc[:100], metric=c['metric'], v6='—' if value is None else f'{value:.6g}')
-            + (f' ({spread})' if spread else '') + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
+            + (f' ({spread})' if spread else '') + (say('kernel._evaluate.mark', cls=cls or '-', level=level or '-') if cls or level else '')
+            + say('kernel._evaluate.lines', upper=status.upper(), why=why, lines=lines) + flags
             + (say('kernel._evaluate.runs', n=n, max_evals=c['max_evals']) if kind == 'attempt' and status != 'invalid' else ''))
     audit = [a for a in c.get('roles', {}).get('AUDITOR') or [] if a != name] if kind == 'attempt' and status == 'keep' and not first else []
     room.append(name, line + (say('kernel._evaluate.for_auditor', who=' '.join(f'@{a}' for a in audit)) if audit else ''), 'board')   # K17: a keep is the auditor's to check
@@ -2148,7 +2192,7 @@ def _queue_edit(room, fn):
     return room.locked(run)
 
 
-def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=None, env=None):
+def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=None, env=None, cls=None, level=None):
     """a worker queues its next run: the kernel starts it, detached, when the evaluator is free (and after att-N, when
     given), so the run outlives the agent that asked for it, and a line tagging the worker tells it the outcome. The run
     measures the worktree as it is when it starts"""
@@ -2161,8 +2205,9 @@ def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=N
         raise ValueError(say('kernel.queue.after'))
     env = env_pairs(env)
     _check_env(kind or 'attempt', env)                  # refused now, not when the run's turn comes
+    cls, level = _mark(cls, level)
     entry = {'by': by, 'desc': desc, 'idea': idea, 'kind': kind or 'attempt', 'after': after, 'of': of, 'seed': seed,
-             'env': env or {}, 'ts': time.time()}
+             'env': env or {}, 'cls': cls, 'level': level, 'ts': time.time()}
     mine = (kind or 'attempt') in ('attempt', 'fix')    # a worker's own next attempt replaces its older one; planned runs pile up
 
     def add(q):
@@ -2172,6 +2217,56 @@ def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=N
     _log(room, by, 'queue', entry)
     _queue_runner(room)
     return say('kernel.queue.queued', by=by, pos=pos, after=f' after {after}' if after else '')
+
+
+def shelve(room, by, text, cls=None, level=None, value=None):
+    """K10: an idea set aside, with its class and level and (optional) the number it was worth: the register the auditor
+    kept by hand. `shelved` lists them with the sum per class"""
+    c, st = _state(room)
+    _need(room, c, by, 'WORKER', 'AUDITOR')
+    text = ' '.join((text or '').split())
+    if not text:
+        raise ValueError(say('kernel.shelve.text'))
+    cls, level = _mark(cls, level)
+    try:
+        value = None if value in (None, '') else float(value)
+    except ValueError:
+        raise ValueError(say('kernel.shelve.value', value=str(value)[:20]))
+
+    def add(c2, s2):
+        s2['shelf_n'] = s2.get('shelf_n', 0) + 1
+        item = {'id': f"S{s2['shelf_n']}", 'by': by, 'text': text[:300], 'cls': cls, 'level': level, 'value': value,
+                'ts': time.strftime('%Y-%m-%d %H:%M')}
+        s2.setdefault('shelved', []).append(item)
+        return item
+    item = _edit(room, add)
+    _log(room, by, 'shelve', item)
+    return say('kernel.shelve.done', id=item['id'], text=text[:100], cls=cls or '-', level=level or '-')
+
+
+def unshelve(room, by, sid):
+    """K10: an idea taken back off the shelf (its id from `research shelved`)"""
+    c, st = _state(room)
+    _need(room, c, by, 'WORKER', 'AUDITOR')
+    got = _edit(room, lambda c2, s2: next((s2['shelved'].pop(i) for i, x in enumerate(s2.get('shelved', [])) if x['id'] == (sid or '').upper()), None))
+    if not got:
+        raise ValueError(say('kernel.shelve.unknown', id=sid))
+    _log(room, by, 'unshelve', got)
+    return say('kernel.shelve.back', id=got['id'], text=got['text'][:100])
+
+
+def shelved(room):
+    """K10: the shelved ideas, one per line, and the count and sum of their values per class"""
+    c, st = _state(room)
+    items = st.get('shelved') or []
+    if not items:
+        return say('kernel.shelve.none')
+    lines = [f"{x['id']} [{x.get('cls') or '-'} L{x.get('level') or '-'}] {x['by']}: {x['text']}" + ('' if x.get('value') is None else f" ({format(x['value'], '.6g')})") for x in items]
+    sums = {}
+    for x in items:
+        n, total = sums.get(x.get('cls') or '-', (0, 0.0))
+        sums[x.get('cls') or '-'] = (n + 1, total + (x.get('value') or 0.0))
+    return '\n'.join(lines) + '\n' + say('kernel.shelve.sum', items='; '.join(f"{k} {n} (sum {format(t, '.6g')})" for k, (n, t) in sorted(sums.items())), n=len(items))
 
 
 def plan(room, by, of, env, desc, worker=None, kind='ablation', idea=None):
@@ -2316,7 +2411,7 @@ def run_queue(room, poll=15):
             authors.append(ready['by'])
             try:
                 line = evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt',
-                                ready.get('of'), ready.get('seed'), ready.get('env') or None)
+                                ready.get('of'), ready.get('seed'), ready.get('env') or None, ready.get('cls'), ready.get('level'))
                 last = (_state(room)[1]['attempts'] or [{}])[-1]
                 if last.get('status') == 'invalid' and last.get('ts', 0) >= started:   # K4: the machine died under it, the code is staged
                     _requeue(room, lead, ready, line.splitlines()[0][:200])
@@ -3036,6 +3131,11 @@ def status(room):
     if q:
         _queue_runner(room)                               # a runner that died with runs left: started again
         head += say('kernel.status.queue', items='; '.join(f"{x['by']}: {x['desc'][:40]}" + (f" (after {x['after']})" if x.get('after') else '') + (say('kernel.status.queue_retry', tries=x['tries']) if x.get('tries') else '') for x in q))
+    if st.get('shelved'):                                 # K10: the register of ideas set aside, counted per class
+        by_cls = {}
+        for x in st['shelved']:
+            by_cls[x.get('cls') or '-'] = by_cls.get(x.get('cls') or '-', 0) + 1
+        head += say('kernel.status.shelved', n=len(st['shelved']), items=', '.join(f'{k} {v}' for k, v in sorted(by_cls.items())))
     for f in sorted((_dir(room) / 'runs').glob('prebuild-*.exit')):
         if time.time() - f.stat().st_mtime > 6 * 3600:
             continue                                      # an old prebuild (a worker stopped days ago) is noise in every status
@@ -3262,7 +3362,17 @@ def _cmd(room, a):
                            getattr(a, 'type', None) or 'explorer', a.force))
     if act == 'queue':
         return post(queue(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None), getattr(a, 'after', None),
-                          getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None)))
+                          getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None), getattr(a, 'cls', None), getattr(a, 'level', None)))
+    if act == 'shelve':
+        return post(shelve(room, a.name, a.text or a.desc, getattr(a, 'cls', None), getattr(a, 'level', None), getattr(a, 'value', None)))
+    if act == 'unshelve' and rest:
+        return post(unshelve(room, a.name, rest[0]))
+    if act == 'shelved':
+        return print(shelved(room))
+    if act == 'dry-eval':
+        if not a.name:
+            sys.exit(say('kernel._cmd.as_name_required'))
+        return print(dry_eval(room, a.name, getattr(a, 'worker', None), a.evaluate))
     if act == 'plan' and rest[:1] == ['add']:
         return post(plan(room, a.name, getattr(a, 'of', None), getattr(a, 'env', None), a.desc, getattr(a, 'worker', None),
                          getattr(a, 'kind', None) or 'ablation', getattr(a, 'idea', None)))
@@ -3276,7 +3386,7 @@ def _cmd(room, a):
         if not a.name:
             sys.exit(say('kernel._cmd.as_name_required'))
         return print(evaluate(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None) or ('smoke' if _state(room)[1]['phase'] == 1 else 'attempt'),
-                              getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None)))
+                              getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None), getattr(a, 'cls', None), getattr(a, 'level', None)))
     if act == 'reanchor':
         return post(reanchor(room, a.name, _json_arg(a)))
     if act == 'resume' and rest:
