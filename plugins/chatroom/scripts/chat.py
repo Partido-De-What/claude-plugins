@@ -2357,7 +2357,7 @@ class Board:
                 self.find(b, d)
             tid = f"T{len(b['tasks']) + 1}"
             t = {'id': tid, 'title': title[:200], 'by': name, 'owner': None, 'state': 'open', 'deps': list(deps),
-                 'files': list(files), 'proof': '', 'notes': [], 'ts': time.time()}
+                 'files': list(files), 'proof': '', 'notes': [say('chat.say.fn.title_rest', rest=title[200:2200])] if len(title) > 200 else [], 'ts': time.time()}
             if cwd:                             # without it the checks run where the closing agent works (its worktree)
                 t['cwd'] = str(Path(cwd).resolve())
             if verify:

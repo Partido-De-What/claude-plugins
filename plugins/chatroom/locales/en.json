@@ -321,6 +321,7 @@
  "chat.say.fn.note_by": "📋 {id} note by {name}: {text}",
  "chat.say.fn.now_also_changes": "📋 {id} v{v} now also changes {v2} (files were: {was}) ({name})",
  "chat.say.fn.now_free": " · now free: {freed}",
+ "chat.say.fn.title_rest": "the title goes on: {rest}",
  "chat.say.fn.proof": " · proof: {proof}",
  "chat.say.fn.proposed_by": "📋 {tid} proposed by {name}: {title}",
  "chat.say.fn.taken_by": "📋 {id} taken by {name}: {title}",

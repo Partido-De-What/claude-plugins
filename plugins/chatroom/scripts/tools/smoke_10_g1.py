@@ -56,5 +56,14 @@ ctxs['aaaaaaaaaaaaaaaa'] = 210_000
 ok('the next 50k step is a new CHECK (once per step)', [k for k, _ in old()] != [], old())
 chat.use('it')
 ok('and it speaks Italian', 'token di contesto' in old()[0][1], old())
+# a title past 200 characters (the board cut it, the end was lost): the rest is kept in the task's first note
+b = chat.Board(r)
+b.by = 'LEAD'
+long_title = 'x' * 195 + ' THE-END-OF-IT ' + 'y' * 50
+b.add('LEAD', long_title)
+t = chat.Board(r).load()['tasks'][-1]
+ok('a long title is cut at 200 as before and its rest is a note', len(t['title']) == 200 and (t['title'] + t['notes'][0].split(': ', 1)[1]) == long_title and t['notes'][0].endswith('y' * 50), t)
+b.add('LEAD', 'short one')
+ok('a short title has no note', chat.Board(r).load()['tasks'][-1]['notes'] == [])
 print('FAILS', fails)
 sys.exit(1 if fails else 0)
