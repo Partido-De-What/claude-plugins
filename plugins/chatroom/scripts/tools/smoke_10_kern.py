@@ -11,6 +11,7 @@ from pathlib import Path
 SCRIPTS = os.environ.get('CHATROOM_SCRIPTS') or str(Path(__file__).resolve().parent.parent)
 BASE = Path(tempfile.mkdtemp(prefix='smoke10k_'))
 os.environ['CLAUDE_CONFIG_DIR'] = str(BASE / 'claude')
+os.environ['CHATROOM_RELAUNCHED'] = '1'            # a fresh config dir makes chat.py rebuild its uv environment (60 s) in every subprocess
 (BASE / 'claude' / 'chatroom').mkdir(parents=True)
 sys.path.insert(0, SCRIPTS)
 import chat  # noqa: E402
@@ -28,7 +29,7 @@ def ok(name, cond, info=''):
 
 
 def section(key):
-    if ONLY and ONLY != key:
+    if ONLY and key not in ONLY.split(','):
         return False
     print(f'-- {key}', flush=True)
     return True
@@ -60,7 +61,7 @@ def research_room(name, participants='W', extra=(), evaluate=None, eval_src=EVAL
     (room / 'research').mkdir(exist_ok=True)
     (room / 'research' / 'task.md').write_text('# task: minimise loss')
     args = ['research', 'init', '--repo', str(repo), '--program', 'program.py', '--evaluate', evaluate or f'"{sys.executable}" eval.py',
-            '--metric', 'loss', '--direction', 'min', '--budget-min', '0.2', '--max-evals', '30', '--sealed', 'eval.py',
+            '--metric', 'loss', '--direction', 'min', '--budget-min', '0.5', '--max-evals', '30', '--sealed', 'eval.py',
             '--tag', name, '--as', 'LEAD', *extra]
     c, o = run(room, *args)
     assert c == 0, o
