@@ -641,7 +641,19 @@ def relay_down(room):
         except (OSError, ValueError, IndexError):
             return False
     found = list(room.dir.glob('relay_alerts*.owner'))
+    if any(time.time() - _stamp_time(p) < RELAY_RESTART_S for p in room.dir.glob('relay_alerts*.exit')):
+        return False                                  # it ended by itself (its exit is the wake) and the lead is starting it again
     return bool(found) and not any(up(p) for p in found)
+
+
+RELAY_RESTART_S = 120                             # after a clean exit of the relay, how long the room waits for its restart before saying it is off
+
+
+def _stamp_time(path):
+    try:
+        return float(path.read_text(encoding='utf-8').strip())
+    except (OSError, ValueError):
+        return 0.0
 
 
 def file_stamp(path):
@@ -4461,7 +4473,7 @@ def cmd_alerts(room, a):
     stream = getattr(a, 'stream', False)
     until, fixed = getattr(a, 'until_line', False) or stream, getattr(a, 'batch', None)
     held, rush = [], []
-    shown, queued = [], [0]                           # the lines given to out() since the last hand-over; the last message they carry
+    shown, queued, taken = [], [0], [0]                           # the lines given to out() since the last hand-over; the last message they carry
     relay_leads = [a.name] if a.name else room.config().get('self_names', [])[:1]   # the lead this relay speaks for: a message of another lead is news to it
     if not a.name and len(room.config().get('self_names', [])) > 1:
         print(say('chat.say.cmd_alerts.pass_as', name=relay_leads[0]), flush=True)
@@ -4508,11 +4520,15 @@ def cmd_alerts(room, a):
             print(wake_summary(room), flush=True)
         hand_over()
         held.clear(), info.clear(), spoke.clear(), rush.clear()
+        if not stream:
+            write_atomic(room.dir / f'relay{name}.exit', str(time.time()))     # a clean exit: relay_down waits for the restart
         return not stream
 
     def hand_over():
         if queued[0] and relay_leads:
             relay_handover(room, relay_leads[0], queued[0], shown[-20:])
+        if queued[0]:
+            room.set_cursor(name, queued[0])          # a relay killed with lines queued shows them again to the next one
         queued[0] = 0
         shown.clear()
 
@@ -4565,7 +4581,7 @@ def cmd_alerts(room, a):
             continue
         last = sig
         items = room.messages()
-        new = [m for m in items if m['n'] > room.cursor(name)]
+        new = [m for m in items if m['n'] > max(room.cursor(name), taken[0])]
         if new:
             users = room.user_names()
             for line in alert_lines(room, [*new], users):
@@ -4578,8 +4594,12 @@ def cmd_alerts(room, a):
                     tagged = any(tags(m.get('text', ''), n) for n in relay_leads)   # a status or a finding that tags the lead wakes it too
                     if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
                         line = watch_line(m, users, whole=tagged)
-                        out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True,
-                            urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0] or (tagged and declares_block(m)))
+                        wake = (tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line)
+                        urgent = bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0] or (tagged and declares_block(m))
+                        if wake and not urgent and relay_leads and m['n'] <= room.cursor(relay_leads[0]):   # the lead read it itself: a wake for it is an empty wake
+                            wake = False
+                            note_event(room, 'relay', 'empty', relay_leads[0], detail=f'#{m["n"]} already read, no wake')
+                        out(line, act=wake, flush=True, urgent=urgent)
                         said = time.time()
                     elif m['kind'] in ('status', 'idle'):
                         quiet[m['from']] = (m['kind'], m.get('text', '').split(':', 1)[0][:12])
@@ -4591,7 +4611,9 @@ def cmd_alerts(room, a):
                 queued[0] = new[-1]['n']              # the lead has them from its relay once they are in front of it: the alarm clock and the mod stay quiet
                 if not (until or stream):
                     hand_over()
-            room.set_cursor(name, new[-1]['n'])
+            taken[0] = new[-1]['n']
+            if not a.messages:
+                room.set_cursor(name, taken[0])
         for line in lend_lines(room) + study_lines(room) + skill_lines(room):
             out(line, flush=True)
         if a.messages and time.time() - checked > 60:   # the lead also hears about what is going wrong, once each
