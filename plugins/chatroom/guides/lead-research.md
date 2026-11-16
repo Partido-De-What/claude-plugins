@@ -172,6 +172,9 @@ the queued runs by time) and the kernel gives you the GPU when it is free and ta
 `research release` while waiting leaves the line. `research hold --for NAME` (NAME a participant) reserves the next turn
 for NAME: it passes to them at your release, ahead of the line, or at once when the GPU is free, and waits 15 minutes
 for them to claim it with their own `research hold`.
+A holder that falls (its run ended and no wait or stop hold keeps it) loses the hold at once, not at its expiry: the
+kernel releases it at the next `research status`, `evaluate`, `hold` or turn of the runner, moves the line on and says so
+on the board, naming the holder and what it left running.
 
 ## 4. Phase 2: investigation, the loop you run
 

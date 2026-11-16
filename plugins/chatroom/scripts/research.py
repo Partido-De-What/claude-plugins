@@ -1108,6 +1108,7 @@ def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, ex
     _need(room, c, name, 'WORKER')
     if st.get('wait_go') and kind in ('attempt', 'fix'):
         raise ValueError(say('kernel._seal.waits_for_go'))
+    _release_fallen(room)
     held = _gpu_hold(room)
     if held and held['by'] != name:
         raise ValueError(say('kernel.evaluate.the_gpu_is_held', by=held['by'], reason=held['reason'], strftime=time.strftime('%H:%M', time.localtime(held['until'])), v4=say('kernel.word.or_build_ends') if held.get('pid') else ''))
@@ -1925,6 +1926,7 @@ def hold(room, by, minutes, reason, for_room=None):
     top = 720 if by in room.user_names() else 120
     if not (0 < minutes <= top):
         raise ValueError(say('kernel.hold.minutes_how_long_more', top=top))
+    _release_fallen(room)
     other = _gpu_hold(room)
     if for_room and for_room in room.config().get('participants', []):   # --for NAME: the next turn on the GPU is NAME's
         return _hold_reserve(room, by, for_room, other, reason, minutes)
@@ -2037,6 +2039,22 @@ def _hold_promote(room):
     return first['by']
 
 
+def _release_fallen(room):
+    """the holder of the GPU fell (its run ended, and no wait or hook hold keeps it): the hold is released now, not at its
+    expiry (up to two hours of a GPU nobody uses), the line moves on and the board says so. The holder's name, or ''"""
+    h = _gpu_hold(room)
+    if not h or h.get('pid') or h['by'] in room.user_names() or h['by'] == 'KERNEL':   # a prebuild ends with its process; the lead's and the user's holds are theirs
+        return ''
+    from chat import agent_ended
+    if room.in_wait(h['by']) or not agent_ended(room.roster().get(h['by'])):
+        return ''
+    line = release(room, 'KERNEL')
+    _log(room, 'KERNEL', 'hold-fell', {'holder': h['by'], 'reason': h['reason'][:120]})
+    lead = (room.config().get('self_names') or ['LEAD'])[0]
+    room.append(lead, f"@{h['by']} " + say('kernel.hold.fell', name=h['by'], lead=lead) + line, 'board')
+    return h['by']
+
+
 def release(room, by):
     h = _gpu_hold(room)
     if by in [x['by'] for x in _holdq(room)] and not (h and h['by'] == by):   # not the holder, only waiting: it leaves the line
@@ -2047,7 +2065,7 @@ def release(room, by):
         (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
         nxt = _hold_promote(room)
         return say('kernel.release.the_gpu_is_free') + (say('kernel.release.next', name=nxt) if nxt else '')
-    if h['by'] != by and by not in room.user_names():
+    if h['by'] != by and by not in room.user_names() and by != 'KERNEL':
         raise ValueError(say('kernel.release.the_gpu_is_held', by=h['by']))
     (_dir(room) / 'gpu.hold').unlink(missing_ok=True)
     _log(room, by, 'release', {'held_by': h['by']})
@@ -2188,6 +2206,7 @@ def run_queue(room, poll=15):
                     return None
                 q.remove(ready)
                 return ready
+            _release_fallen(room)
             _hold_promote(room)
             ready = _queue_edit(room, take)
             if ready == 'empty':
@@ -2868,6 +2887,7 @@ def _next_constraints(c, st):
 
 def status(room):
     reap(room)
+    _release_fallen(room)
     c, st = _state(room)
     rows = (_dir(room) / 'results.tsv').read_text(encoding='utf-8').splitlines()[1:]
     counts = {k: sum(1 for r in rows if r.split('\t')[3] == k) for k in ('keep', 'discard', 'crash')}

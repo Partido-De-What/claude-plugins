@@ -183,6 +183,9 @@ corse in coda) e il kernel ti dà la GPU quando è libera e ti tagga sulla board
 mentre aspetti ti toglie dalla fila. `research hold --for NOME` (NOME un partecipante) riserva il turno dopo a NOME: passa
 a lui al tuo release, prima della fila, o subito se la GPU è libera, e aspetta 15 minuti che lo prenda con il suo
 `research hold`.
+Un titolare che cade (il suo turno è finito e nessuna attesa o trattenimento lo tiene) perde il blocco subito, non alla
+scadenza: il kernel lo rilascia al primo `research status`, `evaluate`, `hold` o giro del runner, fa avanzare la fila e lo
+dice sulla board, col nome del titolare e ciò che ha lasciato in esecuzione.
 
 ## 4. Fase 2: indagine, il ciclo che guidi tu
 

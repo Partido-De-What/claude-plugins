@@ -945,6 +945,7 @@
  "kernel.hold.reserved_now": "la GPU è riservata a {name} per {minutes} min: solo lui avvia un hold o una corsa, poi la fila va avanti",
  "kernel.hold.reserved_reason": "turno riservato, dato da {by}",
  "kernel.hold.yours": "la GPU è tua{reserved}: {minutes} min (research release a fine lavoro)",
+ "kernel.hold.fell": "{name} è caduto tenendo la GPU (il suo turno è finito e nessuna attesa lo tiene): il blocco è rilasciato ora, non alla scadenza, e la coda avanza. {lead}, per te: ",
  "kernel.word.reserved": " (turno riservato, prendilo con research hold)",
  "kernel.release.left_the_line": "sei uscito dalla fila per la GPU",
  "kernel.release.next": "; la GPU va a {name}",
