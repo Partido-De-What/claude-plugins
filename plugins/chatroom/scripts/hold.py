@@ -72,11 +72,25 @@ def done_closing(room, name):
     return bool(n) and any(m['from'] == name and m['n'] > n and not m.get('kind') for m in items)
 
 
+def device_hold(room, name):
+    """minutes left of the research hold this agent has on the shared device (research hold), 0 when it has none. A worker
+    that waits for its own measurement on the device has work going: it is neither asked for its report nor counted as gone
+    (a worker released a 100-minute hold with three tests left, because its turn ended while the first one ran)"""
+    try:
+        h = json.loads((room.dir / 'research' / 'gpu.hold').read_text(encoding='utf-8'))
+        left_s = float(h.get('until', 0)) - time.time()
+    except (OSError, ValueError, TypeError):
+        return 0
+    return max(1, int(left_s // 60)) if h.get('by') == name and left_s > 0 else 0
+
+
 def waits(room, name):
     """why this agent has to stay: it declared an idle (it waits for someone), holds a task, or has a run queued or going.
     '' when it has none: its work is finished, it reports and goes, and nothing keeps it. A shared lock it holds or queues
     for counts too: its turn comes with a tag, and it needs no turn before that"""
     import chat
+    if device_hold(room, name):
+        return 'hold'
     if room.idle_entry(name, room.messages()):
         return 'idle'
     if any(t.get('owner') == name and t['state'] == 'taken' for t in chat.Board(room).load()['tasks']):
@@ -118,7 +132,7 @@ def handback(ev):
     return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                    'permissionDecisionReason': chat.say('chat.say.hold.report_later', why={
                                        'idle': chat.say('chat.say.hold.why_idle'), 'task': chat.say('chat.say.hold.why_task'),
-                                       'run': chat.say('chat.say.hold.why_run'),
+                                       'run': chat.say('chat.say.hold.why_run'), 'hold': chat.say('chat.say.hold.why_hold'),
                                        'lock': chat.say('chat.say.hold.why_lock')}[why])}}
 
 
@@ -306,11 +320,13 @@ def _hold(room, aid, key, name, end, wait, poll):
                 pass
             return {'decision': 'block', 'reason': reason(room, name, new)}
         if time.time() >= end:
-            cap = None if why == 'run' else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why == 'task' else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
+            cap = None if why in ('run', 'hold') else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why == 'task' else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
             if cap and bump(room, f'empty_{name}') > cap:
                 left(room, name, why)
                 return report(room, name)
             chat.use(room.config().get('lang'))
+            if why == 'hold':                             # its measurement runs on the device: it checks it, it does not end here
+                return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing_hold', name=name, left=device_hold(room, name))}
             return {'decision': 'block', 'reason': chat.say('chat.say.hold.nothing', name=name, minutes=max(1, wait // 60))}
         time.sleep(poll)
 
@@ -361,6 +377,18 @@ def _prova():
     (room / 'handback_A.txt').write_text('0')
     assert all(handback({'agent_id': 'aaaa1111'}) for _ in range(HANDBACK_MAX))
     assert handback({'agent_id': 'aaaa1111'}) is None                             # the third report goes through
+    (room / 'research').mkdir()
+    (room / 'research' / 'gpu.hold').write_text(json.dumps({'by': 'A', 'reason': 'bench', 'until': time.time() + 600}))
+    (room / 'empty_A.txt').write_text('0')
+    (room / 'gone.json').unlink(missing_ok=True)
+    assert waits(r, 'A') == 'hold'
+    for _ in range(EMPTY_MAX + 2):                                                # it holds the device: never asked to report, never gone
+        got = decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2)
+        assert got and got['decision'] == 'block' and 'do not release the hold' in got['reason'], got
+    assert 'A' not in chat.read_json(room / 'gone.json', {})
+    (room / 'research' / 'gpu.hold').write_text(json.dumps({'by': 'A', 'reason': 'bench', 'until': time.time() - 5}))
+    assert waits(r, 'A') == 'idle'                                                # the hold ran out: back to the usual rules
+    (room / 'research' / 'gpu.hold').unlink()
     (room / 'waiting_A.txt').write_text(f'{time.time() + 500:.0f} 999999')
     assert not r.in_wait('A')                                                     # a dead holder's mark does not count
     r.append('LEAD', 'CLOSED v1: done')
