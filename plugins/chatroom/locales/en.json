@@ -913,6 +913,8 @@
  "kernel.word.log": "\nlog: {log}",
  "kernel.word.next": " · next: {next}",
  "kernel.word.no_files": "no files",
+ "kernel.word.python_not_found": "not found on PATH",
+ "kernel._seal.python": "; `python` in the contract's commands resolves to: {py}",
  "kernel.word.no_metric_line": "no \"{metric}:\" line",
  "kernel.word.no_role": "not given a research role",
  "kernel.word.none": "none",
