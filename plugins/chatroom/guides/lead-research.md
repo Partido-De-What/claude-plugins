@@ -98,7 +98,9 @@ python CHAT research init --room ROOM --as LEAD --repo <repository> --program <f
 `--precheck` runs before every run and must exit 0 (idle VRAM under a limit, no stray server): a failed check refuses
 the run and counts nothing. It also tells a run that died with the machine from one that died with the program: if a run
 crashes and the precheck fails right after, the run is `invalid` (aux number, row in results.tsv, event `run-invalid`),
-the budget and the round do not move, and the same code runs again once the machine is back. Put a rule the machine
+the budget and the round do not move, and the same code runs again once the machine is back. A queued run the
+precheck refuses (or that ends invalid) stays in the queue and tries again every 5 minutes (event `queue-retry`; its
+author is told at the first refusal and every sixth try, and after 72 tries it is dropped with a line). Put a rule the machine
 needs there from the start, not after a lost run. `--final-dry` is
 a command run at the seal: it loads the held-out data and their references and measures nothing, so a broken final shows
 now and not in phase 4 (one night lost a 16-minute build and an hour of GPU to it); without it the seal only warns.

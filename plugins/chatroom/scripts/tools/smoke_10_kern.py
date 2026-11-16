@@ -430,5 +430,46 @@ if section('K4'):                                                     # a run th
     ok('K4 a crash with the machine fine is still a crash and counts', 'CRASH' in o and state(room)['evals'] == 3
        and list(state(room)['workers'].values())[0]['crashes'] == 1, o)
 
+# ---------------------------------------------------------------------------------------------------------------- K5
+if section('K5'):                                                     # a queued run the machine cannot take waits and tries again
+    import threading
+    flag = BASE / 'k5-machine-down'
+    pre = BASE / 'k5_precheck.py'
+    pre.write_text(f'import os, sys\nsys.exit(1 if os.path.exists(r"{flag}") else 0)\n')
+    ev = (f'import program, os, sys\nif program.X == 3 and not os.path.exists(r"{flag}.once"):\n    open(r"{flag}", "w").write("x")\n'
+          f'    open(r"{flag}.once", "w").write("x")\n    sys.exit(1)\nprint("loss:", (program.X - 2) ** 2)\n')     # X 3 kills the machine once
+    room, repo, work = research_room('k5', extra=['--precheck', f'"{sys.executable}" "{pre}"'], eval_src=ev)
+    run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    (work / 'program.py').write_text('X = 3\n')
+    flag.write_text('down')                                           # the machine is not ready when the run's turn comes
+    room_obj = chat.Room(str(room))
+    old_retry = getattr(research, 'QUEUE_RETRY_S', 300)
+    research.QUEUE_RETRY_S = 1
+    research._queue_edit(room_obj, lambda q: q.append({'by': 'W', 'desc': 'queued X 3', 'idea': None, 'kind': 'attempt', 'after': None,
+                                                       'of': None, 'seed': None, 'env': {}, 'ts': time.time()}))
+    th = threading.Thread(target=research.run_queue, args=(room_obj, 0.2), daemon=True)
+    th.start()
+
+    def until(cond, secs=12):
+        for _ in range(int(secs * 5)):
+            if cond():
+                return True
+            time.sleep(0.2)
+        return False
+    queued = lambda: research._queue(room_obj)
+    ok('K5 a run the precheck refuses stays in the queue with its tries', until(lambda: queued() and queued()[0].get('tries', 0) >= 2)
+       and queued()[0]['desc'] == 'queued X 3' and state(room)['evals'] == 1, queued())
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K5 its author is told once on the board', text.count('stays in the queue') == 1 and '"queue-retry"' in (room / 'research' / 'log.jsonl').read_text(encoding='utf-8'), text.count('stays in the queue'))
+    flag.unlink(missing_ok=True)                                                     # the machine is back: the run starts, and the machine dies under it
+    ok('K5 a run that ends invalid is queued again', until(lambda: any(a['status'] == 'invalid' for a in state(room)['attempts']))
+       and until(lambda: queued() and queued()[0].get('tries', 0) >= 1 and flag.exists()), (state(room)['attempts'][-1:], queued()))
+    flag.unlink(missing_ok=True)                                                     # fixed again: the same code runs and counts
+    ok('K5 the retry runs the same code as att-2', until(lambda: state(room)['evals'] == 2) and not queued()
+       and state(room)['attempts'][-1]['status'] == 'keep', (state(room)['evals'], queued()))
+    th.join(15)
+    ok('K5 the runner ends with the queue', not th.is_alive())
+    research.QUEUE_RETRY_S = old_retry
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)

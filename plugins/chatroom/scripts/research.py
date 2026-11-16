@@ -1247,6 +1247,10 @@ def _reconcile(room, c, st):
     return line
 
 
+class PrecheckRefused(ValueError):
+    """the contract's precheck refused a run before it started: nothing ran, nothing was counted"""
+
+
 def _precheck(room, c, work, d, name):
     """the contract's precheck: None when it passes (or there is none), else (exit code, the end of its output)"""
     if not c.get('precheck'):
@@ -1353,7 +1357,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         raise ValueError(say('kernel._evaluate.tag_already_exists_while', tag=tag))
     refused = _precheck(room, c, work, d, name)           # the machine as the contract wants it (idle VRAM, no stray server, the device lock...)
     if refused:
-        raise ValueError(say('kernel.precheck.failed', code=refused[0], tail=refused[1]))
+        raise PrecheckRefused(say('kernel.precheck.failed', code=refused[0], tail=refused[1]))
     pending = {'n': n, 'by': name, 'worker': key, 'desc': desc, 'ts': time.time(), 'kind': kind, 'idea': idea}
     _edit(room, lambda c2, s2: s2.update(pending=pending))  # from here a cut-off run is a crash at the next call
     try:
@@ -2052,7 +2056,7 @@ def _hold_promote(room):
         q.sort(key=lambda x: x['ts'])
         c, st = _state(room)
         done = {f"att-{a['n']}" for a in st['attempts']}
-        runs = [x['ts'] for x in _queue(room) if not x.get('after') or x['after'] in done]
+        runs = [x['ts'] for x in _queue(room) if (not x.get('after') or x['after'] in done) and x.get('retry_at', 0) <= time.time()]   # a run waiting for the machine does not hold the line back
         if runs and min(runs) < q[0]['ts']:
             return ''
         return q[0]
@@ -2204,6 +2208,30 @@ def _queue_runner(room):
         return
 
 
+QUEUE_RETRY_S = 300       # a queued run the precheck refused (or whose machine died) tries again after this many seconds
+QUEUE_RETRY_MAX = 72      # tries (6 hours at 5 minutes) before the run is dropped with a line
+
+
+def _requeue(room, lead, x, why):
+    """a queued run that could not start for the machine's sake goes back to the front, due again in QUEUE_RETRY_S; its
+    author is told at the first refusal and every sixth try after it"""
+    tries = x.get('tries', 0) + 1
+    if tries > QUEUE_RETRY_MAX:
+        _log(room, x['by'], 'queue-retry', {'desc': x['desc'][:100], 'tries': tries, 'gave_up': True, 'why': why})
+        room.append(lead, f"@{x['by']} " + say('kernel.queue.retry_gave_up', desc=x['desc'][:80], tries=QUEUE_RETRY_MAX), 'board')
+        return
+    again = {**x, 'tries': tries, 'retry_at': time.time() + QUEUE_RETRY_S}
+    own = x.get('kind', 'attempt') in ('attempt', 'fix')
+
+    def back(q):
+        if not (own and any(y['by'] == x['by'] and y.get('kind', 'attempt') in ('attempt', 'fix') for y in q)):   # a newer run of its author replaces it
+            q.insert(0, again)
+    _queue_edit(room, back)
+    _log(room, x['by'], 'queue-retry', {'desc': x['desc'][:100], 'tries': tries, 'why': why})
+    if tries == 1 or tries % 6 == 0:
+        room.append(lead, f"@{x['by']} " + say('kernel.queue.retry', desc=x['desc'][:80], minutes=QUEUE_RETRY_S // 60, tries=tries, why=why), 'board')
+
+
 def run_queue(room, poll=15):
     """the runner: the first queued run whose turn has come, when no run is alive and the GPU is not held by another.
     A run that can never come (after a number past the budget, or out of its phase) is dropped with a line; any fault
@@ -2224,7 +2252,7 @@ def run_queue(room, poll=15):
                         room.append(lead, say('kernel.queue.dropped', by=x['by'], desc=x['desc'][:80]), 'board')
                 if not q:
                     return None if _holdq(room) else 'empty'   # a line for the GPU keeps the runner: it hands the GPU over, expiries included
-                ready = next((x for x in q if not x.get('after') or x['after'] in done), None)
+                ready = next((x for x in q if (not x.get('after') or x['after'] in done) and x.get('retry_at', 0) <= time.time()), None)
                 held = _gpu_hold(room)
                 if not ready or _run_alive(room) or st.get('pending') or (held and held['by'] != ready['by']):
                     return None
@@ -2238,11 +2266,18 @@ def run_queue(room, poll=15):
             if not ready:
                 time.sleep(poll)
                 continue
+            started = time.time()
             try:
                 line = evaluate(room, ready['by'], ready['desc'], ready.get('idea'), ready.get('kind') or 'attempt',
                                 ready.get('of'), ready.get('seed'), ready.get('env') or None)
+                last = (_state(room)[1]['attempts'] or [{}])[-1]
+                if last.get('status') == 'invalid' and last.get('ts', 0) >= started:   # K4: the machine died under it, the code is staged
+                    _requeue(room, lead, ready, line.splitlines()[0][:200])
+                    continue
                 run = re.search(r'att-(\d+)', line)          # the run's own line is already in the chat: this one only wakes its author
                 room.append(lead, f"@{ready['by']} " + (say('kernel.queue.done_ref', n=run.group(1)) if run else say('kernel.queue.done', line=line.splitlines()[0][:300])), 'board')
+            except PrecheckRefused as exc:                # nothing ran: the same run waits for the machine instead of being lost
+                _requeue(room, lead, ready, str(exc)[:300])
             except Exception as exc:                      # one bad run never stops the queue
                 room.append(lead, f"@{ready['by']} " + say('kernel.queue.refused', desc=ready['desc'][:80], exc=str(exc)[:300]), 'board')
     finally:
@@ -2953,7 +2988,7 @@ def status(room):
     q = _queue(room)
     if q:
         _queue_runner(room)                               # a runner that died with runs left: started again
-        head += say('kernel.status.queue', items='; '.join(f"{x['by']}: {x['desc'][:40]}" + (f" (after {x['after']})" if x.get('after') else '') for x in q))
+        head += say('kernel.status.queue', items='; '.join(f"{x['by']}: {x['desc'][:40]}" + (f" (after {x['after']})" if x.get('after') else '') + (say('kernel.status.queue_retry', tries=x['tries']) if x.get('tries') else '') for x in q))
     for f in sorted((_dir(room) / 'runs').glob('prebuild-*.exit')):
         if time.time() - f.stat().st_mtime > 6 * 3600:
             continue                                      # an old prebuild (a worker stopped days ago) is noise in every status

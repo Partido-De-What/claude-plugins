@@ -101,7 +101,9 @@ python CHAT research init --room ROOM --as LEAD --repo <percorso> --program <fil
 `--precheck` gira prima di ogni corsa e deve uscire con 0 (VRAM a riposo sotto un limite, nessun server rimasto vivo): un
 controllo fallito rifiuta la corsa e non conta nulla. Distingue anche una corsa morta con la macchina da una morta col
 programma: se una corsa crasha e subito dopo il precheck fallisce, la corsa è `invalid` (numero aux, riga in results.tsv,
-evento `run-invalid`), il budget e il round non si muovono e lo stesso codice si rilancia quando la macchina è tornata. Mettici fin dall'inizio le regole che servono alla macchina, non dopo
+evento `run-invalid`), il budget e il round non si muovono e lo stesso codice si rilancia quando la macchina è tornata. Una corsa in coda che il precheck rifiuta (o che finisce invalida)
+resta in coda e riprova ogni 5 minuti (evento `queue-retry`; l'autore è avvisato al primo rifiuto e a ogni sesto tentativo,
+e dopo 72 tentativi la corsa è tolta con una riga). Mettici fin dall'inizio le regole che servono alla macchina, non dopo
 una corsa persa. `--final-dry` è un comando lanciato al sigillo: carica i dati tenuti da parte e i loro riferimenti e non
 misura nulla, così un finale rotto si vede subito e non in fase 4 (una notte ha perso così una build da 16 minuti e un'ora
 di GPU); senza, il sigillo avvisa soltanto.
