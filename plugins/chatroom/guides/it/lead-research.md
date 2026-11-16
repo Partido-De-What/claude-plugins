@@ -83,6 +83,14 @@ più basso è meglio, come per `--direction`: una velocità è `max` (`--guard p
 (una per guardia) e TOL può essere `abs=X`: la mediana non deve superare X, qualunque cosa abbia misurato la baseline
 (`--guard peak_mb:min:abs=9000`). `seal` rifiuta una guardia che l'ultima smoke non ha mai stampato. Il
 valutatore finale non viene controllato dalle guardie.
+Una metrica che è un rapporto con un braccio di riferimento misurato nella stessa corsa nasconde un riferimento che
+deriva: stampa anche i valori assoluti ("NOME: valore") e nominali con `--info NOME,...` (e il braccio di riferimento con
+`--reference NOME`), a `init` o dopo con `amend`. Si registrano a ogni corsa, si mostrano sulla sua riga e in status, e
+vanno nella colonna `info` di results.tsv (`NOME=valore;...`), mai giudicati; una corsa il cui riferimento si è mosso del
+2 per cento o più dalla corsa con cui compete lo dice. Se è anche entro il 10 per cento del numero di quella corsa, il kernel
+rimisura nella stessa corsa il programma del migliore (il file del programma scambiato per la misura, rimesso dopo) e il
+verdetto sta tra i due numeri della stessa ora; la riga della corsa dice "misura appaiata", il record ha `paired`. Costa una
+misura in più alla corsa.
 
 Chiedi in fase 0: il valutatore (e ogni guardia) esercita i percorsi di codice che il programma cambierà? Un controllo
 che esegue solo il prefill non controlla una modifica ai kernel di decoding.
@@ -177,6 +185,9 @@ il suo worktree in un processo staccato (un reaper in background della sessione 
 mai le misure di un altro worker. L'output della build va in una cartella `--keep`. `research status` mostra come è
 finito (codice di uscita, log).
 
+(Un contratto la cui risorsa scarsa non è una GPU lo dice con `research init --resource NOME`: ogni testo di blocco, coda
+e rilascio la nomina. L'avviso "ancora vivi" elenca ogni processo con di chi è e la sua età, e lascia fuori i piccoli
+strumenti della shell.)
 La GPU fuori dalle corse (un profilo, un microbenchmark, il controllo dell'auditor): `research hold --minutes 20 --reason "..."`
 e poi `research release`. Mentre il blocco della GPU è attivo, solo chi lo tiene può fare evaluate. Qualsiasi agente può
 prenderlo, e `research status` lo mostra. Un agente lo tiene al massimo 120 minuti, il lead 720. Due stanze research su una

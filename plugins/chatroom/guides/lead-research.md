@@ -80,6 +80,13 @@ or in `$CHATROOM_RESULT` with `--result-file`), and `--guard NAME:min|max:TOL` c
 (`--guard prefill_tps:max:3%`), a memory `min`. `--guard` repeats (one per guard) and TOL can be `abs=X`: the median
 must not pass X itself (`--guard peak_mb:min:abs=9000`), whatever the baseline measured. `seal` refuses a guard the last smoke
 run never printed. The final evaluator is not checked for guards.
+A metric that is a ratio against a reference arm measured in the same run hides a reference that drifts: print the
+absolute values too ("NAME: value") and name them with `--info NAME,...` (and the reference arm with `--reference NAME`),
+at `init` or later with `amend`. They are recorded with every run, shown on its line and in status, and written in the
+`info` column of results.tsv (`NAME=value;...`), never judged; a run whose reference moved 2 percent or more since the run
+it competes with says so. When it is also within 10 percent of that run's number, the kernel measures the best's program
+again in the same run (the program file swapped for the measure, put back after) and the verdict is between the two numbers
+of the same hour; the run line says "paired measure", the record has `paired`. It costs one more measure of the run.
 
 Ask in phase 0: does the evaluator (and each guard) exercise the code paths the program will change? A gate that runs
 only the prefill does not check a change to the decoding kernels.
@@ -168,6 +175,9 @@ a detached process (a session's background reaper cannot kill it), with the log 
 no evaluate starts until it exits, so a build never disturbs another worker's measures. The build output goes in a
 `--keep` folder. `research status` shows how it ended (exit code, log).
 
+(A contract whose scarce resource is not a GPU says so with `research init --resource NAME`: every hold, line and release
+text then names it. The "still running" warning lists each process with whose it is and its age, and leaves out a
+shell's short tools.)
 The GPU outside the runs (a profile, a microbenchmark, the auditor's check): `research hold --minutes 20 --reason "..."`
 then `research release`; while it holds, only the holder may evaluate. Any agent can take it, and `research status`
 shows it. An agent holds it at most 120 minutes, the lead 720. Two research rooms on one GPU: `--for ROOM` gives the other

@@ -585,5 +585,107 @@ if section('K18'):                                                    # the eval
     c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
     ok('K18 the real baseline is still att-1', c == 0 and 'att-1' in o and 'KEEP' in o, o)
 
+# ---------------------------------------------------------------------------------------------------------------- H3
+if section('H3'):                                                     # the "still running" warning: whose it is, how old, no shell tools
+    room, repo, work = research_room('h3')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    keep = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+    tool = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+    try:
+        (room / 'research' / 'runs' / 'pids-1.txt').write_text(f'{keep.pid} python\n{tool.pid} sleep\n', encoding='utf-8')
+        time.sleep(1.2)
+        c, o = run(room, 'research', 'status', '--as', 'LEAD')
+        ok('H3 a process the evaluator left is named with its run author and age', f'python {keep.pid} (of W, ' in o and 'min old)' in o, o)
+        ok('H3 a shell tool (sleep) is not a stray', f'sleep {tool.pid}' not in o, o)
+        ok('H3 exactly one process is listed (the tool is out)', o.count(' min old)') == 1, o)
+    finally:
+        keep.kill(); tool.kill(); keep.wait(); tool.wait()
+
+# ---------------------------------------------------------------------------------------------------------------- H4
+if section('H4'):                                                     # the hold texts name the contract's resource, a long reason says it was cut
+    long_reason = 'profile the kernel ' + 'x' * 160
+    room, repo, work = research_room('h4', extra=['--resource', 'camera rig'])
+    c, o = run(room, 'research', 'hold', '--minutes', '5', '--reason', long_reason, '--as', 'W')
+    ok('H4 the hold text names the resource, not the GPU', c == 0 and 'camera rig held by W' in o and 'GPU' not in o, o)
+    c, o = run(room, 'research', 'release', '--as', 'W')
+    full = research.hold(chat.Room(str(room)), 'W', 5, long_reason)           # the returned text itself (the CLI shortens a long line again)
+    ok('H4 a long reason is cut with an ellipsis', 'xxx…' in full and long_reason not in full, full)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H4 status names it too', 'camera rig held by W' in o and 'GPU' not in o, o)
+    c, o = run(room, 'research', 'release', '--as', 'W')
+    ok('H4 release names it', 'camera rig released' in o and 'GPU' not in o, o)
+    c, o = run(room, 'research', 'hold', '--minutes', '5', '--reason', 'short', '--as', 'LEAD')
+    c, o = run(room, 'research', 'hold', '--minutes', '5', '--reason', 'second', '--as', 'W')
+    ok('H4 the line for it', 'in the line for the camera rig' in o, o)
+    run(room, 'research', 'release', '--as', 'LEAD')                    # the line is emptied: its runner has nothing to keep and ends
+    run(room, 'research', 'release', '--as', 'W')
+    room2, repo2, work2 = research_room('h4b')
+    c, o = run(room2, 'research', 'hold', '--minutes', '5', '--reason', 'plain', '--as', 'W')
+    ok('H4 without --resource the word stays GPU', 'GPU held by W' in o, o)
+    try:
+        research_room('h4c', extra=['--resource', 'bad/name!'])
+        refused = ''
+    except AssertionError as e:
+        refused = str(e)
+    ok('H4 a bad resource name is refused', '--resource' in refused, refused)
+
+# ---------------------------------------------------------------------------------------------------------------- K2b
+if section('K2B'):                                                    # --info and --reference at init, and an info column in results.tsv
+    room, repo, work = research_room('k2b', extra=['--info', 'mem', '--reference', 'mem'])
+    ok('K2b init says the info numbers and the reference arm', 'Info numbers mem' in research_room.last and 'reference arm mem' in research_room.last, research_room.last)
+    ok('K2b the contract has them', contract(room).get('info') == ['mem'] and contract(room).get('reference') == 'mem', contract(room))
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    rows = (room / 'research' / 'results.tsv').read_text(encoding='utf-8').splitlines()
+    ok('K2b results.tsv has an info column', rows[0].split('\t')[-1] == 'info' and rows[1].split('\t')[-1] == 'mem=50', rows)
+    ok('K2b the run line shows the info number', 'mem 50' in o, o)
+    try:
+        research_room('k2c', extra=['--info', 'mem', '--reference', 'nope'])
+        refused = ''
+    except AssertionError as e:
+        refused = str(e)
+    ok('K2b a reference that is not an info number is refused at init', 'name it in --info first' in refused, refused)
+    room, repo, work = research_room('k2d')                            # a room that began before the column: rows keep their shape
+    tsv = room / 'research' / 'results.tsv'
+    tsv.write_text(tsv.read_text(encoding='utf-8').replace('\tinfo\n', '\n'), encoding='utf-8')
+    c, o = run(room, 'research', 'amend', '--info', 'mem', '--as', 'LEAD')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    rows = tsv.read_text(encoding='utf-8').splitlines()
+    ok('K2b an old header gets old-shape rows', c == 0 and len(rows[0].split('\t')) == 11 and len(rows[1].split('\t')) == 11, rows)
+
+# ---------------------------------------------------------------------------------------------------------------- K2c
+if section('K2C'):                                                    # a challenger near the best while the reference moved: the best is measured again in the same run
+    scale = BASE / 'k2c_scale.txt'
+    src = f'import program\ns = float(open({str(scale)!r}).read())\nprint("loss:", (80 + 3 * program.X) * s)\nprint("ref:", 100 * s)\n'
+    scale.write_text('1.0')
+    room, repo, work = research_room('k2c1', extra=['--info', 'ref', '--reference', 'ref', '--min-gain', '5%'], eval_src=src)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')           # 95, ref 100
+    scale.write_text('1.08')                                           # the machine got 8% slower: X=3 reads 96.1 against 95 (a worse run), measured beside the best 102.6
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K2c a false discard turns into a keep from the paired measure', c == 0 and 'KEEP' in o and 'paired measure' in o and 'measured again in this run at 102.6' in o, o)
+    ok('K2c it is announced on the board before it runs', 'measuring att-1 again here' in text, text[-400:])
+    st = state(room)
+    ok('K2c the best is the challenger, the record has the paired number', st['best']['n'] == 2 and st['attempts'][1].get('paired', {}).get('of') == 1, st['attempts'][1])
+    ok('K2c the run\'s own program is back in the worktree, committed and clean', (work / 'program.py').read_text() == 'X = 3\n'
+       and not git('status', '--porcelain', cwd=work).stdout.strip(), git('status', '--porcelain', cwd=work).stdout)
+    ok('K2c a log of the paired measure exists', (room / 'research' / 'runs' / '2-paired.log').is_file())
+    # the other way: a gain that is only the machine going faster
+    room, repo, work = research_room('k2c2', extra=['--info', 'ref', '--reference', 'ref', '--min-gain', '5%'], eval_src=src)
+    scale.write_text('1.0')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    scale.write_text('0.95')                                           # 8% better on paper (87.4 against 95), 3.2% against the best now (90.25)
+    (work / 'program.py').write_text('X = 4\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 4', '--as', 'W')
+    ok('K2c a false keep turns into a discard', c == 0 and 'DISCARD' in o and 'not better by the minimal gain' in o and 'at 90.25' in o, o)
+    ok('K2c the line is back at the best', state(room)['best']['n'] == 1 and (work / 'program.py').read_text() == 'X = 5\n', state(room)['best'])
+    # a reference that did not move, or a run far from the best: no second measure
+    room, repo, work = research_room('k2c3', extra=['--info', 'ref', '--reference', 'ref', '--min-gain', '5%'], eval_src=src)
+    scale.write_text('1.0')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    (work / 'program.py').write_text('X = 4\n')                        # 92 against 95: a keep by 3.2%? not by 5%: discard, same reference
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 4', '--as', 'W')
+    ok('K2c a steady reference is not measured twice', c == 0 and 'DISCARD' in o and 'paired measure' not in o and not (room / 'research' / 'runs' / '2-paired.log').exists(), o)
+
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
