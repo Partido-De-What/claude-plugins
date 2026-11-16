@@ -24,7 +24,7 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
 
 1. Room: `python CHAT rooms` (reuse a live one if the user means it), else `init` (see the start skill), or the room
    `/chatroom:init` already made. In an existing room never run `init` again: `add`, `config`.
-2. Topic and goal: `config --topic "..." --subtitle "<what the room must produce>"`.
+2. Topic and goal: `config --topic "..." --subtitle "<what the room must produce>"`. Ask the user which topic profile the room joins (`lessons topic list` shows the ones that exist; a new short name makes one) and run `lessons topic use SLUG --confirmed --as LEAD` only on their answer, never on your own: it is the room's memory for later rooms. See "What the room remembers".
 3. Participants: `add --participants A,B,C --profile "A|emoji|#color|role|model|effort"`. Distinct roles that disagree
    usefully (an expert, a builder, a skeptic). Names in capitals.
 4. Material the agents need (they do not inherit your conversation): write it to `ROOM/DOSSIER.md`.
@@ -144,6 +144,17 @@ Replacing an agent: `python CHAT retire NAME --room ROOM --as LEAD`, then genera
 What the room does by itself near the end of a budget, and what it learns: a participant is told once to stop exploring and deliver (the last 10 minutes before `deadline`, or at 85% of its messages to the checkpoint); with `brief ground=1` (rooms that write code) the first `task done` of each task is held once, to check the change against the tests and callers that exist; the second must name something the first did not, or run its verify again. With `brief tests=DIR` (tests kept outside git, which no diff sees) a task cannot close while an existing test there changed and its proof does not name it with the reason. To change a rule while the room runs, write it with `task decide "..."`: it is appended to the log everyone reads again after a compaction; never generate the prompts again for it, the agents would not read them and their cache would be lost. At the end, `python CHAT cost scorecard --room ROOM` gives the room in five lines (tasks closed, tokens per closed task, compactions, which controls fired) and `python CHAT lessons --room ROOM` groups by cause what went wrong in the last rooms. A cause seen in two rooms is a candidate lesson: propose it to the user in one line with when it applies, and add it only on their yes (`lessons add "rule" --scope "when it applies, when not" --note "where seen"`). It enters on trial (rooms with `brief lessons=trial`), becomes active with `lessons accept L3` after two rooms, leaves with `lessons retire L3`; eight live lessons at most, because each one is read at every request of every agent.
 
 Improvements and bugs found in the room get a score from 1 to 5 and a reach, local (this user's machine: hardware, paths, habits) or general (the harness, for anyone): `lessons propose "rule" --score N --reach local|general --scope "when it applies" --note "where seen"`. A 5 (a real bug that bends the process, or something the user asked of the room) and a 4 (an improvement you are sure of) are applied by the harness itself as an active lesson, and the user can undo it with `lessons retire`. A 1 to 3 is never applied: it is kept for the closing, and only when the user is the plugin's creator; for anyone else it is not kept at all. To be the creator the user needs a file named `creator` in the chatroom folder of their Claude config (or `CHATROOM_CREATOR=1`): nobody creates it by itself, so ask the user, and say so in the closing when `lessons close` prints the line that these are not kept. A bug of the chatroom plugin itself is `--kind plugin`: never applied, kept apart for its creator. At every closing run `python CHAT lessons close --room ROOM` and give the user its parts as they come: a. what the harness learned and applied by itself, b. improvements and bugs of the session still to decide, c. bugs of the plugin, each with the local and the general apart.
+
+## What the room remembers: the topic profile
+
+Tell the user this in ten lines at most when you ask for the topic:
+- A topic profile is the memory of one kind of work, shared by every room that joins it (`lessons topic list`, `lessons topic show SLUG`).
+- It keeps the lessons the harness applied (scores 4 and 5), the sources the rooms read, and the skills each role used (`lessons topic skills ROLE a,b`: the prompt of that role names them).
+- A room joins one topic, only on the user's word: `lessons topic use SLUG --confirmed --as LEAD`. A later room of the topic starts with what the earlier ones learned.
+- Every change is a version: `lessons topic back SLUG` returns to the one before, and `back` again returns to it.
+- At the closing `lessons close` prints the chat improvement: what the harness learned and applied (local and general apart), and, for the plugin's creator, what waited (scores 1 to 3).
+- A lesson that proves wrong in a room is taken out with `lessons retire T<n>`; one that kept its promise stays with `lessons accept T<n>`.
+- A room with no topic keeps nothing for later rooms: say it once, do not insist.
 
 ## 8. An agent that does not answer
 

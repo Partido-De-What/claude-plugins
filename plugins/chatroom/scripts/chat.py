@@ -6077,8 +6077,14 @@ def cmd_serve(room, a):
                 except (ValueError, TypeError, KeyError) as exc:
                     return self.send(400, str(exc), 'text/plain')
                 return self.send(200, '{}', 'application/json')
-            if path == '/settings':                # the viewer saves the figure's look
-                save_settings(avatar=sharing.clean_avatar(body.get('avatar')))
+            if path == '/settings':                # the viewer saves the figure's look and the minutes an unwatched viewer lives
+                change = {'avatar': sharing.clean_avatar(body['avatar'])} if 'avatar' in body else {}
+                for key in ('viewer_idle_min', 'prova_idle_min'):
+                    if key in body:
+                        change[key] = idle_min(body[key], None)
+                        if change[key] is None:
+                            return self.send(400, say('chat.say.do_POST.idle_minutes'), 'text/plain')
+                save_settings(**change)
                 return self.send(200, '{}', 'application/json')
             if path == '/friendroom/post':         # the guest writes in the host's room chat
                 b = guest['bridge']

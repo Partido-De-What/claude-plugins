@@ -48,7 +48,23 @@ aggiunta a `.git/info/exclude`, ma `git clean -fdx` lo ignora e cancellerebbe la
 ## 2. Fase 0: il contratto, con l'utente
 
 Scrivi `ROOM/research/task.md` insieme all'utente; pubblica ogni bozza finché l'utente non la approva. `research init`
-rifiuta di partire senza, e ne registra l'hash nel log (pre-registrazione).
+rifiuta di partire senza, e ne registra l'hash nel log (pre-registrazione). Chiedi all'utente a quale profilo di topic si unisce la stanza (`lessons topic list` mostra quelli che esistono; un nuovo nome breve ne crea uno) e lancia `lessons topic use SLUG --confirmed --as LEAD` solo sulla sua risposta, mai di testa tua: è la memoria della stanza per le stanze dopo. Le dieci righe da dirgli sono nella guida normale
+(`guide normal`, "Cosa ricorda la stanza").
+
+Il modo di lavorare dell'utente, a fianco di quello del kernel:
+
+| Il flusso dell'utente | Nel kernel |
+|---|---|
+| dati | fase 0: il contratto (`task.md`: programma, valutatore, metrica, dati) e la corsa di baseline |
+| smoke | fase 1: `research evaluate --kind smoke`, il via libera dell'auditor, il sigillo |
+| web | tappa 2 del round (SEARCHER, PROPOSER) |
+| ipotesi | l'idea che ogni ricerca riporta con la sua fonte; a un tentativo si assegna un'idea (`research assign`) |
+| test | tappa 3 del round (WORKER, 5-10 corse corte) |
+| ancora web | tappa 5 del round (SEARCHER sui risultati) |
+| un altro giro | tappa 6 del round: `research round close --decision more` |
+
+Due cose che il flusso dell'utente nomina e il kernel no: l'ipotesi non è un passo a sé (è l'idea di un tentativo), e lo
+smoke gira una volta, nella fase 1, prima del sigillo, non all'inizio di ogni round. Diglielo, e non promettere né l'una né l'altro.
 
 ```markdown
 # Contratto

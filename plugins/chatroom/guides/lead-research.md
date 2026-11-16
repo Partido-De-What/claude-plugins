@@ -46,7 +46,23 @@ Keep the room outside the repository (or never run `git clean -x` there): a room
 ## 2. Phase 0: the contract, with the user
 
 Write `ROOM/research/task.md` together; post each draft until the user approves it. `research init` refuses to start
-without it, and records its hash in the log (pre-registration).
+without it, and records its hash in the log (pre-registration). Ask the user which topic profile the room joins (`lessons topic list` shows the ones that exist; a new short name makes one) and run `lessons topic use SLUG --confirmed --as LEAD` only on their answer, never on your own: it is the room's memory for later rooms. The ten lines to tell them are in the normal guide
+(`guide normal`, "What the room remembers").
+
+The user's own way of working, against the kernel's:
+
+| The user's flow | In the kernel |
+|---|---|
+| data | phase 0: the contract (`task.md`: program, evaluator, metric, data) and the baseline run |
+| smoke | phase 1: `research evaluate --kind smoke`, the auditor's pass, the seal |
+| web | round step 2 (SEARCHER, PROPOSER) |
+| hypothesis | the idea each search returns with its source; an attempt is assigned one (`research assign`) |
+| test | round step 3 (WORKER, 5-10 short runs) |
+| web again | round step 5 (SEARCHER on the results) |
+| another round | round step 6: `research round close --decision more` |
+
+Two things the user's flow names and the kernel does not: a hypothesis is not a step of its own (it is the idea of an attempt), and the
+smoke runs once, in phase 1, before the seal, not at the start of each round. Say so, and do not promise either.
 
 ```markdown
 # Contract

@@ -34,8 +34,21 @@ NEED = (CONFLICT, NO_GIT, FAILED, GONE, NO_BASE)    # the user must do something
 MARKER = re.compile(rb'^(<<<<<<<|>>>>>>>) ', re.M)
 
 
+HARD_STALE = 3600       # a lock this old goes even when its pid runs: the number may be another process's by now
+
+
 class Busy(Exception):
     """another merge is writing in the user layer right now"""
+
+
+def _holder_runs(path):
+    """the lock names a pid (the holder's) and that process still runs; a lock with no pid (an older version's) says nothing"""
+    try:
+        pid = int(path.read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return False
+    from chat import pid_alive      # the same check machine.py and lessons.py use (a process we may not query counts as running)
+    return pid_alive(pid)
 
 
 def _steal(path, stale):
@@ -52,8 +65,11 @@ def _steal(path, stale):
             pass
         raise Busy
     try:
-        if time.time() - path.stat().st_mtime >= stale:
+        age = time.time() - path.stat().st_mtime
+        if age >= HARD_STALE or (age >= stale and not _holder_runs(path)):      # a slow merge that still runs keeps its lock
             path.unlink()
+        else:
+            raise Busy
     finally:
         gate.unlink(missing_ok=True)
 
@@ -61,11 +77,14 @@ def _steal(path, stale):
 @contextlib.contextmanager
 def _lock(user, stale=120):
     """one writer at a time in the user layer (two sessions started together would see a half-merged copy and call it a conflict):
-    the lock file is made exclusively, and one older than `stale` seconds is a dead run's"""
+    the lock file is made exclusively and holds the pid of its writer; one older than `stale` seconds whose writer no longer runs
+    (or with no pid) is a dead run's, and any one older than HARD_STALE"""
     path = Path(user) / LOCK
     for _ in range(3):
         try:
-            os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
             break
         except (FileExistsError, PermissionError) as exc:
             if isinstance(exc, PermissionError) and os.name != 'nt':      # Windows says "access denied" (not "exists") while the holder is deleting it
