@@ -736,6 +736,16 @@ def gone_agent(room, k, items):
     return n is not None and max((m['n'] for m in items if m['from'] == k), default=0) <= n
 
 
+def used_tools_since_gone(room, k):
+    """its transcript moved after gone.json was written: it works with its tools and has posted nothing, it did not leave
+    (gone.json holds all the agents, so a later exit of another one only makes this answer False: the old behaviour)"""
+    path = agent_file(room.roster().get(k))
+    try:
+        return path is not None and path.stat().st_mtime > (room.dir / 'gone.json').stat().st_mtime + 2
+    except OSError:
+        return False
+
+
 def redeliver_missed(room, name):
     """what a typed post (status, finding) of `name` went through without reading: shown at its next command, once, with the text
     (a post that only reported a status never read the tag). True when something was shown"""
@@ -1016,6 +1026,16 @@ class Room:
         except (OSError, ValueError, TypeError):
             pass
         self.note_session(name)
+        self.came_back(name)
+
+    def came_back(self, name):
+        """a command of an agent whose stop hook left it in gone.json: it is back at work, so it is no longer gone (the entry
+        stayed for ever, and the room went on calling a working agent closed)"""
+        path = self.dir / 'gone.json'
+        got = read_json(path, {})
+        if name in got:
+            got.pop(name)
+            write_atomic(path, json.dumps(got))
 
     def note_session(self, name):
         """the Claude Code session of the lead or the user, from their own calls (CLAUDE_CODE_SESSION_ID in the shell or
@@ -3107,7 +3127,9 @@ def failures(room, now=None):
                 out.append((f'lead:{k}:{n}:{int(minutes) // 30}', say('chat.check.waits_lead', k=k, n=n, minutes=int(minutes), text=text)))
         for k, got in read_json(room.dir / 'gone.json', {}).items():    # hold.py: it left with the room open, and says what it still held
             n, why, held, procs = (got.get('n', 0), got.get('why', ''), got.get('tasks', []), got.get('procs', [])) if isinstance(got, dict) else (got, '', [], [])   # 0.19.0 wrote the number only
-            if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n and not voted_latest(room, k, items):
+            if isinstance(got, dict) and not held and not procs and why in ('', 'idle'):
+                continue                              # it finished or waited with nothing in hand: a normal end of turn, not a fall (a tag for it: gonetag)
+            if k in active and max((m['n'] for m in items if m['from'] == k), default=0) <= n and not voted_latest(room, k, items) and not used_tools_since_gone(room, k):
                 text = (say('chat.check.gone_task', k=k, n=n, ids=', '.join(held)) if held else say('chat.check.gone_idle', k=k, n=n, why=why) if why
                         else say('chat.check.gone', k=k, n=n))
                 out.append((f'gone:{k}:{n}', text + (say('chat.check.gone_procs', procs='; '.join(procs)) if procs else '')))
@@ -3328,6 +3350,7 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
         name = resolve_name(room, name)
     except ValueError as exc:
         return f'error: {exc}', True
+    room.came_back(name)                          # any tool of the room, board and task too, is a sign of life
     known = next((t['inputSchema']['properties'] for t in MCP_TOOLS if t['name'] == tool), args)
     unknown = sorted(set(args) - set(known) - {'verify', 'merge_into', 'cwd'})   # those three have their own answer in `task`
     if unknown:
@@ -4550,8 +4573,9 @@ def cmd_status(room, a):
     calls = {k: sum(v.values()) for k, v in room.counters().items()}
     gone = {k: g.get('n', 0) if isinstance(g, dict) else g for k, g in read_json(room.dir / 'gone.json', {}).items()}   # 0.19.0 wrote the number alone
     roster = room.roster()
-    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) else 'waiting' if room.in_wait(k)
-            else 'stopped' if agent_ended(roster.get(k)) else 'working' for k in idle}      # stopped: its run ended and no hold keeps it (it is not working)
+    ended = {k: agent_ended(roster.get(k)) for k in idle}
+    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) and not used_tools_since_gone(room, k)
+            else ('held' if ended[k] else 'waiting') if room.in_wait(k) else 'stopped' if ended[k] else 'working' for k in idle}      # stopped: its run ended and no hold keeps it; held: its run ended and the hold keeps it (it waits for nothing itself)
     lead = [{'name': k, 'message': n, 'minutes': int(minutes), 'text': text} for k, n, minutes, text in waits_for_lead(room, items)]
     w = winding(room, items)
     closing_ = {'voted': [k for k in idle if any(m['from'] == k and m['n'] > w and not m.get('kind') for m in items)],
