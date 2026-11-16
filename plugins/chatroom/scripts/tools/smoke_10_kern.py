@@ -686,6 +686,20 @@ if section('K2C'):                                                    # a challe
     (work / 'program.py').write_text('X = 4\n')                        # 92 against 95: a keep by 3.2%? not by 5%: discard, same reference
     c, o = run(room, 'research', 'evaluate', '--desc', 'X 4', '--as', 'W')
     ok('K2c a steady reference is not measured twice', c == 0 and 'DISCARD' in o and 'paired measure' not in o and not (room / 'research' / 'runs' / '2-paired.log').exists(), o)
+    # a contract with a build: the binary left is the best's while the worktree goes back to the challenger's program; the next run builds again
+    bld = BASE / 'k2c_build.py'
+    bld.write_text('import re\nopen("built.txt", "w").write(re.search(r"X = (\\d+)", open("program.py").read()).group(1))\n')
+    src_b = f'import program\ns = float(open({str(scale)!r}).read())\nx = int(open("built.txt").read())\nprint("loss:", (80 + 3 * x) * s)\nprint("ref:", 100 * s)\n'
+    scale.write_text('1.0')
+    room, repo, work = research_room('k2c4', extra=['--info', 'ref', '--reference', 'ref', '--min-gain', '5%', '--build', f'"{sys.executable}" "{bld}"'], eval_src=src_b)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    scale.write_text('1.08')
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    ok('K2c with a build the paired measure still decides', c == 0 and 'KEEP' in o and 'at 102.6' in o, o)
+    (work / 'program.py').write_text('X = 0\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 0', '--as', 'W')
+    ok('K2c the next run builds its own program again (86.4 is X 0, not the best\'s X 5 or X 3)', c == 0 and 'loss = 86.4' in o, o)
 
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
