@@ -306,6 +306,45 @@ if section('T1'):
             text = (tpl / sub / f'research_{role}.md').read_text(encoding='utf-8')
             ok(f'T1 template {sub or "en"}/research_{role} names both placeholders', '{{CONSTRAINTS}}' in text and '{{CLOSING}}' in text)
 
+# ---------------------------------------------------------------------------------------------------------------- H2
+if section('H2'):
+    room, repo, work = research_room('h2', participants='W1,W2')
+    ids = {'W1': 'aaaaaaaa11', 'W2': 'bbbbbbbb22'}
+    (room / 'roster.json').write_text(json.dumps(ids), encoding='utf-8')
+    sub = BASE / 'claude' / 'projects' / 'p' / 's' / 'subagents'
+    sub.mkdir(parents=True)
+
+    def transcript(name, ended):                                     # the last line of an agent's own transcript: a finished turn, or a tool call
+        last = {'message': {'role': 'assistant', 'stop_reason': 'end_turn' if ended else 'tool_use', 'content': []}}
+        (sub / f'agent-{ids[name]}.jsonl').write_text(json.dumps(last) + '\n', encoding='utf-8')
+    transcript('W1', False); transcript('W2', False)
+    run(room, 'research', 'hold', '--minutes', '90', '--reason', 'W1 profile', '--as', 'W1')
+    run(room, 'research', 'hold', '--minutes', '10', '--reason', 'W2 profile', '--as', 'W2')
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H2 a holder at work keeps the GPU', gpu_hold(room)['by'] == 'W1' and [x['by'] for x in holdq(room)] == ['W2'], gpu_hold(room))
+    transcript('W1', True)
+    mark = room / 'waiting_W1.txt'
+    mark.write_text(f'{time.time() + 300:.0f} {os.getpid()}')         # held by the stop hook, like a wait: it did not fall
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H2 a holder kept by a wait keeps the GPU', gpu_hold(room)['by'] == 'W1', gpu_hold(room))
+    mark.unlink()
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H2 a holder whose run ended is released and the line moves on', gpu_hold(room) and gpu_hold(room)['by'] == 'W2' and holdq(room) == [], (gpu_hold(room), o[-300:]))
+    c, o = run(room, 'read', '--all', '--as', 'LEAD')
+    ok('H2 the board tells the lead and the holder', 'fell holding the GPU' in o and '@W1' in o and 'LEAD, for you' in o, o[-700:])
+    log = (room / 'research' / 'log.jsonl').read_text(encoding='utf-8')
+    ok('H2 the kernel log has a hold-fell event naming W1', 'hold-fell' in log and '"holder": "W1"' in log, log[-300:])
+    transcript('W2', True)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('H2 the last holder that fell leaves the GPU free', gpu_hold(room) is None, gpu_hold(room))
+    lock = room / 'research' / 'queue.lock'
+    alive = lambda: lock.exists() and chat.pid_alive(int(lock.read_text().split()[0]))
+    for _ in range(60):                                                 # the runner of the line polls every 15 s
+        if not alive():
+            break
+        time.sleep(1)
+    ok('H2 the runner ended with the line', not alive(), lock.read_text() if lock.exists() else '')
+
 # ---------------------------------------------------------------------------------------------------------------- K16
 if section('K16'):
     # the evaluator writes out/clip.txt (like the wavs of a voice run): each run's copy must stay, the next run overwrites it

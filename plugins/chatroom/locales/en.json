@@ -920,6 +920,7 @@
  "kernel.hold.reserved_now": "the GPU is reserved for {name} for {minutes} min: only they start a hold or a run, then the line goes on",
  "kernel.hold.reserved_reason": "reserved turn, given by {by}",
  "kernel.hold.yours": "the GPU is yours{reserved}: {minutes} min (research release when done)",
+ "kernel.hold.fell": "{name} fell holding the GPU (its run ended and no wait keeps it): the hold is released now, not at its expiry, and the line moves on. {lead}, for you: ",
  "kernel.word.reserved": " (reserved turn, claim it with research hold)",
  "kernel.release.left_the_line": "you left the line for the GPU",
  "kernel.release.next": "; the GPU goes to {name}",
