@@ -214,6 +214,39 @@ if section('K6'):
     ok('K6 every broken guard is named in the verdict', 'mem' in head(o) and 'cold' in head(o), head(o))
     ok('K6 the guard values of the run are kept', state(room)['attempts'][-1]['guards'] == {'mem': 25.0, 'cold': 25.0}, state(room)['attempts'][-1])
 
+# ---------------------------------------------------------------------------------------------------------------- K9
+EVAL9 = 'import os, program\nprint("loss:", (program.X - 2) ** 2 + float(os.environ.get("PROBE_ADD", "0")))\n'
+if section('K9'):
+    room, repo, work = research_room('k9', eval_src=EVAL9)
+    c, o = run(room, 'research', 'evaluate', '--kind', 'probe', '--env', 'PROBE_ADD=7', '--desc', 'too early', '--as', 'W')
+    ok('K9 a probe before the baseline still runs in phase 2 (not an attempt)', c == 0 and 'PROBE' in o, o)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K9 baseline is attempt 1 whatever the probe did', c == 0 and 'KEEP' in o and 'att-1 ' in o and state(room)['evals'] == 1, o)
+    c, o = run(room, 'research', 'evaluate', '--kind', 'probe', '--env', 'PROBE_ADD=7,PROBE_B=x', '--desc', 'with env', '--as', 'W')
+    ok('K9 probe: measured with the env (9 + 7 = 16), env in the line', c == 0 and 'PROBE' in o and '16' in o and 'PROBE_ADD=7' in o, o)
+    s = state(room)
+    a = s['attempts'][-1]
+    ok('K9 probe: not counted, not best, kind and env registered', s['evals'] == 1 and a['kind'] == 'probe' and a['status'] == 'probe'
+       and a.get('env_set') == {'PROBE_ADD': '7', 'PROBE_B': 'x'} and s['best']['n'] == 1 and a['n'] > 100000, a)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('K9 status still shows 1/30 runs and no round opened by a probe', '1/30' in o and 'opens round 1' in o, o[-700:])
+    c, o = run(room, 'research', 'evaluate', '--kind', 'attempt', '--env', 'PROBE_ADD=7', '--desc', 'x', '--as', 'W')
+    ok('K9 --env on an attempt is refused', c != 0 and 'probe' in o, o)
+    c, o = run(room, 'research', 'evaluate', '--kind', 'probe', '--env', 'CHATROOM_RUN=1', '--desc', 'x', '--as', 'W')
+    ok('K9 a CHATROOM_ variable cannot be set', c != 0 and 'CHATROOM_RUN' in o, o)
+    c, o = run(room, 'research', 'queue', '--desc', 'q', '--env', 'PROBE_ADD=1', '--as', 'W')
+    ok('K9 queue refuses --env on an attempt too', c != 0 and 'probe' in o, o)
+    # the MCP tool: same call, env passed as a string
+    room_obj = chat.Room(str(room))
+    text, err = chat.mcp_call(room_obj, 'W', 'research', {'action': 'evaluate', 'kind': 'probe', 'env': 'PROBE_ADD=2', 'desc': 'via mcp'})
+    ok('K9 MCP research evaluate takes env (9 + 2 = 11)', not err and 'PROBE' in text and '11' in text, text)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    ok('K9 the next attempt is number 2', c == 0 and 'KEEP' in o and state(room)['evals'] == 2, o)
+    room2, _, _ = research_room('k9d', extra=['--draft'], eval_src=EVAL9)
+    c, o = run(room2, 'research', 'evaluate', '--kind', 'probe', '--desc', 'in drafting', '--as', 'W')
+    ok('K9 a probe in phase 1 is refused', c != 0 and 'phase 2' in o, o)
+
 # ---------------------------------------------------------------------------------------------------------------- K7
 if section('K7'):
     block = lambda o: o.split('next constraints', 1)[1].split('\n| ', 1)[0].split('\nn\tcommit', 1)[0] if 'next constraints' in o else ''

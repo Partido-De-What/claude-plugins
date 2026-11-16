@@ -980,13 +980,34 @@ def _diff_kinds(work, parent, head, program):
     return added, removed, tuning
 
 
+def env_pairs(text):
+    """K=V,K2=V2 (or a dict) as a dict: the environment a probe or an explore run is registered with"""
+    if isinstance(text, dict):
+        return {str(k): str(v) for k, v in text.items()}
+    return dict(p.split('=', 1) for p in (text or '').split(',') if '=' in p)
+
+
+def _check_env(kind, extra_env):
+    """a registered environment goes with a probe or an explore run (a planned ablation sets its own through plan): never
+    the kernel's own variables, a secret, or a value that is not short text"""
+    if not extra_env:
+        return
+    if kind not in ('probe', 'explore', *AUX_KINDS):
+        raise ValueError(say('kernel.evaluate.env_kind'))
+    for k, v in (extra_env.items() if kind in ('probe', 'explore') else ()):   # a planned ablation's own switches stay as the lead wrote them
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}', k) or k.upper().startswith('CHATROOM_') or k in SECRET_ENV or len(str(v)) > 200:
+            raise ValueError(say('kernel.evaluate.env_name', name=k))
+
+
 def evaluate(room, name, desc, idea=None, kind='attempt', of=None, seed=None, extra_env=None):
     """one run: seal and scope checks, commit, build, measure, keep or reset; the result goes to results.tsv and to the
     chat. kind=attempt (phase 2) competes for the best; ablation, baseline, control, repeat (phase 3) only measure;
     smoke (phase 1) checks the evaluator runs"""
     c, st = _state(room)
-    if kind not in ('attempt', 'fix', 'smoke', 'explore', *AUX_KINDS):
+    if kind not in ('attempt', 'fix', 'smoke', 'explore', 'probe', *AUX_KINDS):
         raise ValueError(say('kernel.evaluate.kind_attempt_fix_smoke', AUX_KINDS=", ".join(AUX_KINDS)))
+    extra_env = env_pairs(extra_env) or None
+    _check_env(kind, extra_env)
     _need(room, c, name, 'WORKER')
     if st.get('wait_go') and kind in ('attempt', 'fix'):
         raise ValueError(say('kernel._seal.waits_for_go'))
@@ -1150,6 +1171,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     explore = kind == 'explore'                           # outside the seal (another build, a sealed file changed): measured, never official
     if explore and phase != 2:
         raise ValueError(say('kernel.evaluate.explore_phase'))
+    if kind == 'probe' and phase != 2:                    # a service measure of the sealed state: never counted, never the best
+        raise ValueError(say('kernel.evaluate.probe_phase'))
     if not c.get('evaluate'):
         raise ValueError(say('kernel._evaluate.the_contract_has_no'))
     key, wk = _worker(st, name)
@@ -1206,14 +1229,16 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
     if kind in AUX_KINDS:
         if not of or not any(f"att-{a['n']}" == of and a['state'] != 'revoked' for a in st['attempts']):
             raise ValueError(say('kernel._evaluate.a_run_says_what', kind=kind))
-    if kind not in AUX_KINDS:                             # an ablation or a control isolates its own idea, not the worker's latest
+    if kind not in (*AUX_KINDS, 'probe'):                 # an ablation or a control isolates its own idea, not the worker's latest
         idea = idea or wk.get('idea')
     if idea and not any(i['id'] == idea for i in st['ideas']):
         raise ValueError(say('kernel._evaluate.no_idea', idea=idea))
     desc = ' '.join((desc or ('baseline' if first else '')).split())[:200]
     if not desc:
         raise ValueError(say('kernel._evaluate.say_what_this_run'))
-    n = (st['evals'] + 1) if kind == 'attempt' else (AUX_BASE + st['aux'] + 1) if kind in (*AUX_KINDS, 'explore') else (SMOKE_BASE + st['aux'] + 1)
+    if kind == 'probe' and extra_env:                     # registered: the line, the table and the commit say what was switched
+        desc += ' [env ' + ','.join(f'{k}={v}' for k, v in extra_env.items()) + ']'
+    n = (st['evals'] + 1) if kind == 'attempt' else (AUX_BASE + st['aux'] + 1) if kind in (*AUX_KINDS, 'explore', 'probe') else (SMOKE_BASE + st['aux'] + 1)
     tag = f"{c['branch']}/att-{n}"
     if _git(work, 'tag', '--list', tag):
         raise ValueError(say('kernel._evaluate.tag_already_exists_while', tag=tag))
@@ -1279,6 +1304,8 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         status, why = 'smoke', say('kernel._evaluate.the_evaluator_runs_and')
     elif kind in AUX_KINDS:
         status, why = kind, say('kernel._evaluate.measured_against', of=of)
+    elif kind == 'probe':
+        status, why = 'probe', say('kernel._evaluate.probe', max_evals=c['max_evals'])
     elif explore:
         status, why = 'explore', say('kernel._evaluate.explore')
     else:
@@ -1323,7 +1350,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None):
         rec = {'n': n, 'worker': key, 'commit': commit, 'metric': value, 'status': status, 'kind': kind, 'idea': idea,
                'state': 'committed', 'parent_n': (w.get('best') or {}).get('n'), 'desc': desc, 'lines': lines,
                'added': len(added), 'readded': readded, 'tuning': tuning, 'spread': spread, 'of': of, 'seed': seed,
-               'guards': guards, 'fix': fix, 'env': env_lines, 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
+               'guards': guards, 'fix': fix, 'env': env_lines, **({'env_set': extra_env} if kind == 'probe' and extra_env else {}), 'program_sha': env['CHATROOM_PROGRAM_SHA'], 'built': built_ok, 'values': values[:20], 'ts': time.time()}
         s2['attempts'].append(rec)
         if kind == 'attempt':
             s2['evals'] = n
@@ -1974,6 +2001,8 @@ def queue(room, by, desc, idea=None, kind='attempt', after=None, of=None, seed=N
         raise ValueError(say('kernel.queue.desc'))
     if after and not re.fullmatch(r'att-\d+', after):
         raise ValueError(say('kernel.queue.after'))
+    env = env_pairs(env)
+    _check_env(kind or 'attempt', env)                  # refused now, not when the run's turn comes
     entry = {'by': by, 'desc': desc, 'idea': idea, 'kind': kind or 'attempt', 'after': after, 'of': of, 'seed': seed,
              'env': env or {}, 'ts': time.time()}
     mine = (kind or 'attempt') in ('attempt', 'fix')    # a worker's own next attempt replaces its older one; planned runs pile up
@@ -2043,7 +2072,7 @@ def run_queue(room, poll=15):
             def take(q):
                 for x in list(q):
                     late = x.get('after') and int(x['after'][4:]) > c['max_evals'] and x['after'] not in done
-                    wrong = (x.get('kind', 'attempt') in ('attempt', 'fix') and st['phase'] != 2) or \
+                    wrong = (x.get('kind', 'attempt') in ('attempt', 'fix', 'probe') and st['phase'] != 2) or \
                             (x.get('kind') in AUX_KINDS and st['phase'] != 3)
                     if late or wrong:
                         q.remove(x)
@@ -2941,7 +2970,7 @@ def _cmd(room, a):
                            getattr(a, 'type', None) or 'explorer', a.force))
     if act == 'queue':
         return post(queue(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None), getattr(a, 'after', None),
-                          getattr(a, 'of', None), getattr(a, 'seed', None)))
+                          getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None)))
     if act == 'plan' and rest[:1] == ['add']:
         return post(plan(room, a.name, getattr(a, 'of', None), getattr(a, 'env', None), a.desc, getattr(a, 'worker', None),
                          getattr(a, 'kind', None) or 'ablation', getattr(a, 'idea', None)))
@@ -2953,7 +2982,7 @@ def _cmd(room, a):
         if not a.name:
             sys.exit(say('kernel._cmd.as_name_required'))
         return print(evaluate(room, a.name, a.desc, getattr(a, 'idea', None), getattr(a, 'kind', None) or ('smoke' if _state(room)[1]['phase'] == 1 else 'attempt'),
-                              getattr(a, 'of', None), getattr(a, 'seed', None)))
+                              getattr(a, 'of', None), getattr(a, 'seed', None), getattr(a, 'env', None)))
     if act == 'reanchor':
         return post(reanchor(room, a.name, _json_arg(a)))
     if act == 'resume' and rest:

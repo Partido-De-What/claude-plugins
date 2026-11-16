@@ -149,8 +149,8 @@ lunga; rispondi a ogni checkpoint). `constraints` e `closing` del brief arrivano
 Pianifica con le regole che il kernel applica: `research status` le stampa come "prossimi vincoli", con a che punto è la stanza.
 Sigillo: una smoke che ha stampato la metrica e ogni guardia, il via dell'auditor dopo l'ULTIMA smoke, HEAD uguale a quella smoke.
 Corse: in `max_evals` contano solo tentativi e fix (anche i crash; smoke, explore e i tipi della fase 3 no). Un round tiene
-`round_max` tentativi, poi lo chiude il lead. Un worker con 5 tentativi senza evidenze si ferma. Quattro cicli di fila della
-stessa famiglia sono rifiutati senza `--force`. Amend: prima di una baseline tutto; dopo solo i budget, e min_gain, guardie,
+`round_max` tentativi, poi lo chiude il lead. Un worker con 5 tentativi senza evidenze si ferma. Dopo quattro cicli di fila
+sulla stessa famiglia, un quinto è rifiutato senza `--force`. Amend: prima di una baseline tutto; dopo solo i budget, e min_gain, guardie,
 provenienza con `--reason`; una guardia relativa vuole un valore nella baseline, `abs=X` no. Genera il prompt di un worker dopo il suo `assign`, così nomina il proprio worktree.
 Lancia i worker come `chatroom:room-agent-long` e gli altri ruoli come `chatroom:room-agent` (cache di 1 ora, compattano a
 300k / 200k token), ciascuno con il suo modello ed effort.
@@ -195,6 +195,9 @@ La fase 2 va a round corti, mai a un budget grande deciso prima (`--max-evals` r
 Il primo round si apre da solo al primo tentativo; il kernel rifiuta un tentativo oltre le corse del round, e `phase next`
 mentre è aperto un round con corse. `research status` stampa il round e la sua tappa. Dai la prima risposta entro poche ore.
 Una modifica fuori sigillo (un'altra build, OpenCL, un file sigillato): `research evaluate --kind explore`, misurata, mai ufficiale.
+Una misura di servizio in fase 2 che non deve contare (un altro input, un flag nell'ambiente): `research evaluate --kind probe
+--env K=V,K2=V2 --desc "..."` (anche `research queue --kind probe --env ...`, e lo strumento MCP `research` con `env`): lo stato
+sigillato com'è, mai contata in `max_evals`, mai la migliore, l'ambiente registrato nella sua riga e nel record.
 Dopo uno stop della tua sessione (la rete, un crash): `research relaunch` elenca chi rilanciare e con quale prompt.
 Ripetizioni in un posto solo: `--repeats` del contratto oppure quelle del valutatore, mai tutte e due (3 x 4 ha fatto corse da
 30 minuti); il kernel dice quanto sono durate la smoke e la baseline. Un dispositivo usato da più agenti (un visore, una
