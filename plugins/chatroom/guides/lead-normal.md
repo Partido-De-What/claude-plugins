@@ -28,7 +28,7 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
 3. Participants: `add --participants A,B,C --profile "A|emoji|#color|role|model|effort"`. Distinct roles that disagree
    usefully (an expert, a builder, a skeptic). Names in capitals.
 4. Material the agents need (they do not inherit your conversation): write it to `ROOM/DOSSIER.md`.
-5. Brief, once: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`.
+5. Brief, once: `brief goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45`. What the user allowed (a download, a push, a publication) goes in `brief permissions="..." --as LEAD`, in the user's words: every prompt carries it, signed by you, and an agent does not count a permission you only mention in the chat.
 6. Prompts, generated: `prompt NAME --tools mcp --out ROOM/prompts/NAME.md` for each (`--tools mcp` for Claude Code agents, which have the chatroom MCP tools: a third shorter; `--tools shell` for Codex). Pass the pointer, not the text: "Read
    <absolute path of ROOM/prompts/NAME.md> and follow it", to the Agent tool (or `spawn_agent` in Codex): 25k characters each
    stay out of your context. All agents in one message, as `chatroom:room-agent` with the user's model and effort,

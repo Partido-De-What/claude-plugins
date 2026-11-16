@@ -130,7 +130,7 @@ Enforced by `chat.py`, identical for every agent, Claude Code and Codex.
 | Reopen | `reopen --as LEAD --reason`: the room goes on after a CLOSED, the old votes stop counting. |
 | Silence timer | Heartbeat 240 s; a status needs `pct`; lead and user exempt. |
 | Idle | One `--idle`, then the turn ends and the room holds the agent until a tag, the user, the lead, PLAN, VOTE or CLOSED (Codex: waits of 270 s, 540 with a 1-hour cache); double idle or idle with unread refused. |
-| Structured status | JSON `task step pct files next needs done evidence risks free_min`: cards, digest, checks. |
+| Structured status | JSON `task step pct runs_pct files next needs done evidence risks free_min`: cards, digest, checks. |
 | Plan / vote / close | Line-start headings (bold, emoji, reply ok); vote = first line; quoted lines ignored; malformed heading warned. |
 | Closing gate | `CLOSED vN` refused until every active non-author votes yes with evidence; a no is a split the lead decides; after `PLAN v3` lead/user only; `closing_gate=0` off. |
 | Evidence | Artifact = exit code, tests, `file:line`, path, `#n`, hash, link, measured time/size. Positions change only on new evidence. |

@@ -436,6 +436,35 @@ IMAGE = re.compile(r'data:image/[\w.+-]+;base64,[A-Za-z0-9+/=]+')
 IMAGE_TOKENS = 1600        # shortcut: a fixed cost per picture; width x height when a provider bills by tiles
 
 
+def quota_open(payload):
+    """True when a /usage answer shows a free quota with something left: a limit_per_day above 0 (anywhere in the answer), and no
+    `remaining` of 0 or `used` at the limit beside it"""
+    if isinstance(payload, list):
+        return any(quota_open(x) for x in payload)
+    if not isinstance(payload, dict):
+        return False
+    lim = _num(payload.get('limit_per_day'))
+    if lim:
+        left, used = _num(payload.get('remaining')), _num(payload.get('used'))
+        return lim > 0 and (left is None or left > 0) and (used is None or used < lim)
+    return any(quota_open(v) for v in payload.values() if isinstance(v, (dict, list)))
+
+
+def free_quota(provider, key, extra=None, client=None):
+    """does the key of a quota provider (catalog 'quota_usage') have a free quota open now? An answer that does not come is no"""
+    url = catalog.base_url(provider, extra).rstrip('/') + catalog.get(provider)['quota_usage']
+    h = {'Accept': 'application/json', **catalog.auth_headers(provider, key)}
+    try:
+        if client is None:
+            with httpx.Client(timeout=20) as c:
+                r = c.get(url, headers=h)
+        else:
+            r = client.get(url, headers=h)
+        return r.status_code < 400 and quota_open(r.json())
+    except (httpx.HTTPError, ValueError):
+        return False
+
+
 def list_models(provider, key=None, client=None, extra=None):
     """[{'id', 'name', 'ctx', 'max_out', 'tools', 'reasoning', 'free', 'price_in', 'price_out', 'modalities'}]: None
     where the provider does not say. Prices in dollars per million tokens"""
@@ -474,7 +503,7 @@ def list_models(provider, key=None, client=None, extra=None):
     rows = payload.get('data') if isinstance(payload, dict) else payload
     if isinstance(payload, dict) and rows is None and isinstance(payload.get('result'), list):
         rows = payload['result']                    # Cloudflare's own envelope, when the OpenRouter format is not honoured
-    out = []
+    out, quota = [], None
     for m in rows if isinstance(rows, list) else []:
         if not isinstance(m, dict) or not m.get('id'):
             continue
@@ -485,6 +514,13 @@ def list_models(provider, key=None, client=None, extra=None):
         top = m.get('top_provider') if isinstance(m.get('top_provider'), dict) else {}
         free = (str(m['id']).endswith(':free') or (pin == 0 and pout == 0) or bool(catalog.get(provider).get('all_free'))
                 or bool(m.get('free') or m.get('is_free')))
+        spec = catalog.get(provider)
+        if not free and pin is None and pout is None:         # a list with no prices: the provider's own free tier says
+            if spec.get('free_ids'):
+                free = re.search(spec['free_ids'], str(m['id']), re.IGNORECASE) is not None
+            elif spec.get('quota_usage') and key:
+                quota = free_quota(provider, key, extra, client) if quota is None else quota
+                free = quota
         out.append({'id': str(m['id']), 'name': str(m.get('name') or m['id']),
                     'ctx': m.get('context_length') or m.get('context_window') or m.get('max_context_length'),
                     'max_out': top.get('max_completion_tokens') or m.get('max_completion_tokens') or m.get('max_output_tokens'),

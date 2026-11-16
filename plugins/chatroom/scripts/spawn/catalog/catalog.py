@@ -494,6 +494,17 @@ def age_days(cat=None):
     return (time.time() - float(cat.get('updated') or 0)) / 86400 if cat.get('updated') else None
 
 
+def coverage(cat, ids, has_key):
+    """what a round can draw on: {models, routes, read, no_key, empty, failed}; the providers of `ids` that have no key (skipped
+    without a word before), those that listed models and gave no free route (a quota that is over), and those whose last read failed"""
+    st = cat.get('providers') or {}
+    have = {r['adapter'] for m in cat['models'] for r in m['routes']}
+    return {'models': len(cat['models']), 'routes': sum(len(m['routes']) for m in cat['models']),
+            'read': [p for p in ids if (st.get(p) or {}).get('ok')], 'no_key': [p for p in ids if not has_key(p)],
+            'empty': [p for p in ids if (st.get(p) or {}).get('ok') and (st[p].get('count') or 0) > 0 and p not in have],   # listed models, none free: a finished quota
+            'failed': [(p, (st.get(p) or {}).get('error', '?')) for p in ids if has_key(p) and p in st and not st[p].get('ok')]}
+
+
 STALE_DAYS = 1
 
 

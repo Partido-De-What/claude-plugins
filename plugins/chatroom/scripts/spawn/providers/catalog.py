@@ -60,10 +60,11 @@ FREE = {
     'nararoute': {'name': 'NaraRoute', 'base': 'https://router.bynara.id/v1', 'signup': 'https://router.bynara.id/keys',
                   'env': 'NARAROUTE_API_KEY', 'offer': 'free models', 'verify': ('/models', 'data', (401,))},
     'xkiro': {'name': 'xKiro', 'base': 'https://api.xkiro.com/v1', 'signup': 'https://xkiro.com/dashboard/api/keys',
-              'env': 'XKIRO_API_KEY', 'offer': ':free models', 'verify': ('/usage', 'windows', (401,))},
+              'env': 'XKIRO_API_KEY', 'offer': ':free models', 'verify': ('/usage', 'windows', (401,)),
+              'quota_usage': '/usage'},              # its free tier is a daily token quota: every listed model is free while /usage shows one open
     'llm7': {'all_free': True, 'name': 'LLM7', 'base': 'https://api.llm7.io/v1', 'signup': 'https://dash.llm7.io/', 'env': 'LLM7_API_KEY', 'offer': 'free'},
     'zai_api': {'name': 'Z.ai API', 'base': 'https://api.z.ai/api/paas/v4', 'signup': 'https://z.ai/manage-apikey/apikey-list',
-                'env': 'ZAI_API_KEY', 'offer': 'glm flash free'},
+                'env': 'ZAI_API_KEY', 'offer': 'glm flash free', 'free_ids': 'flash'},   # no prices in its list: the flash models are the free ones
     'agnes': {'name': 'Agnes AI', 'base': 'https://apihub.agnes-ai.com/v1', 'signup': 'https://agnes-ai.com/', 'env': 'AGNES_API_KEY',
               'offer': '3 flash models free'},
     'poolside': {'name': 'Poolside', 'base': 'https://inference.poolside.ai/v1', 'signup': 'https://platform.poolside.ai/',

@@ -46,7 +46,7 @@ The lead's guide for this mode: `python "CHAT" guide normal`.
 Keep the room as it is and set it up with the user, in the room: ask the topic, the goal, the participants (roles, models, effort) and the look; wait for their answer before spawning anyone. Then follow the chatroom start skill from "Decide the setup" with these differences:
 
 - the room exists: never run `init` again (it would rewrite the config); set the real topic first if init had a placeholder (`python "CHAT" config --room "ROOM" --topic "..." --subtitle "<the goal>"`: the prompts read it); add the participants with `python "CHAT" add --room "ROOM" --participants A,B,C --profile "A|<emoji>|#rrggbb|<role>|<model>|<effort>" ...` and change the look with `python "CHAT" config --room "ROOM" --title ... --subtitle ...`;
-- write the brief once: `python "CHAT" brief --room "ROOM" goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45` (left out: the room's defaults);
+- write the brief once: `python "CHAT" brief --room "ROOM" goal="..." style="..." materials="ROOM/DOSSIER.md" constraints="..." closing="..." max=45` (left out: the room's defaults). What the user allowed goes in `permissions="..." --as LEAD`, in the user's words and signed: a permission you only name in the chat is not the agents'.
 - each prompt is `python "CHAT" prompt NAME --room "ROOM" --tools mcp --out "ROOM/prompts/NAME.md"` (`--tools shell` in Codex): pass the Agent tool (or spawn_agent) the pointer "Read <absolute path of that file> and follow it", not its text. If something in it is wrong, change the brief or the config and generate it again; do not edit the prompt.
 
 ## 4b. Research

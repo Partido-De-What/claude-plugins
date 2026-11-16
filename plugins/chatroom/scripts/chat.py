@@ -178,7 +178,7 @@ IMAGE_MAX_BYTES = 20 * 1024 * 1024
 IMAGE_NAME = re.compile(r'^[A-Za-z0-9_.-]+$')
 STATUS_KINDS = ('status', 'stato', 'board', 'finding')   # 'stato': older rooms' statuses; 'board': a change of the task board
 STATE_KEYS = {'task': str, 'step': str, 'pct': int, 'files': list, 'blocked_by': str, 'next': str, 'needs': str,
-              'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str}
+              'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str, 'runs_pct': int}
 IDLE = 'idle'
 SETUP_KINDS = ('choice', 'mode')   # the mode card of init --ask-mode and the choice made on it: for the lead only
 PERCENT = re.compile(r'\d[^\S\n]?%')
@@ -1795,6 +1795,25 @@ def idle_short(room, name, text):
     return say('chat.say.idle_short', first=cut(text.strip().splitlines()[0], 200), n=last['n'])
 
 
+LONG_MSG = 3000      # characters: a message over it is kept whole in notes/ and the chat carries its start, its tags and its hash
+LONG_HEAD = 700
+
+
+def long_to_notes(room, name, text):
+    """the text of a long message: its start (to a line end), the tags the cut would lose, and the file with the whole text and its hash"""
+    import hashlib
+    sha = hashlib.sha256(text.encode('utf-8')).hexdigest()
+    path = room.dir / 'notes' / f'msg-{name}-{sha[:8]}.md'
+    if not path.is_file():
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text, encoding='utf-8')
+    head = text[:LONG_HEAD].rsplit('\n', 1)[0]
+    if len(head) < LONG_HEAD // 3 or head == text[:LONG_HEAD]:                  # a short first line and a long second one: cut at a word instead
+        head = cut(text, LONG_HEAD)
+    lost = [t for t in dict.fromkeys(re.findall(r'(?<![\w@])@([\w-]+)', text)) if not tags(head, t)]
+    return '\n'.join([head.rstrip(), *(['@' + ' @'.join(lost)] if lost else []), say('chat.say.long_to_notes', n=len(text), path=path, sha=sha[:12])])
+
+
 def cmd_post(room, a, text=None):
     if text is None:
         text = post_text(a)
@@ -1885,6 +1904,9 @@ def cmd_post(room, a, text=None):
         draft.write_text(text, encoding='utf-8')
         draft.with_name(f'{a.name}.txt').write_text(text, encoding='utf-8')    # a reply never posted ended up only in the CLOSED: the hold reminds it (the last one)
         sys.exit(say('chat.err.cmd_post.crossed', ns=', '.join(f'#{x}' for x in missed[:8]), path=draft))
+    human = {room.config().get('user_name', 'USER'), *room.config().get('user_aliases', [])}
+    if not kind and len(text) > LONG_MSG and a.name not in human and not (plan_version(text) or closing(text)[0] or decision_for_all(text)):
+        text = long_to_notes(room, a.name, text)      # a plan, a closing and a DECISION are read by everyone whole; the rest costs each reader its length
     try:
         images = [room.store_image_file(p, i) for i, p in enumerate(a.image or [])]
     except ValueError as exc:
@@ -1982,6 +2004,8 @@ def parse_state(text):
         sys.exit(say('chat.err.parse_state.error_the_status_starts', exc=exc))
     if not isinstance(d, dict) or not isinstance(d.get('pct'), (int, float)) or not 0 <= d['pct'] <= 100:
         sys.exit(say('chat.err.parse_state.error_a_json_status'))
+    if d.get('runs_pct') not in (None, '') and not (isinstance(d['runs_pct'], (int, float)) and not isinstance(d['runs_pct'], bool) and 0 <= d['runs_pct'] <= 100):
+        sys.exit(say('chat.err.parse_state.error_runs_pct'))   # pct is the agent's own part; runs_pct the part of its runs: two fields, never one number for both
     unknown = sorted(set(d) - set(STATE_KEYS))
     if unknown:
         sys.exit(say('chat.err.parse_state.error_unknown_keys_in', unknown=", ".join(unknown), STATE_KEYS=", ".join(STATE_KEYS)))
@@ -2013,6 +2037,8 @@ def state_line(st):
     """the readable line of a structured status: task: step (pct%) · files · blocked by · next · needs"""
     line = ': '.join(x for x in (st.get('task'), st.get('step')) if x) + f" ({st['pct']}%)"
     line = line.lstrip()
+    if st.get('runs_pct') is not None:
+        line += f" · {say('chat.word.lbl.runs_pct')} {st['runs_pct']}%"
     if st.get('files'):
         line += ' · ' + ', '.join(st['files'])
     for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs', 'waits_on'):
@@ -2529,8 +2555,9 @@ class Board:
                                  + (say('chat.say.fn.decide_who_changes_them') if lead
                                     else say('chat.say.fn.ask_the_lead_lead')))
             new = [f for f in files if f not in t['files']]
+            was = ', '.join(t['files']) or '-'
             t['files'] += new
-            return say('chat.say.fn.now_also_changes', id=t['id'], v2=', '.join(new) or say('chat.word.nothing_new'), name=name) + (f' · {said}' if preview else '')
+            return say('chat.say.fn.now_also_changes', id=t['id'], v=t.get('v', 1) + 1, was=was, v2=', '.join(new) or say('chat.word.nothing_new'), name=name) + (f' · {said}' if preview else '')
         return self.change(fn)
 
     def drop(self, name, tid):
@@ -3064,6 +3091,21 @@ def cmd_sources(room, a):
     print('\n'.join(got) if got else say('chat.say.cmd_sources.none'))
 
 
+def coverage_line(cat, has_key):
+    """the line before a big round: how many models and routes, the providers skipped for no key and those that failed to read"""
+    from spawn.catalog import catalog
+    from spawn.providers import catalog as providers
+    c = catalog.coverage(cat, list(providers.FREE), has_key)
+    line = say('spawn.coverage.line', models=c['models'], routes=c['routes'], read=len(c['read']))
+    if c['no_key']:
+        line += say('spawn.coverage.no_key', n=len(c['no_key']), names=', '.join(c['no_key']))
+    if c['empty']:
+        line += say('spawn.coverage.empty', n=len(c['empty']), names=', '.join(c['empty']))
+    if c['failed']:
+        line += say('spawn.coverage.failed', n=len(c['failed']), names='; '.join(f'{p} ({" ".join(e.split())[:60]})' for p, e in c['failed']))
+    return line
+
+
 def cmd_spawn(room, a):
     """chat.py spawn [create] --room ROOM: the spawn mode here (A in a room made with init --spawn, B in a normal room,
     C in a research room). One line in the chat: keys, models and roles live in the viewer's Spawn view (🛸, ?view=spawn),
@@ -3085,6 +3127,9 @@ def cmd_spawn(room, a):
             live = json.loads(urllib.request.urlopen(req, timeout=60).read())['data']
         has_key = lambda adapter: bool(load_key(adapter))
         picked = sc.pick(a.top or 60, a.ids, a.openrouter, has_key=has_key, live=live)
+        if not a.ids and not a.openrouter:            # a big round on the catalog: what it cannot use is said first
+            from spawn.catalog import catalog
+            print(coverage_line(catalog.load(), has_key))
         if a.dry:
             for i, (_, m) in enumerate(picked):
                 print(i + 1, m['canonical'], m.get('ctx', ''), [r['adapter'] for r in m['routes']])
@@ -3101,6 +3146,8 @@ def cmd_spawn(room, a):
         old = catalog.age_days()
         if catalog.stale():
             print(say('spawn.ping.old_catalog', days=f'{old:.0f}'))
+        from spawn.keys import load as load_key
+        print(coverage_line(catalog.load(), lambda p: bool(load_key(p))))
         rows = catalog.ping(a.pairs[1:] or None, getattr(a, 'top', None), vision=bool(getattr(a, 'vision', False)))
         for r in rows:
             print(f"{r['model']:<36} {r['host']:<14} {r['s']:>6.1f} s  {r['result']}")
@@ -3519,7 +3566,7 @@ MCP_TOOLS = [
          'external': {'type': 'boolean'}, 'file': {'type': 'string', 'description': 'a path: the message carries its name and sha256, the version you mean'},
          'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
                                                                                    'blocked_by, next, needs, done, evidence, risks, '
-                                                                                   'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead)'}}}},
+                                                                                   'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead), runs_pct (the percentage of your runs, when pct is your own work)'}}}},
     {'name': 'chat_wait', 'description': 'Wait for someone to write (up to 110 s; while idle 270 s, 540 s with config cache_ttl=1h). focus=true (default): what '
                                          'arrives is shown as chat_read shows it.',
      'inputSchema': {'type': 'object', 'properties': {'timeout': {'type': 'integer'}, 'focus': {'type': 'boolean'},
@@ -4104,7 +4151,7 @@ def cmd_add(room, a):
 
 # what the lead writes once about the room for the agents' prompts (chat.py brief); chat.py prompt fills the template
 # from it and from the config, so a prompt is never rewritten by hand and every agent gets the same rules
-BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests')
+BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests', 'permissions')
 
 
 def valve_line(room, name, mine=None):
@@ -4157,10 +4204,16 @@ def cmd_brief(room, a):
         key = key.strip()
         if key not in BRIEF_KEYS:
             raise ValueError(say('chat.err.cmd_brief.unknown_brief_key_use', v1=repr(key), BRIEF_KEYS=", ".join(BRIEF_KEYS)))
+        if key == 'permissions':                      # what the user allowed: only the lead (or the user) writes it, and signs it
+            if a.name not in room.user_names():
+                raise ValueError(say('chat.err.cmd_brief.permissions_signer'))
+            data['permissions_by'], data['permissions_at'] = a.name, time.strftime('%H:%M')
         data[key] = value.strip()
     if a.pairs:
         room.locked(lambda: write_atomic(room.dir / 'brief.json', json.dumps(data, indent=2, ensure_ascii=False)))
     print((say('chat.say.cmd_brief.brief_saved') if a.pairs else 'brief: ') + json.dumps(data, ensure_ascii=False))
+    if any(p.partition('=')[0].strip() == 'permissions' for p in a.pairs):    # the running agents read their prompt once: they are told where the change is
+        room.append(a.name, say('chat.say.cmd_brief.permissions_changed', by=a.name, text=cut(data['permissions'], 300) or '-') + ' @all', 'board')
 
 
 def room_agents_md(room):
@@ -4207,6 +4260,8 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
                                                str(room.dir / 'research' / 'task.md').replace('\\', '/')
                                                if (room.dir / 'research' / 'task.md').is_file() else '-'),
         **{k.upper(): data.get(k) or tr(lang, f'brief.default.{k}') for k in ('style', 'constraints', 'closing', 'max')}}
+    values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.permissions', by=data.get('permissions_by') or '-', at=data.get('permissions_at') or '-',
+                                       text=data.get('permissions') or tr(lang, 'prompt.permissions_none'))   # a permission the lead names in the chat is not in the brief: it is not the agents'
     if data.get('tests'):
         values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.tests', dirs=data['tests'])
     if data.get('lessons') != 'off':                  # what earlier rooms taught and the user kept (brief lessons=trial: the ones on trial too)
