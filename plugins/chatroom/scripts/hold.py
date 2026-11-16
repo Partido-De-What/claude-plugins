@@ -129,6 +129,7 @@ def handback(ev):
     if bump(room, f'handback_{name}') > HANDBACK_MAX:
         return None
     chat.use(room.config().get('lang'))
+    chat.note_event(room, 'hold', 'report_put_off', name, detail=why)
     return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                    'permissionDecisionReason': chat.say('chat.say.hold.report_later', why={
                                        'idle': chat.say('chat.say.hold.why_idle'), 'task': chat.say('chat.say.hold.why_task'),
@@ -171,6 +172,7 @@ def left(room, name, why=''):
                      'tasks': [t['id'] for t in chat.Board(room).load()['tasks'] if t.get('owner') == name and t['state'] == 'taken'],
                      'procs': running_procs(room, name)}
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
+        chat.note_event(room, 'hold', 'left', name, ','.join(got[name]['tasks']), why or 'nothing in hand')
     except (OSError, ValueError, KeyError):
         pass
 
@@ -243,6 +245,7 @@ def report(room, name):
     except OSError:
         return None
     chat.use(room.config().get('lang'))
+    chat.note_event(room, 'hold', 'report_asked', name)
     return {'decision': 'block', 'reason': chat.say('chat.say.hold.report_now', name=name)}
 
 

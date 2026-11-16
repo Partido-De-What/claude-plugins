@@ -424,6 +424,25 @@ def note_event(room, kind, key, name='', task='', detail=''):
         pass
 
 
+CALL = {}                # the room and the arguments of this process's command: a refusal on its way out is recorded once (main)
+LEAD_ACTS = ('rotate', 'retire', 'reopen', 'roster', 'add', 'remove')   # what a lead does by hand to keep a room going: the remedies
+
+
+def call_key(a):
+    """the command as an event key: `task:done`, `lock:acquire`, `post`"""
+    sub = (getattr(a, 'pairs', None) or [''])[0] if a.command in ('task', 'lock', 'lessons', 'notebook') else ''
+    return f"{a.command}:{sub}".rstrip(':')
+
+
+def note_refusal(code):
+    """a command that ends on a message instead of doing its work: who, which command, and the message's first line.
+    The kernel's refusals are recorded by the kernel (research._log), with the action's own name"""
+    room, a = CALL.get('room'), CALL.get('a')
+    if room is None or a is None or not isinstance(code, str) or a.command == 'research' or not room.dir.is_dir():
+        return
+    note_event(room, 'refusal', call_key(a), getattr(a, 'name', None) or '', detail=' '.join(code.split())[:200])
+
+
 def check_event(room, key):
     """a CHECK that fired, as an event: its type (cost: has two parts), the agent and the task its key names, and the whole key.
     A key without an agent (gone, silent) gets the agent's taken tasks from note_event"""
@@ -3551,6 +3570,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                 return say('chat.say.mcp_call.unknown_tool', tool=tool), True
     except SystemExit as exc:
         if exc.code not in (None, 0):
+            if isinstance(exc.code, str) and tool != 'research' and room is not None:   # the agents' tools: the same event as the shell command's
+                note_event(room, 'refusal', f"{tool}:{args.get('action', '')}".rstrip(':'), name or '', detail=' '.join(exc.code.split())[:200])
             return (out.getvalue() + str(exc.code)).strip(), True
     except ValueError as exc:
         return (out.getvalue() + f'error: {exc}').strip(), True
@@ -5917,6 +5938,14 @@ def cmd_serve(room, a):
 
 
 def main():
+    try:
+        return _main()
+    except SystemExit as exc:
+        note_refusal(exc.code)
+        raise
+
+
+def _main():
     global TOP_PID, STARTER
     import procs
     STARTER = int(os.environ.pop('CHATROOM_STARTER', 0) or procs.starter_pid())
@@ -6113,10 +6142,14 @@ def main():
                     'research': cmd_research, 'guide': cmd_guide, 'retire': cmd_retire, 'expand': cmd_expand, 'spawn': cmd_spawn,
                     'ack': cmd_ack, 'deadline': cmd_deadline, 'group': cmd_group, 'append': cmd_append, 'help': cmd_help,
                     'lessons': cmd_lessons, 'preview': cmd_preview}
+        CALL.update(room=room, a=a)
         if a.command in commands:
             if a.command in ('task', 'board', 'notebook') and getattr(a, 'name', None):
                 redeliver_missed(room, a.name)            # the commands of an agent at work: what its status missed comes again
-            return commands[a.command](room, a)
+            out = commands[a.command](room, a)
+            if a.command in LEAD_ACTS:                    # a remedy by hand: the harness learns from how often it is needed
+                note_event(room, 'lead', a.command, getattr(a, 'name', None) or '', detail=' '.join(getattr(a, 'pairs', None) or [])[:120])
+            return out
     except ValueError as exc:
         sys.exit(say('chat.err.main.error', exc=exc))
     if a.common and a.command in ('post', 'read', 'wait'):

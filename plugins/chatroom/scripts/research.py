@@ -138,6 +138,12 @@ def _log(room, by, action, detail, ok=True):
                       ensure_ascii=False)
     with open(_dir(room) / 'log.jsonl', 'a', encoding='utf-8') as f:
         f.write(line + '\n')
+    try:                                                  # the room's events too: a refusal seen seven times is a rule to change
+        from chat import note_event
+        what = detail.get('refused') if isinstance(detail, dict) and not ok else ''
+        note_event(room, 'kernel' if ok else 'refusal', action if ok else f'research:{action}', by or '', detail=what or '')
+    except Exception:
+        pass
 
 
 def _old_rows(c):
