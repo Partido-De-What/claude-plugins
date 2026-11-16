@@ -2575,6 +2575,7 @@
  "chat.word.state.dropped": "dropped",
  "spawn.ping.old_catalog": "The catalog is {days} days old and could not be updated just now (no network?): routes may be gone. Press Update in the Spawn view, or run the ping again once you are online, before a long round.",
  "chat.say.hold.draft": "Your message was NOT posted, {name}: a tag crossed it. Here it is; post it again if it still stands, or say why not:\n{text}",
+ "chat.say.cmd_alerts.wake_away": " Not at work (their run ended): {names}.",
  "chat.say.cmd_alerts.wake_summary": "WAKE (this line replaces every earlier WAKE line): board {open} open, {taken} taken, {done} done · {working} working, idle: {idle} · waiting for you: {waits}. Answer from this line; run status or read only if something here asks for it.",
  "chat.say.valve.deadline": "VALVE: {minutes} min to the deadline. Stop exploring now. From what you already know, pick the single most likely answer, finish that one thing and deliver it: task done with its proof, and what is missing in --gaps. A delivery with its gaps named beats nothing delivered.",
  "chat.say.valve.messages": "VALVE: {left} messages to your checkpoint. Open no new thread: close what you hold (task done with its proof, gaps named), so the checkpoint reports results and not intentions.",

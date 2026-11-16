@@ -582,6 +582,20 @@ def relay_pace(room, young=None):
     return int(c.get('lead_pace', 900))
 
 
+def gone_numbers(room):
+    """{name: number of its last message when it left} from gone.json (0.19.0 wrote the number alone)"""
+    return {k: g.get('n', 0) if isinstance(g, dict) else g for k, g in read_json(room.dir / 'gone.json', {}).items()}
+
+
+def turn_state(room, items, k, gone, roster):
+    """closed (it left and nothing of it since), held (its run ended and the hold keeps it), waiting, stopped (its run ended, no hold) or
+    working: what `status` shows and the WAKE line counts"""
+    ended = agent_ended(roster.get(k))
+    if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) and not used_tools_since_gone(room, k):
+        return 'closed'
+    return ('held' if ended else 'waiting') if room.in_wait(k) else 'stopped' if ended else 'working'
+
+
 def wake_summary(room):
     """one line with a wake: the board, who waits for the lead, who is idle, the next wake. A lead ran two or three
     commands after each wake to learn this, each one reading its whole context again"""
@@ -589,10 +603,12 @@ def wake_summary(room):
     c = room.config()
     people = [k for k in c.get('participants', []) if k not in c.get('left', [])]
     idle = [k for k in people if room.idle_entry(k, items)]
+    gone, roster = gone_numbers(room), room.roster()
+    away = [k for k in people if k not in idle and turn_state(room, items, k, gone, roster) in ('closed', 'stopped')]   # their run ended: not at work
     waits = [f'{k} #{n} ({int(mins)} min)' for k, n, mins, _ in waits_for_lead(room, items)]
     count = lambda s: sum(t['state'] == s for t in b['tasks'])
     return say('chat.say.cmd_alerts.wake_summary', open=count('open'), taken=count('taken'), done=count('done'),
-               waits=', '.join(waits) or '-', idle=', '.join(idle) or '-', working=len(people) - len(idle))
+               waits=', '.join(waits) or '-', idle=', '.join(idle) or '-', working=len(people) - len(idle) - len(away))         + (say('chat.say.cmd_alerts.wake_away', names=', '.join(away)) if away else '')
 
 
 def relay_down(room):
@@ -4608,11 +4624,8 @@ def cmd_status(room, a):
                    'seconds': int(time.time() - m['ts']) if 'ts' in m else None,
                    'waits_for': (m.get('text') or '').split('\n')[0][:160], 'external': bool(m.get('external'))} if m else False
     calls = {k: sum(v.values()) for k, v in room.counters().items()}
-    gone = {k: g.get('n', 0) if isinstance(g, dict) else g for k, g in read_json(room.dir / 'gone.json', {}).items()}   # 0.19.0 wrote the number alone
-    roster = room.roster()
-    ended = {k: agent_ended(roster.get(k)) for k in idle}
-    turn = {k: 'closed' if k in gone and not any(m['from'] == k and m['n'] > gone[k] for m in items) and not used_tools_since_gone(room, k)
-            else ('held' if ended[k] else 'waiting') if room.in_wait(k) else 'stopped' if ended[k] else 'working' for k in idle}      # stopped: its run ended and no hold keeps it; held: its run ended and the hold keeps it (it waits for nothing itself)
+    gone, roster = gone_numbers(room), room.roster()
+    turn = {k: turn_state(room, items, k, gone, roster) for k in idle}      # stopped: its run ended and no hold keeps it; held: its run ended and the hold keeps it (it waits for nothing itself)
     lead = [{'name': k, 'message': n, 'minutes': int(minutes), 'text': text} for k, n, minutes, text in waits_for_lead(room, items)]
     w = winding(room, items)
     closing_ = {'voted': [k for k in idle if any(m['from'] == k and m['n'] > w and not m.get('kind') for m in items)],
