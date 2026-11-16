@@ -6289,7 +6289,7 @@ def _main():
     p.add_argument('--after', help='research queue: start the run only after this one (att-N) is recorded')
     p.add_argument('--for', dest='for_room', help='research hold: the GPU window is for this other room (its title or folder)')
     p.add_argument('--final-dry', dest='final_dry', help='research init/amend: a dry run of the final evaluator, run at the seal: it loads the held-out data and its references, measures nothing, exits 0')
-    p.add_argument('--dry', action='store_true', help='research final: only the final evaluator\'s dry run (--final-dry), at any time from phase 2')
+    p.add_argument('--dry', action='store_true', help='research final: only the final evaluator\'s dry run (--final-dry), at any time from phase 2; spawn consult: list the models, ask nothing')
     p.add_argument('--artifacts', help='research init/amend: files or folders of the worktree the evaluator writes (audio, plots); each run\'s are copied to runs/N/artifacts, comma separated')
     p.add_argument('--build-dir', dest='build_dir', nargs='?', const='shared',
                    help='research init/amend: one stable build folder for every worktree (a path, or nothing for one beside them; off clears it): the build script finds it in CHATROOM_BUILD_DIR')
