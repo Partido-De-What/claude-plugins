@@ -164,7 +164,7 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
-             'heartbeat': int, 'lead_pace': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
+             'heartbeat': int, 'lead_pace': int, 'lead_pace_runs': int, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
              'cache_ttl': str, 'thumbs': int, 'vision': int, 'idlefree': str}
 CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h'), 'idlefree': ('on', 'off')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
@@ -554,6 +554,28 @@ def relay_command(room, name):
 
 
 URGENT = re.compile(r'\bURGENT[EI]?\b')              # in capitals, in a message for the lead: it does not wait for the pace
+BLOCKED = re.compile(r'\b(?:BLOCKED|BLOCKER|BLOCCAT[OAIE])\b')   # in capitals like URGENT: \"blocco 3\" is a measuring block in a research room
+
+
+def declares_block(m):
+    """a message that says its author is stuck (a blocked_by in the status, or BLOCKED in capitals): when it tags the lead it does not
+    wait for the pace either, a viewer was left still for 15 minutes behind one"""
+    st = m.get('state')
+    return bool(isinstance(st, dict) and st.get('blocked_by')) or bool(BLOCKED.search(m.get('text', '')))
+
+
+def relay_pace(room, young=None):
+    """seconds the relay gathers lines for the lead into one wake: close at the start (lead_pace_start, 180, for the first
+    lead_warmup minutes, 20), then lead_pace (900), or lead_pace_runs (1200) in phase 2 of a research room, where the lead waits for runs"""
+    c = room.config()
+    if young is None:
+        first = next((float(m.get('ts') or 0) for m in room.messages()), time.time())
+        young = time.time() - first < 60 * int(c.get('lead_warmup', 20))
+    if young:
+        return int(c.get('lead_pace_start', 180))
+    if read_json(room.dir / 'research' / 'state.json', {}).get('phase') == 2:
+        return int(c.get('lead_pace_runs', 1200))
+    return int(c.get('lead_pace', 900))
 
 
 def wake_summary(room):
@@ -4150,16 +4172,17 @@ def alert_lines(room, items, users):
     return out
 
 
-def watch_line(m, users):
+def watch_line(m, users, whole=False):
     """one compact line per real message, for a lead that watches the room on a budget: no statuses, no tools; a no vote
-    is marked, because the lead reviews a split"""
+    is marked, because the lead reviews a split. whole: the text is not cut (a message that tags the lead)"""
     text = ' '.join(m.get('text', '').split())
     votes = votes_in(m.get('text', ''))
     pv = plan_version(m.get('text', ''))
     kind = ('PLAN' + (' (v{} > {}: LEAD DECIDES)'.format(pv, PLAN_MAX) if pv > PLAN_MAX else '') if pv is not None
             else 'VOTE-NO (LEAD REVIEW)' if any(not yes for _, yes in votes) else 'VOTE' if votes
             else 'CLOSED' if closing(m.get('text', ''))[0] else 'USER' if m.get('from') in users else 'MSG')
-    return f"WATCH #{m['n']} {kind} {m['from']}: {text[:220]}" + (' [...]' if len(text) > 220 else '')
+    cut_at = len(text) if whole else 220
+    return f"WATCH #{m['n']} {kind} {m['from']}: {text[:cut_at]}" + (' [...]' if len(text) > cut_at else '')
 
 
 IDLEFREE_AFTER = 120      # seconds an agent sleeps next to a free task before the harness gives it the task
@@ -4212,7 +4235,10 @@ def cmd_alerts(room, a):
     spoke, info = [], []                              # spoke: when lines that need the lead came; info: the others, held back
     stream = getattr(a, 'stream', False)
     until, fixed = getattr(a, 'until_line', False) or stream, getattr(a, 'batch', None)
-    held, leads, rush = [], room.config().get('self_names', []), []
+    held, rush = [], []
+    relay_leads = [a.name] if a.name else room.config().get('self_names', [])[:1]   # the lead this relay speaks for: a message of another lead is news to it
+    if not a.name and len(room.config().get('self_names', [])) > 1:
+        print(say('chat.say.cmd_alerts.pass_as', name=relay_leads[0]), flush=True)
 
     def batch():
         """how long lines for the lead are gathered into one wake. --batch N: N seconds. Without it the pace of the room:
@@ -4224,10 +4250,7 @@ def cmd_alerts(room, a):
             return int(fixed)
         if stream:
             return 20
-        c = room.config()
-        first = next((float(m.get('ts') or 0) for m in room.messages()), time.time())
-        young = time.time() - first < 60 * int(c.get('lead_warmup', 20))
-        return int(c.get('lead_pace_start', 180)) if young else int(c.get('lead_pace', 900))
+        return relay_pace(room)
 
     def out(*x, act=True, urgent=False, **k):
         """--until-line and --stream wake the lead only for what needs it (the user, a tag to it, a plan, a vote, a
@@ -4261,7 +4284,7 @@ def cmd_alerts(room, a):
         kind = line.split(' ', 3)[2] if line.startswith('WATCH #') else ''
         if m.get('kind') == 'board':                  # the kernel: a new global best, a crash or a verdict (the lead moves the phase), not every run
             return bool(re.search(r'NEW GLOBAL BEST|NUOVO MIGLIORE GLOBALE|CRASH|(?i:verdetto|verdict)', m.get('text', '')))
-        return kind != 'MSG' or (any(tags(m.get('text', ''), n) for n in leads) and not is_ack(m.get('text', '')))
+        return kind != 'MSG' or (any(tags(m.get('text', ''), n) for n in relay_leads) and not is_ack(m.get('text', '')))
     seen_path = room.dir / f'checks_seen{name}.json'   # the relay restarts every 30 min: what it said stays said
     try:
         seen_checks = set(json.loads(seen_path.read_text(encoding='utf-8')))
@@ -4307,13 +4330,13 @@ def cmd_alerts(room, a):
             if a.messages:
                 research_room = (room.dir / 'research' / 'contract.json').is_file()
                 for m in new:
-                    if m.get('from') in room.config().get('self_names', []):
+                    if m.get('from') in relay_leads:
                         continue
-                    tagged = any(tags(m.get('text', ''), n) for n in leads)   # a status or a finding that tags the lead wakes it too
+                    tagged = any(tags(m.get('text', ''), n) for n in relay_leads)   # a status or a finding that tags the lead wakes it too
                     if not m.get('kind') or (research_room and m['kind'] == 'board') or tagged:   # the kernel's runs are board lines
-                        line = watch_line(m, users)
+                        line = watch_line(m, users, whole=tagged)
                         out(line, act=(tagged and not is_ack(m.get('text', ''))) or needs_lead(m, line), flush=True,
-                            urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0])
+                            urgent=bool(URGENT.search(m.get('text', ''))) or closing(m.get('text', ''))[0] or (tagged and declares_block(m)))
                         said = time.time()
                     elif m['kind'] in ('status', 'idle'):
                         quiet[m['from']] = (m['kind'], m.get('text', '').split(':', 1)[0][:12])
@@ -4323,7 +4346,7 @@ def cmd_alerts(room, a):
                     quiet.clear()
                     said = time.time()
                 from inbox import mark_delivered     # the lead has them from its relay: the alarm clock and the mod stay quiet
-                for lead in room.config().get('self_names', [])[:1]:
+                for lead in relay_leads[:1]:
                     mark_delivered(room.dir, lead, new[-1]['n'])
             room.set_cursor(name, new[-1]['n'])
         for line in lend_lines(room) + study_lines(room) + skill_lines(room):

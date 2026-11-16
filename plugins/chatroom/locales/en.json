@@ -219,6 +219,7 @@
  "chat.say.closing_refusal.there_is_no_plan2": "there is no PLAN v{v} in the chat",
  "chat.say.cmd_add.posts_as_a_lead": "; {name} posts as a lead",
  "chat.say.cmd_add.room_participants_now": "room {dir}: participants now {participants}",
+ "chat.say.cmd_alerts.pass_as": "RELAY this room has several leads: this relay speaks for {name} only. Start one for each lead with --as NAME",
  "chat.say.cmd_alerts.relay_a_newer_relay": "RELAY a newer relay of this lead took over: this one stops",
  "chat.say.cmd_alerts.relay_closed": "RELAY the room is closed: this relay stops (started again by the lead if the room reopens)",
  "chat.say.cmd_brief.brief_saved": "brief saved: ",
