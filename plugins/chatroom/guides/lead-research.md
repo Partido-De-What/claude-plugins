@@ -98,7 +98,9 @@ python CHAT research init --room ROOM --as LEAD --repo <repository> --program <f
 `--precheck` runs before every run and must exit 0 (idle VRAM under a limit, no stray server): a failed check refuses
 the run and counts nothing. It also tells a run that died with the machine from one that died with the program: if a run
 crashes and the precheck fails right after, the run is `invalid` (aux number, row in results.tsv, event `run-invalid`),
-the budget and the round do not move, and the same code runs again once the machine is back. Put a rule the machine
+the budget and the round do not move, and the same code runs again once the machine is back. A queued run the
+precheck refuses (or that ends invalid) stays in the queue and tries again every 5 minutes (event `queue-retry`; its
+author is told at the first refusal and every sixth try, and after 72 tries it is dropped with a line). Put a rule the machine
 needs there from the start, not after a lost run. `--final-dry` is
 a command run at the seal: it loads the held-out data and their references and measures nothing, so a broken final shows
 now and not in phase 4 (one night lost a 16-minute build and an hour of GPU to it); without it the seal only warns.
@@ -178,6 +180,19 @@ for them to claim it with their own `research hold`.
 A holder that falls (its run ended and no wait or stop hold keeps it) loses the hold at once, not at its expiry: the
 kernel releases it at the next `research status`, `evaluate`, `hold` or turn of the runner, moves the line on and says so
 on the board, naming the holder and what it left running.
+Work in batches (a list of queued runs) needs no polling of the log and no "LIST FINISHED" marker of your own:
+`research wait --runs N [--minutes M]` (run it in the background) returns when N new runs are closed, or when the queued
+list is finished, or after M minutes (default 60), with the closed runs' lines. When the queue runs dry after runs it
+started, the kernel posts one line tagging the auditors and the authors ("the queued list is finished: N runs closed,
+best att-X"), and a keep that is a new best on its line tags the auditor.
+A run's class and level are fields, not a description prefix: `evaluate` and `queue` take `--class X --level N` (short
+words), kept in the attempt's record and said on its line. Ideas set aside go to the kernel's register, not to a file kept
+by hand: `research shelve --text "..." [--class X --level N --value V]`, `research shelved` (the list, with the count and
+the sum of the values per class), `research unshelve S2`; status counts them per class.
+`research dry-eval [--evaluate "CMD"] [--worker NAME]` tries the evaluator once in a worktree, with the contract's
+environment, under the evaluator's lock, and prints the metric, the guards, the protocol and the seconds, or why it
+failed. It records nothing (no commit, number, row or state) and does not run the build; `--evaluate` tries a candidate
+command in place of the contract's.
 
 ## 4. Phase 2: investigation, the loop you run
 
@@ -187,7 +202,7 @@ Phase 2 goes by short rounds, never by a big budget decided before (`--max-evals
 |---|---|---|
 | 1. Analyse | you, AUDITOR | the situation and the numbers so far; at the baseline the kernel prints the noise it measured and the `--min-gain` it suggests (twice the noise) |
 | 2. Search the web | SEARCHER, PROPOSER | ideas with their sources, each checked against what the room already measured |
-| 3. Test | WORKER | 5-10 short runs (`--round N` in init, 10 by default); a keep that gains under 10% is measured again by itself before it counts |
+| 3. Test | WORKER | 5-10 short runs (`--round N` in init, 10 by default); a keep that gains under 10% is measured again by itself before it counts (the board says "measuring once more"; the replica is not one of the runs). `--budget-min` is the budget of each measure: over it the run line says so, over twice it the measure is killed; `init` prints both limits and the round size |
 | 4. Read the results | REGISTRAR, AUDITOR | the round's conclusion from its runs; the auditor reads every keep |
 | 5. Search the web | SEARCHER | on those results |
 | 6. Decide | you, with the user | `research round close --decision more --text "..."` opens the next round, `--decision done` lets phase 3 follow |

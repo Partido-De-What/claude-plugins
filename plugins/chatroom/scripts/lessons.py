@@ -352,7 +352,7 @@ def closing(room):
 
     def block(title, rows):
         out.append(title)
-        for reach in REACH:
+        for reach in labels:                              # the topic's lessons have their own part below
             out.append('  ' + labels[reach])
             mine = [p for p in rows if p['reach'] == reach]
             out.extend(f"    {p.get('lesson') or p['id']} (score {p['score']}) {p['text']}" + (f" · {p['note']}" if p.get('note') else '') for p in mine)
@@ -368,6 +368,12 @@ def closing(room):
     if creator():
         block(say('lessons.close.session'), [p for p in items if p['status'] == 'presented' and p['kind'] != 'plugin'])
         block(say('lessons.close.plugin'), [p for p in items if p['status'] == 'presented' and p['kind'] == 'plugin'])
+    slug = topic_of(room)
+    if slug:                                              # d. what the topic holds: each lesson with what it promised, to accept or retire
+        out.append(say('lessons.close.topic', slug=slug))
+        rows = [x for x in load_topic(slug)['lessons'] if x.get('status') in ('trial', 'proposed', 'active')]
+        out.extend(f"    {x['id']} [{x['status']}] {x['text']} -> {x.get('expect', '')} · {say('lessons.rooms', n=len(x.get('rooms', [])))}" for x in rows)
+        out.append('    -' if not rows else say('lessons.close.topic_how', slug=slug))
     return out
 
 

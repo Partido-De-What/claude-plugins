@@ -65,6 +65,7 @@ def research_room(name, participants='W', extra=(), evaluate=None, eval_src=EVAL
             '--tag', name, '--as', 'LEAD', *extra]
     c, o = run(room, *args)
     assert c == 0, o
+    research_room.last = o                            # the init's own output
     return room, repo, room / 'research' / 'work'
 
 
@@ -429,6 +430,160 @@ if section('K4'):                                                     # a run th
     c, o = run(room, 'research', 'evaluate', '--desc', 'program dies', '--as', 'W')
     ok('K4 a crash with the machine fine is still a crash and counts', 'CRASH' in o and state(room)['evals'] == 3
        and list(state(room)['workers'].values())[0]['crashes'] == 1, o)
+
+# ---------------------------------------------------------------------------------------------------------------- K5
+if section('K5'):                                                     # a queued run the machine cannot take waits and tries again
+    import threading
+    flag = BASE / 'k5-machine-down'
+    pre = BASE / 'k5_precheck.py'
+    pre.write_text(f'import os, sys\nsys.exit(1 if os.path.exists(r"{flag}") else 0)\n')
+    ev = (f'import program, os, sys\nif program.X == 3 and not os.path.exists(r"{flag}.once"):\n    open(r"{flag}", "w").write("x")\n'
+          f'    open(r"{flag}.once", "w").write("x")\n    sys.exit(1)\nprint("loss:", (program.X - 2) ** 2)\n')     # X 3 kills the machine once
+    room, repo, work = research_room('k5', extra=['--precheck', f'"{sys.executable}" "{pre}"'], eval_src=ev)
+    run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    (work / 'program.py').write_text('X = 3\n')
+    flag.write_text('down')                                           # the machine is not ready when the run's turn comes
+    room_obj = chat.Room(str(room))
+    old_retry = getattr(research, 'QUEUE_RETRY_S', 300)
+    research.QUEUE_RETRY_S = 1
+    research._queue_edit(room_obj, lambda q: q.append({'by': 'W', 'desc': 'queued X 3', 'idea': None, 'kind': 'attempt', 'after': None,
+                                                       'of': None, 'seed': None, 'env': {}, 'ts': time.time()}))
+    th = threading.Thread(target=research.run_queue, args=(room_obj, 0.2), daemon=True)
+    th.start()
+
+    def until(cond, secs=12):
+        for _ in range(int(secs * 5)):
+            if cond():
+                return True
+            time.sleep(0.2)
+        return False
+    queued = lambda: research._queue(room_obj)
+    ok('K5 a run the precheck refuses stays in the queue with its tries', until(lambda: queued() and queued()[0].get('tries', 0) >= 2)
+       and queued()[0]['desc'] == 'queued X 3' and state(room)['evals'] == 1, queued())
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K5 its author is told once on the board', text.count('stays in the queue') == 1 and '"queue-retry"' in (room / 'research' / 'log.jsonl').read_text(encoding='utf-8'), text.count('stays in the queue'))
+    flag.unlink(missing_ok=True)                                                     # the machine is back: the run starts, and the machine dies under it
+    ok('K5 a run that ends invalid is queued again', until(lambda: any(a['status'] == 'invalid' for a in state(room)['attempts']))
+       and until(lambda: queued() and queued()[0].get('tries', 0) >= 1 and flag.exists()), (state(room)['attempts'][-1:], queued()))
+    flag.unlink(missing_ok=True)                                                     # fixed again: the same code runs and counts
+    ok('K5 the retry runs the same code as att-2', until(lambda: state(room)['evals'] == 2) and not queued()
+       and state(room)['attempts'][-1]['status'] == 'keep', (state(room)['evals'], queued()))
+    th.join(15)
+    ok('K5 the runner ends with the queue', not th.is_alive())
+    research.QUEUE_RETRY_S = old_retry
+
+# ---------------------------------------------------------------------------------------------------------------- K17
+if section('K17'):                                                    # a wake for "N runs closed" or "the list is finished", and the auditor told
+    import threading
+    room, repo, work = research_room('k17', participants='W,A')
+    c, o = run(room, 'research', 'roles', 'WORKER=W', 'AUDITOR=A', '--as', 'LEAD')
+    c, o = run(room, 'research', 'wait', '--as', 'LEAD')
+    ok('K17 wait with nothing queued and no count says so at once', c == 0 and 'nothing to wait for' in o, o)
+    c, o = run(room, 'research', 'wait', '--runs', '1', '--minutes', '0.03', '--as', 'LEAD')
+    ok('K17 wait --runs gives up at --minutes and says how many closed', c == 0 and 'min passed with 0 new runs' in o, o)
+    room_obj = chat.Room(str(room))
+    got = {}
+    th = threading.Thread(target=lambda: got.update(t=research.wait_runs(room_obj, runs=2, minutes=1, poll=0.2)), daemon=True)
+    th.start()
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K17 one run closed does not wake a wait for two', th.is_alive() or 'att-1' not in got.get('t', ''), got)
+    (work / 'program.py').write_text('X = 3\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'X 3', '--as', 'W')
+    th.join(15)
+    ok('K17 two closed runs wake it with their lines', not th.is_alive() and 'att-1' in got['t'] and 'att-2' in got['t'] and 'are closed' in got['t'], got)
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K17 a keep tags the auditor on the run line (not the baseline)', text.count('a new best to check') == 1 and '@A' in text, text.count('a new best to check'))
+    # the queued list: wait without a count returns when the runner has emptied the queue
+    (work / 'program.py').write_text('X = 4\n')
+    research._queue_edit(room_obj, lambda q: q.append({'by': 'W', 'desc': 'queued X 4', 'idea': None, 'kind': 'attempt', 'after': None,
+                                                       'of': None, 'seed': None, 'env': {}, 'ts': time.time()}))
+    got.clear()
+    tw = threading.Thread(target=lambda: got.update(t=research.wait_runs(room_obj, minutes=1, poll=0.2)), daemon=True)
+    tw.start()
+    tr = threading.Thread(target=research.run_queue, args=(room_obj, 0.2), daemon=True)
+    tr.start()
+    tw.join(40)
+    ok('K17 wait returns when the queued list is finished, with the run', not tw.is_alive() and 'list is finished' in got.get('t', '')
+       and 'att-3' in got['t'], got)
+    tr.join(15)
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K17 the runner says once the list is finished and tags the auditor and the author', text.count('the queued list is finished:') == 1
+       and '@A @W' in text and 'list is finished: 1 runs closed' in text, text[-600:])
+
+# ---------------------------------------------------------------------------------------------------------------- K11
+if section('K11'):                                                    # soft budget, --round confirmed, replica said, noise advice only when the noise is unknown
+    SLOW = 'import program, time\ntime.sleep(1.4)\nprint("loss:", 100 - program.X)\n'
+    room, repo, work = research_room('k11', extra=['--budget-min', '0.02', '--round', '7'], eval_src=SLOW)
+    init = research_room.last
+    ok('K11 init says what the budget is and when it kills', 'Budget: 1 s' in init and 'over 2 s' in init and 'does not count in the runs' in init, init)
+    ok('K11 init confirms --round', '7 runs (--round)' in init, init)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K11 a measure over the budget (not yet the kill) is said on the run line', c == 0 and 'KEEP' in o and 'over the 1 s budget' in o and 'killed at 2 s' in o, o)
+    ok('K12 without a reference or repeats the baseline still says the noise is unknown', 'noise is unknown' in o, o)
+    (work / 'program.py').write_text('X = 6\n')                        # 94 against 95: a gain of about 1%, under the 10% that gets a second measure
+    c, o = run(room, 'research', 'evaluate', '--desc', 'small gain', '--as', 'W')
+    text = ' '.join(p.read_text(encoding='utf-8', errors='ignore') for p in room.glob('*') if p.is_file())
+    ok('K13 the automatic replica is announced on the board before it runs', c == 0 and 'measuring att-2 once more' in text, text[-400:])
+    room, repo, work = research_room('k12', extra=['--draft'])
+    c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke', '--as', 'W')
+    ok('K12 a smoke says the noise is unknown while the contract has no reference', 'noise is unknown' in o, o)
+    c, o = run(room, 'research', 'amend', '--info', 'mem', '--reference', 'mem', '--reason', 'reference arm', '--as', 'LEAD')
+    c, o = run(room, 'research', 'evaluate', '--kind', 'smoke', '--desc', 'smoke 2', '--as', 'W')
+    ok('K12 with a reference arm in the contract the advice is silent', c == 0 and 'noise is unknown' not in o, o)
+
+# ---------------------------------------------------------------------------------------------------------------- K10
+if section('K10'):                                                    # class and level in the attempt; a register of shelved ideas with its sums
+    room, repo, work = research_room('k10')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--class', 'explore', '--level', '2', '--as', 'W')
+    st = state(room)
+    ok('K10 an attempt keeps its class and level as fields', c == 0 and st['attempts'][0].get('cls') == 'explore' and st['attempts'][0].get('level') == '2', (c, o))
+    ok('K10 the run line says them', 'class explore, level 2' in o, o)
+    (work / 'program.py').write_text('X = 4\n')
+    c, o = run(room, 'research', 'evaluate', '--desc', 'bad class', '--class', 'not a word!', '--as', 'W')
+    ok('K10 a class that is not a short word is refused before the run', c != 0 and 'short word' in o and state(room)['evals'] == 1, o)
+    c, o = run(room, 'research', 'queue', '--desc', 'queued one', '--class', 'tuning', '--level', '1', '--as', 'W')
+    ok('K10 queue takes them too', c == 0 and '"cls": "tuning"' in (room / 'research' / 'log.jsonl').read_text(encoding='utf-8'), o)
+    t0 = time.time()
+    while time.time() - t0 < 40 and state(room)['evals'] < 2:
+        time.sleep(1)
+    last = state(room)['attempts'][-1]
+    ok('K10 the queued run carries them into its record', last.get('cls') == 'tuning' and last.get('level') == '1', last)
+    c, o = run(room, 'research', 'shelve', '--text', 'wider search', '--class', 'explore', '--level', '1', '--value', '0.5', '--as', 'W')
+    ok('K10 shelve registers an idea', c == 0 and 'S1' in o, o)
+    c, o = run(room, 'research', 'shelve', '--text', 'bigger batch', '--class', 'explore', '--value', '1.5', '--as', 'W')
+    c, o = run(room, 'research', 'shelve', '--text', 'other thing', '--class', 'misc', '--as', 'W')
+    c, o = run(room, 'research', 'shelved', '--as', 'LEAD')
+    ok('K10 shelved lists them with the sum per class', c == 0 and 'S1 [explore L1]' in o and 'S3' in o and 'explore 2 (sum 2)' in o and 'misc 1 (sum 0)' in o and '3 shelved' in o, o)
+    c, o = run(room, 'research', 'status', '--as', 'LEAD')
+    ok('K10 status counts them per class', 'shelved: 3 (explore 2, misc 1)' in o, o)
+    c, o = run(room, 'research', 'unshelve', 'S2', '--as', 'W')
+    c2, o2 = run(room, 'research', 'unshelve', 'S2', '--as', 'W')
+    c3, o3 = run(room, 'research', 'shelved', '--as', 'LEAD')
+    ok('K10 unshelve takes one off, an unknown id is refused', c == 0 and c2 != 0 and 'S2' not in o3 and '2 shelved' in o3, (o, o2, o3))
+    c, o = run(room, 'research', 'shelve', '--text', 'x', '--value', 'many', '--as', 'W')
+    ok('K10 a value that is not a number is refused', c != 0 and 'not a number' in o, o)
+
+# ---------------------------------------------------------------------------------------------------------------- K18
+if section('K18'):                                                    # the evaluator tried outside the kernel: nothing recorded
+    cand = BASE / 'k18_cand.py'
+    cand.write_text('print("loss: 4")\nprint("protocol: dry")\n')
+    bad = BASE / 'k18_bad.py'
+    bad.write_text('import sys\nprint("boom")\nsys.exit(3)\n')
+    room, repo, work = research_room('k18')
+    c, o = run(room, 'research', 'dry-eval', '--as', 'W')
+    ok('K18 dry-eval runs the contract evaluator and prints the metric', c == 0 and 'loss = 9' in o and 'Nothing recorded' in o, o)
+    ok('K18 it guards: the guard-less contract prints no guard', 'mem' not in o, o)
+    c, o = run(room, 'research', 'dry-eval', '--evaluate', f'"{sys.executable}" "{cand}"', '--as', 'W')
+    ok('K18 a candidate command can be tried instead', c == 0 and 'loss = 4' in o and 'protocol dry' in o, o)
+    c, o = run(room, 'research', 'dry-eval', '--evaluate', f'"{sys.executable}" "{bad}"', '--as', 'W')
+    ok('K18 a failing evaluator says why, still records nothing', 'dry-eval failed' in o and 'exit' in o, o)
+    st = state(room)
+    tsv = (room / 'research' / 'results.tsv').read_text(encoding='utf-8').splitlines()
+    ok('K18 no run, no number, no pending, no row', st['evals'] == 0 and not st['attempts'] and not st['pending'] and st['aux'] == 0 and len(tsv) == 1, (st, tsv))
+    ok('K18 no commit and no tag in the worktree, no lock left', git('log', '--oneline', cwd=work).stdout.count('att-') == 0
+       and not git('tag', '--list', cwd=work).stdout.strip() and not (room / 'research' / 'eval.lock').exists(), git('log', '--oneline', cwd=work).stdout)
+    c, o = run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    ok('K18 the real baseline is still att-1', c == 0 and 'att-1' in o and 'KEEP' in o, o)
 
 print(f'\n{"FAIL" if fails else "ok"}: {fails} failed', flush=True)
 sys.exit(1 if fails else 0)
