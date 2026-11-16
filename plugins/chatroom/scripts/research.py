@@ -2281,6 +2281,38 @@ def seal(room, by, sealed=(), stay=False):
     return _locked(room, c, by, lambda: _seal(room, by, sealed, stay))
 
 
+def reseal(room, by, reason):
+    """the lead reopens the drafting to correct a measuring instrument found faulty after the baseline (a check that kills
+    honest gains, a wrong reference): the research goes back to phase 1 with its history. Every run so far is stamped with
+    its era (measured with the old instrument) and keeps its number, its tag and its row; best and baseline are cleared, so
+    the evaluator can be amended; then the usual gates apply again: a smoke, the auditor's verdict on it, the seal, a new
+    baseline. Before this the only way was to move the research folder away and start over"""
+    if by not in room.user_names():
+        raise ValueError(say('kernel.reseal.only_the_lead'))
+    if not (reason or '').strip():
+        raise ValueError(say('kernel.reseal.say_why'))
+    c, st = _state(room)
+    if st['phase'] != 2:
+        raise ValueError(say('kernel.reseal.phase', phase=st['phase'], name=phase_name(st['phase'])))
+    if _run_alive(room) or _queue(room):
+        raise ValueError(say('kernel.reseal.runs_first'))
+
+    def apply(c2, s2):
+        era = int(s2.get('era', 1))
+        old = [a for a in s2['attempts'] if 'era' not in a]
+        for a in old:
+            a['era'] = era
+        s2.setdefault('reseals', []).append({'by': by, 'reason': ' '.join(reason.split())[:400], 'ts': time.time(), 'era': era,
+                                             'best': s2.get('best'), 'baseline': s2.get('baseline'), 'runs': len(old)})
+        s2.update(era=era + 1, phase=1, best=None, baseline=None, smoke_ok=None, wait_go=False)
+        for w in s2['workers'].values():
+            w['best'] = None
+        return era, len(old)
+    era, runs = _edit(room, apply)
+    _log(room, by, 'reseal', {'reason': reason, 'era': era, 'runs': runs})
+    return say('kernel.reseal.done', by=by, era=era, runs=runs, reason=' '.join(reason.split())[:200], program=c['program'], tag=c.get('tag', ''))
+
+
 def _seal(room, by, sealed, stay=False):
     c, st = _state(room)
     if st['phase'] != 1:
@@ -2668,6 +2700,8 @@ def status(room):
     if c.get('guards'):                                   # the limit each guard enforces now, not only its tolerance
         base_g = (st.get('baseline') or {}).get('guards') or {}
         head += say('kernel.status.guards', items='; '.join(_guard_line(g, base_g.get(g['name'])) for g in c['guards']))
+    if st.get('reseals'):                                 # the runs of an earlier era were measured with another instrument
+        head += say('kernel.status.era', era=st.get('era', 1), runs=sum(1 for a in st['attempts'] if 'era' in a), reason=st['reseals'][-1]['reason'][:120])
     base = st.get('baseline') and next((a for a in st['attempts'] if a['n'] == st['baseline']['n']), None)
     if base and len(base.get('values') or []) >= 2 and best and best['n'] != base['n']:
         sigma = statistics.stdev(base['values'])               # report only: the keep rule stays the contract's
@@ -2940,6 +2974,8 @@ def _cmd(room, a):
         return post(verdict(room, a.name, getattr(a, 'phase', None) or data.get('phase', 0), getattr(a, 'outcome', None) or data.get('outcome'),
                             data.get('scores'), data.get('coverage'), data.get('missing'), getattr(a, 'next_intent', None) or data.get('next_intent'),
                             data.get('notes', '')))
+    if act == 'reseal':
+        return post(reseal(room, a.name, getattr(a, 'reason', None)))
     if act == 'seal':
         return post(seal(room, a.name, split(a.sealed), bool(getattr(a, 'stay', False))))
     if act == 'phase':
