@@ -174,7 +174,7 @@ IMAGE_MAX_BYTES = 20 * 1024 * 1024
 IMAGE_NAME = re.compile(r'^[A-Za-z0-9_.-]+$')
 STATUS_KINDS = ('status', 'stato', 'board', 'finding')   # 'stato': older rooms' statuses; 'board': a change of the task board
 STATE_KEYS = {'task': str, 'step': str, 'pct': int, 'files': list, 'blocked_by': str, 'next': str, 'needs': str,
-              'done': str, 'evidence': list, 'risks': str, 'free_min': int}
+              'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str}
 IDLE = 'idle'
 SETUP_KINDS = ('choice', 'mode')   # the mode card of init --ask-mode and the choice made on it: for the lead only
 PERCENT = re.compile(r'\d[^\S\n]?%')
@@ -481,10 +481,13 @@ def waits_for_lead(room, items=None, only=None, now=None):
         m = next((x for x in reversed(items) if x['from'] == k and x.get('kind') != 'board'), None)
         if k in c.get('left', []) or not m or m.get('kind') not in (None, IDLE):
             continue
-        text = m.get('text', '')
-        if not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
+        text, on = m.get('text', ''), (m.get('state') or {}).get('waits_on')
+        if on:                                        # structured: who it waits for says it, the text is not guessed at
+            if not any(names(str(on), n) for n in leads):
+                continue
+        elif not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
             continue                                  # a report to the lead is no question: 49 of 55 such CHECKs were noise
-        if any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
+        elif any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
             continue                                  # written to another agent, the lead only named in it
         said = [x.get('text', '') for x in items if x['n'] > m['n'] and x['from'] in users and not x.get('kind')]
         if not any(tags(t, k) or tags_everyone(t) or not re.search(r'(?<![\w.])@\w', t) for t in said):
@@ -1853,7 +1856,7 @@ def state_line(st):
     line = line.lstrip()
     if st.get('files'):
         line += ' · ' + ', '.join(st['files'])
-    for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs'):
+    for key in ('done', 'evidence', 'risks', 'blocked_by', 'next', 'needs', 'waits_on'):
         if st.get(key):
             line += f" · {say('chat.word.lbl.' + key)}: " + ('; '.join(st[key]) if key == 'evidence' else str(st[key]))
     if st.get('free_min'):
@@ -3276,7 +3279,7 @@ MCP_TOOLS = [
          'external': {'type': 'boolean'}, 'file': {'type': 'string', 'description': 'a path: the message carries its name and sha256, the version you mean'},
          'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
                                                                                    'blocked_by, next, needs, done, evidence, risks, '
-                                                                                   'free_min (minutes you expect to wait still)'}}}},
+                                                                                   'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead)'}}}},
     {'name': 'chat_wait', 'description': 'Wait for someone to write (up to 110 s; while idle 270 s, 540 s with config cache_ttl=1h). focus=true (default): what '
                                          'arrives is shown as chat_read shows it.',
      'inputSchema': {'type': 'object', 'properties': {'timeout': {'type': 'integer'}, 'focus': {'type': 'boolean'},
