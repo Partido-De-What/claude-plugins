@@ -254,6 +254,8 @@
  "chat.say.cmd_remove.room_left_participants_now": "room {dir}: {names} left; participants now {v3}",
  "chat.say.cmd_retire.retired_by_the_agent": "🔁 {name} retired by {name_}: the agent before stops; the new one is {name}~{g} (chat.py prompt {name})",
  "chat.say.cmd_retire.retired_calls_as_or": "{name} retired: calls as {name} or an older {name}~N are refused; generate the new prompt now (chat.py prompt {name} ...), it uses --as {name}~{g}; then register the new agent (chat.py roster {name}=<its id>)",
+ "chat.say.cmd_rooms.looked_in": " (looked in {path})",
+ "chat.say.cmd_rooms.newest_stamp": ", the newest stamp is {seconds} s old",
  "chat.say.cmd_rooms.no_live_room_on": "no live room on this computer",
  "chat.say.cmd_rooms.room_viewer_participants": "{v1}  |  room {k}  |  viewer {get}  |  participants {get_}",
  "chat.say.cmd_serve.viewer_on_http_room": "viewer on http://{host}:{port}/  (room {dir})",

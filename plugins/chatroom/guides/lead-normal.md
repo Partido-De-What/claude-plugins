@@ -153,3 +153,5 @@ A call of an agent that fails for permissions (a tool refused, a path outside it
 ## 9. Work in batches and lists
 
 A job over a list (files to fix, rooms to check, sources to read) is one task for the list, not one for each item: give the agent the list in a file (`notes/` of the room), the size of a batch (5 to 10 items), and what each batch reports (the count done, the items left, one line for each failure). The agent works the batch with one script, posts one status per batch with its percentage, and takes the next batch without asking. Two lists run in parallel only when their files do not meet (the board refuses the take otherwise). It saved 8 minutes in the room that measured it, and it cuts the "done?" messages to one for each batch.
+
+The mod writes `agent_types.json` in the config folder when an agent is spawned, as `{name: subagentType}`. `chat.py` reads it to choose the prompt cache: a type that starts with `chatroom:room-agent` gets the one-hour cache, any other type the short one. The config key `cache_ttl` overrides both.

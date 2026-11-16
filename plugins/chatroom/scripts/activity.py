@@ -720,14 +720,22 @@ def register_room(room, port, host, mod_at=None):
             rooms = {}
         rooms = {k: v for k, v in rooms.items() if time.time() - float(v.get('ts', 0)) < 60}
         fn(rooms)
-        tmp = REGISTRY.with_name(f'rooms.{os.getpid()}.tmp')
-        tmp.write_text(json.dumps(rooms, indent=2, ensure_ascii=False), encoding='utf-8')
-        for attempt in range(20):                     # Windows refuses the swap while another server is swapping it
+        for old in REGISTRY.parent.glob('rooms.*.tmp'):   # a server killed between its write and its swap left its file for ever
             try:
-                return os.replace(tmp, REGISTRY)
-            except PermissionError:
-                time.sleep(0.05 + 0.05 * attempt)
-        tmp.unlink(missing_ok=True)                    # ponytail: give up this stamp, the next one (5 s) tries again
+                if time.time() - old.stat().st_mtime > 600:
+                    old.unlink()
+            except OSError:
+                pass
+        tmp = REGISTRY.with_name(f'rooms.{os.getpid()}.tmp')
+        try:
+            tmp.write_text(json.dumps(rooms, indent=2, ensure_ascii=False), encoding='utf-8')
+            for attempt in range(20):                 # Windows refuses the swap while another server is swapping it
+                try:
+                    return os.replace(tmp, REGISTRY)
+                except PermissionError:
+                    time.sleep(0.05 + 0.05 * attempt)
+        finally:
+            tmp.unlink(missing_ok=True)               # ponytail: give up this stamp, the next one (5 s) tries again; any other fault leaves no file behind
 
     started = time.time()                             # the older of two rooms keeps its desks in the shared office
 
