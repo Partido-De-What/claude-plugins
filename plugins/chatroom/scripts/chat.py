@@ -51,6 +51,7 @@ Commands (the room is --room DIR or the CHATROOM_DIR environment variable):
                                                             keep if better or reset; see research.py)
   chat.py retire NAME --as LEAD                             (the agent behind NAME is replaced: its calls are refused,
                                                             the new one acts as NAME~G)
+  chat.py pause|resume [WHY] --as LEAD                      (the room stands still: no CHECK, no fall counted, no report asked)
 
 Look options (init) and config keys: --title, --subtitle, --icon (an emoji), --accent (#rrggbb), --theme
 (auto|light|dark), --wallpaper (dots|plain|grid), --lang (en|it), --heartbeat, --user-name, and --profile
