@@ -2662,22 +2662,22 @@ def _next_constraints(c, st):
     rediscovered one refusal at a time. One line per rule, only the ones that apply to this phase"""
     phase, out = st['phase'], []
     if phase == 1:
-        out.append(say('kernel.status.next.seal', guards=', '.join(g['name'] for g in c.get('guards', [])) or '-'))
+        out.append(say('kernel.status.next_seal', guards=', '.join(g['name'] for g in c.get('guards', [])) or '-'))
     if phase == 2:
         r = _round(st)
-        out.append(say('kernel.status.next.runs', n=st['evals'], max=c['max_evals']))
-        out.append(say('kernel.status.next.round', k=r['k'], done=st['evals'] - r['start'], max=r['max']) if r else
-                   say('kernel.status.next.round_none') if st.get('rounds') else say('kernel.status.next.round_auto', max=c.get('round_max') or ROUND_MAX))
+        out.append(say('kernel.status.next_runs', n=st['evals'], max=c['max_evals']))
+        out.append(say('kernel.status.next_round', k=r['k'], done=st['evals'] - r['start'], max=r['max']) if r else
+                   say('kernel.status.next_round_none') if st.get('rounds') else say('kernel.status.next_round_auto', max=c.get('round_max') or ROUND_MAX))
         if c.get('roles'):
-            out.append(say('kernel.status.next.evidence', S_MAX=S_MAX, items=', '.join(f"{k} {w.get('since_evidence', 0)}/{S_MAX}" for k, w in st['workers'].items() if k != '_main') or '-'))
+            out.append(say('kernel.status.next_evidence', S_MAX=S_MAX, items=', '.join(f"{k} {w.get('since_evidence', 0)}/{S_MAX}" for k, w in st['workers'].items() if k != '_main') or '-'))
         recent = [a['family'] for a in st.get('assigns', [])[-4:]]
         if recent:
-            out.append(say('kernel.status.next.family', items=', '.join(recent)))
+            out.append(say('kernel.status.next_family', items=', '.join(recent)))
     if phase == 3:
-        out.append(say('kernel.status.next.kinds', kinds=', '.join(AUX_KINDS)))
+        out.append(say('kernel.status.next_kinds', kinds=', '.join(AUX_KINDS)))
     if phase in (1, 2):
-        out.append(say('kernel.status.next.amend_open') if st.get('best') is None else say('kernel.status.next.amend_closed'))
-    return say('kernel.status.next.title') + '\n' + '\n'.join('- ' + x for x in out) if out else ''
+        out.append(say('kernel.status.next_amend_open') if st.get('best') is None else say('kernel.status.next_amend_closed'))
+    return say('kernel.status.next_title') + '\n' + '\n'.join('- ' + x for x in out) if out else ''
 
 
 def status(room):
