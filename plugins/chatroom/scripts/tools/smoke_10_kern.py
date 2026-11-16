@@ -247,6 +247,19 @@ if section('K9'):
     c, o = run(room2, 'research', 'evaluate', '--kind', 'probe', '--desc', 'in drafting', '--as', 'W')
     ok('K9 a probe in phase 1 is refused', c != 0 and 'phase 2' in o, o)
 
+if section('K9Q'):                                                  # the queue runner takes a probe with its env (a detached runner: slower)
+    room, repo, work = research_room('k9q', eval_src=EVAL9)
+    run(room, 'research', 'evaluate', '--desc', 'baseline', '--as', 'W')
+    c, o = run(room, 'research', 'queue', '--kind', 'probe', '--env', 'PROBE_ADD=1', '--desc', 'queued probe', '--as', 'W')
+    ok('K9 queue --kind probe --env is accepted', c == 0 and 'queued' in o, o)
+    for _ in range(90):                                                  # the detached runner starts it at once
+        if any(a['kind'] == 'probe' and 'queued probe' in a['desc'] for a in state(room)['attempts']):
+            break
+        time.sleep(1)
+    q = [a for a in state(room)['attempts'] if 'queued probe' in a['desc']]
+    ok('K9 the queue runner ran the probe with its env (loss 9 + 1 = 10)', q and q[0]['env_set'] == {'PROBE_ADD': '1'} and q[0]['metric'] == 10.0
+       and state(room)['evals'] == 1, q)
+
 # ---------------------------------------------------------------------------------------------------------------- K7
 if section('K7'):
     block = lambda o: o.split('next constraints', 1)[1].split('\n| ', 1)[0].split('\nn\tcommit', 1)[0] if 'next constraints' in o else ''
