@@ -87,6 +87,12 @@ at `init` or later with `amend`. They are recorded with every run, shown on its 
 it competes with says so. When it is also within 10 percent of that run's number, the kernel measures the best's program
 again in the same run (the program file swapped for the measure, put back after) and the verdict is between the two numbers
 of the same hour; the run line says "paired measure", the record has `paired`. It costs one more measure of the run.
+A faulty instrument found after the baseline goes back to drafting with `research reseal --reason "..."` (the runs keep
+their numbers and are stamped with their era). The corrected harness can be brought into the shared worktree without a
+merge by hand: `research promote SOURCE [--files a,b]` (SOURCE: a worker with a committed worktree, or a git ref; default
+files: the sealed ones) makes one kernel commit, starts every worktree from it and drops the smoke before it; then a smoke,
+the auditor, `research seal`, a new baseline. The kernel writes `-text` for every sealed file in the repository's
+`info/attributes`, so git never converts their line endings and the sealed sha is the same on every machine.
 
 Ask in phase 0: does the evaluator (and each guard) exercise the code paths the program will change? A gate that runs
 only the prefill does not check a change to the decoding kernels.
