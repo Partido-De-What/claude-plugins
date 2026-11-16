@@ -3375,6 +3375,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
         room.count(name, tool[5:])
     try:
         with capture():
+            if tool in ('board', 'task', 'notebook'):
+                redeliver_missed(room, name)          # as the shell commands do: what its status missed comes again
             if tool == 'chat_read':
                 if args.get('ack'):
                     ns.pairs = [str(args['ack'])]
@@ -3395,6 +3397,8 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
                     ns.status = True
                 cmd_post(room, ns, text)
             elif tool == 'chat_wait':
+                if redeliver_missed(room, name):
+                    return out.getvalue().strip(), False   # a tag it had not read: that is what a wait would return for
                 timeout = int(args.get('timeout', 100))
                 if wait_cap and timeout > wait_cap:
                     timeout = wait_cap                # under the client's own limit: the answer always arrives
