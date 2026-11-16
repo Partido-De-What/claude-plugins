@@ -22,7 +22,7 @@ Nothing in 1.0 changes how you start a room. The commands you know still work. W
 
 ## Waiting, holds and the relay
 
-- The shared device has a line. `hold` takes a place instead of being refused, and `hold --for NAME` reserves the next turn. A hold whose owner fell is released at once, and the board tells the lead. Stray processes are shown with an owner and an age, and the text names the resource of the contract instead of always saying GPU.
+- The shared device has a line. `research hold` takes a place instead of being refused, and `research hold --for NAME` reserves the next turn. A hold whose owner fell is released at once, and the board tells the lead. Stray processes are shown with an owner and an age, and the text names the resource of the contract instead of always saying GPU.
 - An agent that holds the device is no longer asked to end its turn or to hand in its report.
 - `wait --until-cmd "..."` ends when a shell command exits 0, for work that waits on something outside the room.
 - The relay hands over a message once, when it is really handed over. It no longer wakes the lead for a message already read, it keeps its place across a restart, and it prints the whole text of a message that tags the lead. `alerts --follow --heartbeat N` wakes the lead on a quiet room. Messages of a second lead reach the relay too.
