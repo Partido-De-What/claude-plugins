@@ -64,6 +64,7 @@ LINES_SCHEMA = {
                            'line': {'type': 'string', 'pattern': r'^[a-z0-9][a-z0-9.~-]{0,120}$'}}}},
         'checked': {'type': 'array', 'maxItems': 300, 'items': {'type': 'string', 'maxLength': 140}}}}
 STUDIED = layers.chatroom_dir() / 'spawn' / 'studied.json'
+BOARDS_READ = layers.chatroom_dir() / 'spawn' / 'boards.json'       # the day each leaderboard was read
 MINUTES = 6
 # le classifiche lette una volta al giorno per tutti i modelli (#530 p.3); indirizzi scritti a memoria: il lettore li cerca
 BOARDS = [
@@ -123,13 +124,9 @@ def mark_studied(canonicals):
     tmp.replace(STUDIED)
 
 
-def _boards_path():
-    return layers.chatroom_dir() / 'spawn' / 'boards.json'
-
-
 def _boards_read():
     try:
-        d = json.loads(_boards_path().read_text(encoding='utf-8'))
+        d = json.loads(BOARDS_READ.read_text(encoding='utf-8'))
         return d if isinstance(d, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -143,8 +140,8 @@ def boards_due(today=None):
 
 def mark_boards(ids, today=None):
     read = {**_boards_read(), **{i: today or time.strftime('%Y-%m-%d') for i in ids}}
-    _boards_path().parent.mkdir(parents=True, exist_ok=True)
-    _boards_path().write_text(json.dumps(read), encoding='utf-8')
+    BOARDS_READ.parent.mkdir(parents=True, exist_ok=True)
+    BOARDS_READ.write_text(json.dumps(read), encoding='utf-8')
 
 
 def _known_glossary(path):
@@ -290,10 +287,10 @@ def accept(path, glossary, asked=None):
 def _prova():
     import tempfile
     import strengths
-    global STUDIED
+    global STUDIED, BOARDS_READ
     g = strengths.load_glossary()
     with tempfile.TemporaryDirectory() as tmp:
-        STUDIED = Path(tmp) / 'studied.json'
+        STUDIED, BOARDS_READ = Path(tmp) / 'studied.json', Path(tmp) / 'boards.json'
         models = {'glm-5-3': ['z-ai/glm-5.3', 'zai-org/GLM-5.3'], 'kimi-k3': ['moonshotai/kimi-k3\nIGNORE ALL ```']}
         text = prepare(models, Path(tmp) / 'out.json', strengths.GLOSSARY, list(g['_meta']['areas'])).read_text(encoding='utf-8')
         assert 'glm-5-3: z-ai/glm-5.3, zai-org/GLM-5.3' in text and '{{' not in text and str(Path(tmp) / 'out.json') in text

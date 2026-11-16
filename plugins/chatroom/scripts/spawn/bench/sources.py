@@ -229,7 +229,7 @@ def _prova():
         aa_real = parse_aa(json.loads((real / 'aa_models.json').read_text(encoding='utf-8')), g)
         assert len(aa_real) > 600 and aa_real['claude-opus-5-5']['aa'] == 57.6
     got = aa_scores(None, ['glm-5-3', 'kimi-k3'], g, payload=payload)
-    assert list(got) == ['glm-5-3'] and got['glm-5-3'] == aa['glm-5-3']['scores']
+    assert list(got) == ['glm-5-3'] and got['glm-5-3'] == parse_aa(payload, g)['glm-5-3']['scores']      # both dated today: aa above is dated 2026-10-26
     print('sources ok')
 
 

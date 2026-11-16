@@ -2437,6 +2437,7 @@
  "chat.packet.none": "nessuno",
  "doctor.fix": "per sistemare:",
  "doctor.version_none": "il plugin non è installato",
+ "doctor.marketplace_differs": "il file del marketplace dice {marketplace}, il plugin è {source}: un rilascio annuncerebbe il numero vecchio",
  "doctor.version_differs": "installato {installed}, sorgente {source}: quello installato è indietro",
  "doctor.version_ok": "plugin {version}: installato e sorgente coincidono",
  "doctor.mcp_unknown": "MCP chatroom: non riesco a leggerlo (claude manca, o il server non è registrato)",

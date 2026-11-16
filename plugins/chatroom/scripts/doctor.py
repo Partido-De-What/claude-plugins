@@ -33,6 +33,15 @@ def version_of(plugin_dir):
         return None
 
 
+def marketplace_version(plugin_dir):
+    """the version the marketplace file of the repo gives the plugin (the file two folders above the plugin), or None where there is none"""
+    try:
+        d = json.loads((Path(plugin_dir).resolve().parent.parent / '.claude-plugin' / 'marketplace.json').read_text(encoding='utf-8'))
+        return next((p.get('version') for p in d.get('plugins', []) if p.get('name') == PLUGIN.split('@')[0]), None)
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def installed():
     """(version, install path) of the plugin Claude Code has installed, or (None, None)"""
     try:
@@ -110,6 +119,9 @@ def checks(room=None, claude=None, source=None):
                     f'claude plugin marketplace update artyomita-plugins && claude plugin update {PLUGIN}'))
     else:
         out.append(('version_ok', OK, {'version': ver}, ''))
+    mk = marketplace_version(source or HERE.parent)
+    if src and mk and mk != src:                             # a release read from the marketplace would announce the old number
+        out.append(('marketplace_differs', FAIL, {'marketplace': mk, 'source': src}, ''))
     text = mcp_get(claude)
     if text is None:
         out.append(('mcp_unknown', WARN, {}, 'claude mcp get chatroom'))

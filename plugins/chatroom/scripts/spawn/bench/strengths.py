@@ -184,6 +184,9 @@ def annotate(scores_by_model, glossary, leaders=None):
 
 
 def _prova():
+    import os
+    import tempfile
+    os.environ['CLAUDE_CONFIG_DIR'] = tempfile.mkdtemp()      # the proof checks the plugin's glossary, not the one the user's researchers extended
     g = load_glossary()
     assert check_glossary(g) == [], check_glossary(g)
     assert lookup('GPQA', g) == 'gpqa-diamond' and lookup('τ²-Bench Telecom', g) == 'tau2-telecom' and lookup('nope', g) is None
