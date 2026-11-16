@@ -77,7 +77,9 @@ fixed time or step budget inside the evaluator and the seed from `CHATROOM_SEED`
 worse (prefill speed, memory, accuracy) are guards: the evaluator writes `NAME: value` on every measure (in its output,
 or in `$CHATROOM_RESULT` with `--result-file`), and `--guard NAME:min|max:TOL` compares their median with the baseline's
 (a single cold sample makes false crashes). `min` means lower is better, as for `--direction`: a speed is `max`
-(`--guard prefill_tps:max:3%`), a memory `min`. The final evaluator is not checked for guards.
+(`--guard prefill_tps:max:3%`), a memory `min`. `--guard` repeats (one per guard) and TOL can be `abs=X`: the median
+must not pass X itself (`--guard peak_mb:min:abs=9000`), whatever the baseline measured. `seal` refuses a guard the last smoke
+run never printed. The final evaluator is not checked for guards.
 
 Ask in phase 0: does the evaluator (and each guard) exercise the code paths the program will change? A gate that runs
 only the prefill does not check a change to the decoding kernels.

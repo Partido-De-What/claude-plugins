@@ -79,7 +79,9 @@ l'addestramento, un budget fisso di tempo o di step dentro il valutatore e il se
 secondari che non devono peggiorare (velocità di prefill, memoria, accuratezza) sono guardie: il valutatore scrive
 `NOME: valore` a ogni misura (nel suo output, o in `$CHATROOM_RESULT` con `--result-file`), e `--guard NOME:min|max:TOL`
 confronta la loro mediana con quella della baseline (un singolo campione a freddo fa crash falsi). `min` vuol dire che
-più basso è meglio, come per `--direction`: una velocità è `max` (`--guard prefill_tps:max:3%`), una memoria `min`. Il
+più basso è meglio, come per `--direction`: una velocità è `max` (`--guard prefill_tps:max:3%`), una memoria `min`. `--guard` si ripete
+(una per guardia) e TOL può essere `abs=X`: la mediana non deve superare X, qualunque cosa abbia misurato la baseline
+(`--guard peak_mb:min:abs=9000`). `seal` rifiuta una guardia che l'ultima smoke non ha mai stampato. Il
 valutatore finale non viene controllato dalle guardie.
 
 Chiedi in fase 0: il valutatore (e ogni guardia) esercita i percorsi di codice che il programma cambierà? Un controllo

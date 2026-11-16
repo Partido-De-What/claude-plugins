@@ -171,7 +171,7 @@ Kernel `chat.py research`: agents propose, the kernel checks, writes `state.json
 | Build and noise | `--build` + `--build-min`; `--repeats N` median with spread; `--min-gain X\|X%`. |
 | Metric source | `--result-file`: evaluator writes `NAME: value` to `$CHATROOM_RESULT`; else exactly one `NAME:` line in stdout. |
 | Protocol | `protocol: ...` lines fixed at the baseline; an attempt with a different protocol = crash. |
-| Guards | `--guard NAME:min\|max:TOL` (min = lower is better): `NAME: value` in the output or the result file, median of the repeats vs the baseline's; worse than TOL = crash; not applied to the final. |
+| Guards | `--guard NAME:min\|max:TOL` (min = lower is better): `NAME: value` in the output or the result file, median of the repeats vs the baseline's; worse than TOL = crash (`--guard` repeats; TOL `abs=X` = a fixed limit, not relative to the baseline); not applied to the final. |
 | Seals | Git blob ids; worktrees checked out with `core.autocrlf=false`, `core.eol=lf`: line endings never break a seal. |
 | Seal and scope | Refused: sealed file changed, other tracked file changed, new untracked file (except caches, `--keep`), program already run. |
 | Commit and clean | Kernel identity, no repo hooks, no signing; tag `research/<tag>/att-N`; `git clean -ffdx` except `--keep`, submodules too. |
