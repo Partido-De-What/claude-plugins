@@ -52,6 +52,8 @@ Nothing in 1.0 changes how you start a room. The commands you know still work. W
 
 Models of a provider with a daily quota (xKiro, the Z.ai flash models) were thrown away as not free. They are free while the usage shows an open quota. The line before a big round now names the providers that were skipped for lack of a key, and those whose quota is over.
 
+1.0.1: a host that answers 404 with "the model does not exist" is now taken off that model, as a 410 already was, so a model a provider has dropped stops coming back in the next round.
+
 ## The viewer and the update
 
 - The settings panel saves how long an unwatched viewer lives, so you do not need to edit `settings.json`.

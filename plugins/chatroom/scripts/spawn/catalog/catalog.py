@@ -471,7 +471,7 @@ def ping(only=None, top=None, complete=None, load_key=None, workers=8, vision=Fa
                 result = f"ok tool={len(got.get('tool_calls') or [])} text={len(got.get('text') or '')}"
         except Exception as exc:
             result = f"error {_kind(exc)}: {' '.join(str(getattr(exc, 'detail', exc)).split())[:100]}"
-            if getattr(exc, 'status', None) == 410:
+            if getattr(exc, 'model_gone', False):
                 mark_gone(m['canonical'], r['adapter'])
         finally:
             timer.cancel()

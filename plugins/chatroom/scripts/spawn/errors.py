@@ -41,6 +41,15 @@ class ProviderError(Exception):
     def action(self):
         return ACTION[self.kind]
 
+    @property
+    def model_gone(self):
+        """the host no longer has this model: a 410, or a 404 whose text says the model does not exist (a 404 of a wrong
+        address does not say it, and takes nothing off the list)"""
+        return self.kind == 'not_found' and (self.status == 410 or bool(_NO_MODEL.search(self.detail)))
+
+
+_NO_MODEL = re.compile(r'model[^.]{0,80}(does not exist|not found|unknown|no longer|not available)|(does not exist|unknown model)', re.I)
+
 
 def _scrub(text):
     try:

@@ -415,7 +415,7 @@ class Runner(threading.Thread):
         if e.kind == 'no_output' and (role.get('max_tokens') or MAX_TOKENS) < REASONING_TOKENS:   # it thought until the budget ended, whatever the catalog says: again with more
             update(self.room, self.name, max_tokens=REASONING_TOKENS)
             return
-        if e.kind == 'not_found' and e.status == 410 and role.get('canonical'):    # end of life: this host is off the model's list
+        if e.model_gone and role.get('canonical'):    # end of life: this host is off the model's list
             from spawn.catalog import catalog
             catalog.mark_gone(role['canonical'], route['adapter'])
         if e.action in ('repair', 'resume'):              # a tool call or an answer that could not be mended: ask again
