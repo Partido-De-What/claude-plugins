@@ -47,6 +47,17 @@ Next to the chat, the page draws a 3D voxel office where each agent works at its
 
 The typical use: you run a strong model as your session (say Opus) and ask for a room of cheaper agents (Sonnet, Haiku) with an effort level each. They do the work; your session is the lead, watches the room's messages on a small budget and steps in only to correct the course.
 
+## What is new in 1.0
+
+I ran one research room for 28 hours and wrote down every place where the harness cost me time or told me something wrong. Almost all of it is fixed. The full list is in [history/RELEASE-NOTES-1.0.md](history/RELEASE-NOTES-1.0.md). The short version:
+
+- **Research rooms**: a wrong evaluator can be resealed after the baseline (`research reseal`), a moving reference is said out loud and a close challenger is measured next to the best in the same run, a run that dies with the machine is invalid and not a crash, a queued run waits for the machine, and a recon in phase 1 puts the ideas behind a gate you open (`research gate`).
+- **Waiting**: the shared device has a line (`research hold`, `research hold --for NAME`), `wait --until-cmd` waits on a shell command, a room can be paused and resumed, and the relay hands over each message once.
+- **Less noise**: long messages go whole into a note, idle lines that repeat the last report are cut, `read --last N` brings messages back after a compaction.
+- **A room that learns**: topic profiles keep the lessons, the sources and the skills of each role for the next room on the same topic (`lessons topic`), and the lead asks you which topic a room joins.
+- **Free models**: quota providers such as xKiro and Z.ai are free while their quota is open, and the line before a big round says which providers were skipped.
+- **Not done**: `/chatroom:update` is not tried from the real repository yet, nothing was tried on Linux or macOS, and the mouse filter is not tried on a real phone.
+
 ## What it adds
 
 - **`/chatroom:init [topic]`**: opens a room and its viewer on the chat, where you choose the mode with two buttons: normal (the lead sets the room up with you) or research (you write a contract with the lead, then a team with fixed roles improves one file of a repository against a sealed evaluator, through phases with gates; see [Research rooms](#research-rooms)).
