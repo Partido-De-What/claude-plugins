@@ -123,8 +123,11 @@ def _seal_holds(work, rel, want):
         lf = data.replace(b'\r\n', b'\n')
         return want in (hashlib.sha256(data).hexdigest(), hashlib.sha256(lf).hexdigest(),
                         hashlib.sha256(lf.replace(b'\n', b'\r\n')).hexdigest())
-    return want in (_git(work, 'hash-object', '--no-filters', '--', rel, check=False),
-                    _git(work, '-c', 'core.autocrlf=true', 'hash-object', '--', rel, check=False))
+    # blob ids computed here, not by git: the `-text` that _no_eol writes would switch off git's own CRLF conversion
+    data = path.read_bytes()
+    lf = data.replace(b'\r\n', b'\n')
+    algo = hashlib.sha1 if len(want) == 40 else hashlib.sha256
+    return want in {algo(b'blob %d\0' % len(x) + x).hexdigest() for x in (data, lf, lf.replace(b'\n', b'\r\n'))}
 
 
 def _no_eol(top, rels):
