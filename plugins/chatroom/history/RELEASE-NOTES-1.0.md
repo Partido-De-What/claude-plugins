@@ -4,7 +4,7 @@ This is a draft of the release notes. I will read it again before it goes out.
 
 ## Why this release
 
-Version 0.19.9 had a good test room behind it, and then I ran one research room for 28 hours. It had three agents, about 850 messages and 22 runs out of the 40 I had planned. I wrote down every place where the harness got in the way, cost me time or told me something wrong. That list had 72 items. Almost all of them are fixed in 1.0. A few could not be fixed on the machine where I worked, and I list those at the end.
+Version 0.19.9 had a good test room behind it, and then I ran one research room for 28 hours. It had six agents and a lead, about 850 messages and 22 runs out of the 40 I had planned. I wrote down every place where the harness got in the way, cost me time or told me something wrong. That list had 72 items. Almost all of them are fixed in 1.0. A few could not be fixed on the machine where I worked, and I list those at the end.
 
 Nothing in 1.0 changes how you start a room. The commands you know still work. What changes is what happens when a room runs for hours without you.
 
