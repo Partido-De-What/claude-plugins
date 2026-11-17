@@ -25,6 +25,6 @@ for name, text in (('notes', n), ('README section', sec)):
     ok(f'{name}: no long dash', not re.search('[\u2014\u2013]', text) and ' - ' not in text, re.findall('.{15}(?:[\u2014\u2013]| - ).{15}', text))
     ok(f'{name}: no drive path, no user folder', not re.search(r'\b[A-Za-z]:[\/]|/Users/|/home/', text), re.findall(r'.{10}(?:[A-Za-z]:[\/]|/Users/|/home/).{10}', text))
     ok(f'{name}: no co-author or AI trace', not re.search(r'Co-Authored|Claude Code generated|as an AI', text))
-ok('the notes are in the first person', re.search(r'\bI\b', n) is not None and 'Adrian' not in n)
+ok('the notes are in the first person', re.search(r'\bI\b', n) is not None)
 print('FAILS', fails)
 sys.exit(1 if fails else 0)

@@ -1412,7 +1412,7 @@ def _evaluate(room, name, desc, idea, kind, of, seed, extra_env=None, cls=None, 
                 raise ValueError(say('kernel._evaluate.the_sealed_file_changed', rel=rel, head=wk["head"]))
     tracked = [x for x in _git(work, 'diff', '--name-only', wk['head']).splitlines() if x.strip()]
     if phase >= 2 and not explore:
-        others = [f for f in tracked if f != c['program']]
+        others = [f for f in tracked if f != c['program'] and f not in c['sealed']]   # sealed files passed _seal_holds above (a CRLF copy shows in git diff)
         if others:
             raise ValueError(say('kernel._evaluate.only_may_change_also', program=c['program'], others=', '.join(others[:10]), head=wk['head']))
     kept = tuple(c.get('keep', []))
