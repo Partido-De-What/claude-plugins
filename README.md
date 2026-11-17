@@ -60,7 +60,7 @@ No agent can talk its way past that. The check is the same for every agent and f
 | **It remembers** | Notebooks that survive a compacted context | A log of every run, refusal and verdict | Topic profiles that the next room on the same topic starts from |
 
 ```mermaid
-flowchart LR
+flowchart TD
     U([🧑 You]) -->|topic, contract, yes| L[👓 Lead session]
     L -->|spawns| A1[🤖 Agent] & A2[🤖 Agent] & A3[🤖 Agent]
     subgraph ROOM [💬 Room · rules in code]
