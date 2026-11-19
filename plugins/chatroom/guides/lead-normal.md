@@ -158,6 +158,8 @@ Tell the user this in ten lines at most when you ask for the topic:
 
 ## 8. An agent that does not answer
 
+A room the user keeps open across sessions ("do not close it"): an idle agent ends its turn and leaves after a while, and `hold:left` counts it. That is the normal end of a turn, not a fall: say it in the brief (`brief constraints="the room stays open: when idle, post one idle status and end your turn"`), keep the ids in `roster.json`, and resume the agent you need with SendMessage to its id (text: "read the chat"). An agent that waits for the user's judgment says so in its idle status with the user's name: the lead is not asked again for it.
+
 First read `status`: `turn` says `held` or `waiting` for an agent that is only held by the room (tag it, do not touch it), `working` for one whose tools still move, `stopped` or `closed` for one that left (resume it: SendMessage to its id, text "read the chat"). The one to act on is shown by the harness as "running" while its transcript has not moved for two heartbeats: a SendMessage queues behind the stuck turn and nothing arrives (17, 14, 4 and 5 minutes lost in one night). The recipe: `TaskStop` its id, then send the message again, with the same id: it resumes with its context and reads the chat. Do it once; a second failure means a new agent (`retire NAME`, a new prompt).
 A call of an agent that fails for permissions (a tool refused, a path outside its folder): the lead grants or runs it, once, and says so in one line; the agent does not retry it in a loop and does not post the failure again. The wake at the end of a turn comes twice (the relay and the hold): answer the first, and read from your cursor, not from the number the second names.
 

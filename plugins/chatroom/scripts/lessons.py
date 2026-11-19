@@ -433,6 +433,8 @@ def command(room, a):
 def _command(room, a):
     act, rest = (a.pairs[0].lower() if a.pairs else ''), a.pairs[1:]
     data = load()
+    if act == 'list':                             # the name everyone tries first: the same listing as no word at all
+        act = ''
     if act == 'propose':
         return propose(room, a, rest, data)
     if act == 'close':

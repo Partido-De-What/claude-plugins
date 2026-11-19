@@ -551,6 +551,8 @@ def waits_for_lead(room, items=None, only=None, now=None):
             continue                                  # a report to the lead is no question: 49 of 55 such CHECKs were noise
         elif any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
             continue                                  # written to another agent, the lead only named in it
+        if m.get('kind') == IDLE and any(names(text, u) for u in (c.get('user_name', 'USER'), *c.get('user_aliases', []))):
+            continue                                  # an idle that waits for the user's word: the lead cannot give it (38 wakes of a 500k lead in one room)
         said = [x.get('text', '') for x in items if x['n'] > m['n'] and x['from'] in users and not x.get('kind')]
         if not any(tags(t, k) or tags_everyone(t) or not re.search(r'(?<![\w.])@\w', t) for t in said):
             out.append((k, m['n'], (now - float(m.get('ts') or now)) / 60, ' '.join(text.split())[:120]))

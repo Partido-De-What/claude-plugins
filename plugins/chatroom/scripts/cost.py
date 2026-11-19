@@ -125,7 +125,7 @@ def table(costs, leads=()):
         share = (lambda x: 100 * x / t['eq'] if t['eq'] else 0)
         rows.append(f"{name:12} {t['requests']:>8} {t['eq'] / 1e6:>10.2f}M {t['out'] / 1e3:>7.0f}k {t['rewrites']:>8} "
                     f"{share(t.get('wait_eq', 0)):>5.0f}% {share(t['protocol_eq'] - t.get('wait_eq', 0)):>5.0f}% {t['context'] / 1e3:>7.0f}k {t.get('compactions', 0):>7}")
-    rows.append(f"{'total':12} {'':>8} {total / 1e6:>10.2f}M")
+    rows.append(f"{'agents total':12} {'':>8} {total / 1e6:>10.2f}M" + ('  (lead apart)' if any(n in costs for n in leads) else ''))
     return rows
 
 

@@ -166,7 +166,7 @@ def lines(room_dir, name, after=0):
     for m in new[-SHOWN:]:
         text = ' '.join(m.get('text', '').split())
         out.append(i18n.tr(lang, 'inbox.line', room=title, n=m['n'], who=m['from'],
-                           text=text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 1] + '…'))
+                           text=text if len(text) <= MAX_TEXT else f"{text[:MAX_TEXT - 1]}… [expand {m['n']}]"))   # cut and marked delivered: the reader must know the rest exists
     mark_delivered(room_dir, name, new[-1]['n'])
     return out, new[-1]['n']
 
