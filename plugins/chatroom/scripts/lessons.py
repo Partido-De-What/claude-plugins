@@ -166,7 +166,9 @@ def used(room_dir, trial=False):
 
 
 # ------------------------------------------------------------------------------------------------------- topic profiles
-TOPIC_CAP = 8             # live lessons of one topic: they are read at every request of every agent of its rooms
+TOPIC_CAP = 12            # live lessons of one topic: read at every request of the agents of its rooms only (8 filled at the first closing)
+CAUSE_AT = 3              # times a cause fires in one room before the closing lists it as a candidate
+CAUSE_KINDS = ('refusal', 'lead', 'hold', 'check')     # what went wrong, was fixed by hand or was warned about; the relay's own wakes teach nothing
 TOPIC_VERSIONS = 20       # saved versions of a topic's store kept for `lessons topic back`
 SLUG = re.compile(r'[a-z0-9][a-z0-9-]{1,40}')
 
@@ -390,6 +392,41 @@ def propose(room, a, rest, data):
           else say('lessons.propose.applied', id=p['id'], score=score, reach=reach, lesson=p['lesson']))
 
 
+def room_causes(room, at=CAUSE_AT):
+    """[(cause, times, agents, last detail)] of this room's events that fired at least `at` times, the most frequent first"""
+    seen = {}
+    for e in events(room.dir):
+        if e.get('kind') in CAUSE_KINDS and e.get('key'):
+            c = seen.setdefault(f"{e['kind']}:{e['key']}", {'n': 0, 'who': set(), 'detail': ''})
+            c['n'] += 1
+            if e.get('name'):
+                c['who'].add(e['name'])
+            c['detail'] = e.get('detail') or c['detail']
+    return sorted(((k, c['n'], sorted(c['who']), c['detail']) for k, c in seen.items() if c['n'] >= at), key=lambda x: -x[1])
+
+
+def auto_propose(room, cause, n, who, detail):
+    """3.1: a cause that fired many times in this room becomes a proposal to decide at the closing (score 3: never applied by
+    itself), once; kept only for the plugin's creator, as every score from 1 to 3. Returns the id, or None"""
+    if not creator():
+        return None
+    note = f'auto:{cause}'
+    out = []
+
+    def keep():
+        got = proposals(room)
+        if any(p.get('note', '').startswith(note) for p in got):
+            return
+        pid = f"P{max([int(x['id'][1:]) for x in got] or [0]) + 1}"
+        text = say('lessons.auto.text', cause=cause, n=n, who=', '.join(who) or '-', detail=' '.join(str(detail).split())[:200] or '-')
+        got.append({'text': text, 'score': 3, 'reach': 'general', 'kind': 'improvement', 'note': f'{note} x{n}', 'by': 'harness',
+                    'ts': int(time.time()), 'status': 'presented', 'id': pid})
+        (Path(room.dir) / 'proposals.json').write_text(json.dumps(got, indent=1, ensure_ascii=False), encoding='utf-8')
+        out.append(pid)
+    room.locked(keep)
+    return out[0] if out else None
+
+
 def closing(room):
     """the closing summary of a room, in the parts the user's rule asks: a. what the harness learned and applied by itself, b. what
     the session found and is left to decide (the creator's), c. the plugin's bugs (the creator's), each listed local and general apart"""
@@ -420,6 +457,10 @@ def closing(room):
         rows = [x for x in load_topic(slug)['lessons'] if x.get('status') in ('trial', 'proposed', 'active')]
         out.extend(f"    {x['id']} [{x['status']}] {x['text']} -> {x.get('expect', '')} · {say('lessons.rooms', n=len(x.get('rooms', [])))}" for x in rows)
         out.append('    -' if not rows else say('lessons.close.topic_how', slug=slug))
+    causes = room_causes(room)                           # e. 3.3: what kept going wrong here, a candidate even in a first room
+    out.append(say('lessons.close.causes', at=CAUSE_AT))
+    out.extend(f"    {k} x{n} ({', '.join(who) or '-'}) {' '.join(str(d).split())[:120]}" for k, n, who, d in causes[:12])
+    out.append('    -' if not causes else say('lessons.close.causes_how'))
     return out
 
 

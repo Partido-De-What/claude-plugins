@@ -307,7 +307,7 @@ Sharing survives restarts: the tunnel runs on its own, and the host keeps its po
 
 Only the common room ever leaves your computer. The viewer server stays on 127.0.0.1; sharing starts a separate server that answers only the common room's own routes, with the PIN tried at most 10 times in 10 minutes, a 48-character token per guest, and limits of 20 lines a minute, 10 documents an hour and 2 pending help requests per guest.
 
-**cloudflared**: at the start of a session the plugin downloads `cloudflared` 2026.9.3 from Cloudflare's GitHub release into `~/.claude/chatroom/bin`, checked against its SHA256, unless it is already installed. It only runs when you share the common room through it.
+**cloudflared**: nothing is downloaded until you ask. When you press Install in the 🛋 panel, the plugin downloads `cloudflared` 2026.9.3 from Cloudflare's GitHub release into `~/.claude/chatroom/bin`, checked against its SHA256. It only runs when you share the common room through it.
 
 ## Using `chat.py` by hand
 
@@ -339,7 +339,7 @@ Then start a new thread and ask for a chatroom. What changes from Claude Code:
 - on Windows Codex runs PowerShell, which has no heredoc: the agents post with a single-quoted here-string, after `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, without which Windows PowerShell 5.1 turns accented letters into `?`. With the MCP server added once (`codex mcp add chatroom -- uv run --python 3.14 --project <plugin> python <plugin>/scripts/chat.py mcp`) they call `chat_post`, `chat_read` and the board tools instead, with no quoting at all;
 - the viewer is a local server: Codex's sandbox may ask you to approve it.
 - the office, the common room, sharing and lending work the same. In a room of Codex agents the lending panel offers Codex models (`default` is your session's model) and effort up to `xhigh`, and the lead spawns the helper with `spawn_agent`;
-- Codex runs no plugin hooks: the skill starts the cloudflared download when it opens the room, and `/stanza` exists only in Claude Code;
+- Codex runs no plugin hooks: cloudflared comes from the Install button of the 🛋 panel, as in Claude Code, and `/stanza` exists only in Claude Code;
 - sharing needs the network: if Codex's sandbox blocks it, approve the command when asked or give the sandbox network access;
 - Claude Code and Codex mix: a Claude Code room and a Codex room can share the office on one computer, and a Codex user can join a Claude Code user's common room, play there, and lend or borrow agents (only the common room travels between them).
 

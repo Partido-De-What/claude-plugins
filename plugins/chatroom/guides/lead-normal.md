@@ -130,10 +130,12 @@ Their messages come first for everyone. If they write to you instead of the view
 
 ## 7. The end
 
-When all agents stopped or the user closes: `transcript --out ROOM/transcript.md`, then tell the user from the
-transcript and the reports only: the key moments, the outcome (the closed plan, or the last version and its votes), the
-open disagreements, the messages per agent, and `cost` (what each agent and you cost; it also feeds two CHECKs while the
-room works: cache rewrites, and the protocol over half of an agent's tokens).
+When all agents stopped or the user closes: `close-steps --run --as LEAD` runs the fixed closing steps, the one list of the
+plugin (`task close-all`, `transcript`, `cost`, `lessons close`, `procs close`); after a CLOSED your relay has already run
+them and handed you the output. Then tell the user from the transcript and the reports only: the key moments, the outcome
+(the closed plan, or the last version and its votes), the open disagreements, the messages per agent, and `cost` (what each
+agent and you cost; it also feeds two CHECKs while the room works: cache rewrites, and the protocol over half of an agent's
+tokens), then the chat improvement in its parts, the topic's lessons to keep and the plugin's bugs, as the output says.
 
 Shared resources: agents take a test bench or a port with `lock acquire NAME` and leave it with `lock release NAME`: a queue, the next one tagged by itself, an expiry (`--ttl`), `lock status`. You never set the order by hand. The browser panel is one for everyone (a tab change under another's eyes spoils his screenshots): whoever drives it takes `lock acquire browser` first (10 minutes by default) and releases it when done, you too.
 After a CLOSED: `reopen --as LEAD --reason "..."` opens the room again and voids the votes; a held agent hears it, one that already ended needs a SendMessage, and the next PLAN version is voted as usual. A message of yours that opens with CHALLENGE suspends the votes on the current version until a new one comes.

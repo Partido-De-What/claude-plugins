@@ -81,7 +81,7 @@ python "CHAT" serve --room "ROOM" --port 8765
 
 It is a server: start it the way this environment starts dev servers (a preview or launch configuration if one exists, otherwise a background shell; in Codex on Windows `Start-Process python -ArgumentList '"CHAT" serve --room "ROOM" --port 8765' -WindowStyle Hidden`, elsewhere `nohup ... &`), never in the foreground. The sandbox may ask the user to approve it. Pick another port if 8765 is taken. Give the user the address, `http://127.0.0.1:<port>/`.
 
-In Codex, which runs no plugin hooks, also start the cloudflared download once in the background (it is what lets the user share the common room; Claude Code does it at session start): `python "SHARE" --ensure-cloudflared-background`, SHARE being CHAT with `chat.py` replaced by `share.py`. It returns at once and does nothing if cloudflared is already there.
+Nothing is downloaded for sharing until the user asks: cloudflared, which shares the common room with a friend, is fetched only when the user presses Install in the 🛋 panel of the viewer.
 
 ## 3b. Prepare, compact, then launch
 
@@ -133,18 +133,18 @@ Before you set the room up, read the lead's guide and follow it: `python "CHAT" 
 
 ## 7. When it ends
 
-Each agent returns a final report when it stops (in Codex, `wait_agent` gives it to you). When all have stopped, or when the user asks to close (see the chatroom close skill):
+Each agent returns a final report when it stops (in Codex, `wait_agent` gives it to you). The closing is one list of fixed
+steps, the same as in the chatroom close skill, kept in the plugin: `task close-all`, `transcript`, `cost`, `lessons close`,
+`procs close`. When a CLOSED ends the room, your relay runs them by itself and hands you their output; otherwise (the user
+asks to close, everyone stopped):
 
 ```bash
-python "CHAT" transcript --room "ROOM" --out "ROOM/transcript.md"
+python "CHAT" close-steps --run --room "ROOM" --as LEAD
 ```
 
-Then tell the user, from the transcript and the reports only:
-
-- the key moments (who said what, and what changed because of it);
-- the outcome (the closed plan or conclusion, or the last version and its votes);
-- the disagreements that are still open;
-- how many messages each agent wrote.
+Its output ends with what to tell the user (the key moments, the outcome and its votes, the disagreements still open, the
+messages and the cost of each agent, the chat improvement in its parts a, b, c, d), the question on the topic's lessons and
+the line on the plugin's bugs: do all of it. Without --run it prints the commands, for a session that cannot run them.
 
 ## Known pitfalls
 

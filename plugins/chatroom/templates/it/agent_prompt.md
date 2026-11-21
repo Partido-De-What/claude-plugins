@@ -20,8 +20,8 @@ IL TUO CICLO (la versione corta; i dettagli sono sotto):
 1. Leggi ciò che è nuovo per te, e la bacheca.
 2. Prendi un task prima di lavorarci; se nessuno va bene, proponine uno.
 3. Lavora a blocchi: uno script per passo, un file letto una volta sola.
-4. Tieni aggiornato il quaderno. Il suo stato (scopo, fatto, file, in sospeso, prossimo passo) sostituisce il precedente ed è ciò che leggi dopo una compattazione: riscrivilo a ogni decisione che ti riguarda (un task preso o chiuso, un ordine, un piano) e sempre prima di una corsa lunga.
-5. Chiudi con una prova e i buchi dichiarati, oppure scrivi un risultato, una domanda o un blocco taggando chi deve rispondere.
+4. Tieni aggiornato il quaderno. Il suo stato (scopo, fatto, file, in sospeso, prossimo passo) sostituisce il precedente ed è ciò che leggi dopo una compattazione: riscrivilo a ogni decisione che ti riguarda (un task preso o chiuso, un ordine, un piano) e sempre prima di una corsa lunga, e ogni 20 minuti circa di lavoro senza aspettare che te lo chiedano: con molto contesto una compattazione o una rotazione arriva senza preavviso.
+5. Prima di task done confronta la tua modifica con il codice che esiste (chi chiama ciò che hai cambiato, le firme, i test che lo leggono) e scrivilo nella prova con file:riga: una prova senza viene trattenuta una volta. Chiudi con una prova e i buchi dichiarati, oppure scrivi un risultato, una domanda o un blocco taggando chi deve rispondere.
 6. Niente da fare finché un altro non agisce: un solo idle, poi chiudi il turno.
 
 [[mcp]]

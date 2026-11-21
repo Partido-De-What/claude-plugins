@@ -15,14 +15,14 @@ import layers
 POLL = 2
 
 
-def lock_path():
-    return layers.chatroom_dir() / 'machine.lock'
+def lock_path(name='machine'):
+    return layers.chatroom_dir() / f'{name}.lock'
 
 
-def holder():
+def holder(name='machine'):
     """{'pid', 'label', 'since'} of the live holder, or None"""
     try:
-        h = json.loads(lock_path().read_text(encoding='utf-8'))
+        h = json.loads(lock_path(name).read_text(encoding='utf-8'))
         from chat import pid_alive
         return h if pid_alive(int(h['pid'])) else None
     except (OSError, ValueError, KeyError, TypeError):
@@ -30,16 +30,17 @@ def holder():
 
 
 @contextlib.contextmanager
-def machine_lock(label, tell=None, poll=POLL):
-    """hold the machine for the block; wait while another process holds it (tell(holder) once, to say who)"""
-    p = lock_path()
+def machine_lock(label, tell=None, poll=POLL, name='machine'):
+    """hold the machine for the block; wait while another process holds it (tell(holder) once, to say who). name: another
+    lock of the same kind (the verifies of the tasks queue among themselves on 'verify')"""
+    p = lock_path(name)
     p.parent.mkdir(parents=True, exist_ok=True)
     told = False
     while True:
         try:
             fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            h = holder()
+            h = holder(name)
             if h is None:                                 # its holder is dead: take it over
                 with contextlib.suppress(OSError):
                     p.unlink()
