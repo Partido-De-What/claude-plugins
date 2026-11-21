@@ -61,6 +61,15 @@ Follow the room as in the chatroom start skill (relay, WATCH lines, CHECK lines)
 A role tags others in the chat like any agent, but it cannot ping a Claude agent: that agent sees it at its next read or
 wait. To tell a role something, tag it in the chat.
 
+## 4b. One question to many models, and the council
+
+Without roles: `python "CHAT" spawn consult PROMPT.md OUT_DIR` asks every free model with a key the same question (options:
+`--web`, `--attach FILE`, `--per-host N`, `--stealth`, `--new-since YYYY-MM-DD`, `--claude MODEL`, `--retry-failed`, `--dry`
+to see the list first). `python "CHAT" spawn council "the user's situation" [OUT_DIR] [--n 10]` asks the N smartest for
+improvements, a constructive fact-check and ideas, replacing the ones that do not answer. Both take long (a model may think
+for an hour): run them as a background command and read `OUT_DIR/stato.json` for the live state, then the answer files.
+Give the user the final table they print, the fallen routes with their reason included.
+
 ## 5. The end
 
 As in the chatroom close skill. To stop the roles, stop the viewer.

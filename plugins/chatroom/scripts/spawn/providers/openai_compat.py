@@ -353,7 +353,7 @@ def _stream(client, url, hdrs, body, answer, seen=None, stop=None):
 
 
 def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None, key=None, extra=None, session_id=None,
-         on_delta=None, client=None, stop=None):
+         on_delta=None, client=None, stop=None, read=None):
     """one completion, streamed; returns {'message', 'text', 'reasoning', 'tool_calls', 'finish', 'usage'} or raises
     errors.ProviderError. A stream that breaks after some output raises 'stream_cut' with .partial = the result so far"""
     if key is None:
@@ -366,7 +366,7 @@ def chat(provider, model, messages, *, tools=None, max_tokens=4096, effort=None,
     body, used = build_body(provider, model, messages, tools, max_tokens, effort, session_id), set()
     from spawn.limiter import LIMITER
     own = client is None
-    client = client or httpx.Client(timeout=httpx.Timeout(READ, connect=CONNECT))
+    client = client or httpx.Client(timeout=httpx.Timeout(read or READ, connect=CONNECT))     # read: seconds without a byte (a consult waits far longer)
     try:
         while True:
             answer = Answer(on_delta, provider)
@@ -448,6 +448,36 @@ def quota_open(payload):
         left, used = _num(payload.get('remaining')), _num(payload.get('used'))
         return lim > 0 and (left is None or left > 0) and (used is None or used < lim)
     return any(quota_open(v) for v in payload.values() if isinstance(v, (dict, list)))
+
+
+def quota_left(payload):
+    """the tokens left today in a quota host's /usage answer, or None when it does not say"""
+    if isinstance(payload, list):
+        got = [quota_left(v) for v in payload]
+    elif isinstance(payload, dict):
+        lim, left, used = _num(payload.get('limit_per_day')), _num(payload.get('remaining')), _num(payload.get('used'))
+        if lim:
+            return left if left is not None else (max(0.0, lim - used) if used is not None else lim)
+        got = [quota_left(v) for v in payload.values() if isinstance(v, (dict, list))]
+    else:
+        return None
+    got = [g for g in got if g is not None]
+    return sum(got) if got else None
+
+
+def usage(provider, key, extra=None, client=None):
+    """the /usage answer of a quota host (catalog 'quota_usage'), or None"""
+    url = catalog.base_url(provider, extra).rstrip('/') + catalog.get(provider)['quota_usage']
+    h = {'Accept': 'application/json', **catalog.auth_headers(provider, key)}
+    try:
+        if client is None:
+            with httpx.Client(timeout=20) as c:
+                r = c.get(url, headers=h)
+        else:
+            r = client.get(url, headers=h)
+        return r.json() if r.status_code < 400 else None
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 def free_quota(provider, key, extra=None, client=None):

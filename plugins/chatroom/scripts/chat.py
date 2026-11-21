@@ -54,6 +54,8 @@ Commands (the room is --room DIR or the CHATROOM_DIR environment variable):
   chat.py sources [add URL SUMMARY] --as NAME               (the register of what the room read: link and a line each)
   chat.py alerts --from NAME --follow                       (a sentinel: ends when NAME writes, printing it)
   chat.py spawn consult PROMPT.md OUT_DIR [--top N]         (one question to many free models, one file for each answer)
+  chat.py spawn council "situation" [OUT_DIR] [--n 10]      (the N smartest models: improvements, fact-check, ideas)
+  chat.py spawn blocks [--clear [HOST]]                   (what the limiter keeps out of quota, and until when)
   chat.py pause|resume [WHY] --as LEAD                      (the room stands still: no CHECK, no fall counted, no report asked)
 
 Look options (init) and config keys: --title, --subtitle, --icon (an emoji), --accent (#rrggbb), --theme
@@ -3116,27 +3118,70 @@ def cmd_spawn(room, a):
         from spawn import panel  # noqa: F401  (the view needs it: fails here when Python or the packages are missing)
     except ImportError as exc:                # Python older than 3.14 without uv, or the packages missing
         sys.exit(say('chat.err.main.error', exc=exc))
-    if a.pairs[:1] == ['consult']:                    # spawn consult PROMPT.md OUT_DIR: one question to many free models
-        if len(a.pairs) != 3:
+    if a.pairs[:1] == ['blocks']:                     # spawn blocks [--clear [HOST]]: what the limiter keeps out, and until when
+        from spawn.limiter import LIMITER
+        if a.clear is not None:
+            return print(say('chat.say.cmd_spawn.blocks_cleared', n=LIMITER.clear(a.clear or None)))
+        rows = LIMITER.blocks()
+        for p, _, m, until in rows:
+            print(f"{p:<16} {m:<44} until {time.strftime('%Y-%m-%d %H:%M', time.localtime(until))}")
+        return print(say('chat.say.cmd_spawn.blocks_none') if not rows else say('chat.say.cmd_spawn.blocks_how'))
+    if a.pairs[:1] in (['consult'], ['council']):    # one question to many free models; the council: the N smartest, until N answered
+        council = a.pairs[0] == 'council'
+        if council and len(a.pairs) not in (2, 3):
+            sys.exit(say('chat.err.cmd_spawn.council_usage'))
+        if not council and len(a.pairs) != 3:
             sys.exit(say('chat.err.cmd_spawn.consult_usage'))
         from spawn import consult as sc
         from spawn.keys import load as load_key
+        from spawn.limiter import LIMITER
         from spawn.providers import complete
-        live = None
-        if a.openrouter:
-            import urllib.request
-            req = urllib.request.Request('https://openrouter.ai/api/v1/models', headers={'Authorization': 'Bearer ' + load_key('open_router')['key']})
-            live = json.loads(urllib.request.urlopen(req, timeout=60).read())['data']
         has_key = lambda adapter: bool(load_key(adapter))
-        picked = sc.pick(a.top or 60, a.ids, a.openrouter, has_key=has_key, live=live)
+        live = None
+        if a.openrouter or a.stealth:
+            import urllib.request
+            k = load_key('open_router')
+            req = urllib.request.Request('https://openrouter.ai/api/v1/models', headers={'Authorization': 'Bearer ' + k['key']} if k else {})
+            live = json.loads(urllib.request.urlopen(req, timeout=60).read())['data']
+        mem = sc.load_mem(sc.mem_path())
+        if council:
+            question = a.pairs[1]
+            if Path(question).is_file():
+                question = Path(question).read_text(encoding='utf-8')
+            out = a.pairs[2] if len(a.pairs) == 3 else str(Path('council-' + time.strftime('%Y%m%d-%H%M')))
+            n = a.n or 10
+            picked = sc.pick(n * 4, has_key=has_key, mem=mem)       # spare ones take the place of those who do not answer
+        else:
+            question, out = Path(a.pairs[1]).read_text(encoding='utf-8'), a.pairs[2]
+            picked = sc.pick(a.top or 60, a.ids, a.openrouter, has_key=has_key, live=live, per_host=a.per_host, stealth=a.stealth,
+                             new_since=a.new_since, mem=mem)
+        prompt = sc.with_files(question, a.attach)
         if not a.ids and not a.openrouter:            # a big round on the catalog: what it cannot use is said first
             from spawn.catalog import catalog
             print(coverage_line(catalog.load(), has_key))
+            from spawn.providers import catalog as pcat, openai_compat as oc
+            for host in sorted({r['adapter'] for _, m in picked for r in sc._routes(m, has_key)}):
+                if pcat.get(host).get('quota_usage'):  # M9: a day's quota of tokens, said before it is spent
+                    k = load_key(host)
+                    left = oc.quota_left(oc.usage(host, k['key'], k['extra'])) if k else None
+                    if left is not None:
+                        print(sc.quota_note(host, left, sc.estimate(prompt), sum(any(r['adapter'] == host for r in sc._routes(m, has_key)) for _, m in picked)))
         if a.dry:
             for i, (_, m) in enumerate(picked):
-                print(i + 1, m['canonical'], m.get('ctx', ''), [r['adapter'] for r in m['routes']])
+                print(i + 1, m['canonical'], m.get('ctx', ''), [r['adapter'] for r in sc._routes(m, has_key)])
             return
-        sc.consult(Path(a.pairs[1]).read_text(encoding='utf-8'), a.pairs[2], picked, has_key, complete)
+        arm = None
+        if a.claude:                                  # M11: the same question to Claude with web search, beside the free models
+            import threading
+            arm = threading.Thread(target=lambda: print(sc.claude_arm(sc.COUNCIL.format(n=a.n or 10, question=prompt) if council else prompt, out, a.claude)))
+            arm.start()
+        kw = dict(deadline=a.deadline, web=a.web, max_tokens=a.max_tokens, retry_dead=a.retry_dead, limiter=LIMITER)
+        if council:
+            sc.council(prompt, out, picked, has_key, complete, n=a.n or 10, **kw)
+        else:
+            sc.consult(prompt, out, picked, has_key, complete, retry_failed=a.retry_failed, **kw)
+        if arm:
+            arm.join()
         return
     if a.pairs[:1] == ['ping']:                       # spawn ping [canonical...] [--top N]: who answers now, with its tools, before a round
         from spawn.catalog import catalog
@@ -4610,7 +4655,7 @@ def dissolve_idlefree(room, now=None):
         if not i or k in c.get('left', []) or k in gone or i.get('external') or now - float(i.get('ts') or now) < IDLEFREE_AFTER:
             continue
         others = [x for x in (*c.get('participants', []), *room.user_names()) if x != k]
-        if any(names(i.get('text', ''), x) for x in others) or re.search(r"(?:the user|l'utente|utente)", i.get('text', ''), re.IGNORECASE):
+        if any(names(i.get('text', ''), x) for x in others) or re.search(r"\b(?:the user|l'utente|utente)\b", i.get('text', ''), re.IGNORECASE):
             continue                                  # it waits for somebody: not for a task
         data = board.load()
         if f"{k}:{i['n']}" in tried or any(t['owner'] == k and t['state'] == 'taken' for t in data['tasks']):
@@ -6289,6 +6334,18 @@ def _main():
     p.add_argument('--from', dest='author', help='alerts --follow: end when NAME writes, printing what it wrote (a sentinel on one author)')
     p.add_argument('--ids', help='spawn consult: a host and the model ids to ask, host:id,id')
     p.add_argument('--openrouter', action='store_true', help='spawn consult: the live list of free OpenRouter models, not the catalog')
+    p.add_argument('--attach', action='append', help='spawn consult/council: a file read with the question (repeat it for more)')
+    p.add_argument('--web', action='store_true', help='spawn consult/council: the models may search the web and arXiv and read pages')
+    p.add_argument('--per-host', type=int, help='spawn consult: the N smartest models of every host with a key')
+    p.add_argument('--stealth', action='store_true', help='spawn consult: add the stealth models of OpenRouter')
+    p.add_argument('--new-since', help='spawn consult: add the models never asked, or first asked since YYYY-MM-DD')
+    p.add_argument('--retry-failed', action='store_true', help='spawn consult: only the models of the last run that gave no answer')
+    p.add_argument('--retry-dead', action='store_true', help='spawn consult: try again the routes remembered as paid or not a chat model')
+    p.add_argument('--deadline', type=int, help='spawn consult/council: seconds for one route (none by default)')
+    p.add_argument('--max-tokens', type=int, help='spawn consult/council: output asked (by default the most the host takes)')
+    p.add_argument('--claude', help='spawn consult/council: ask the same of claude -p with web search, with this full model id')
+    p.add_argument('--n', type=int, help='spawn council: how many models must answer (10 by default)')
+    p.add_argument('--clear', nargs='?', const='', help='spawn blocks: take the limiter blocks off (of one host, or all)')
     p.add_argument('--common', action='store_true',
                    help='post/read/wait in the common room (the second coffee room, shared with friends when the user shares it)')
     p.add_argument('--messages', action='store_true',

@@ -114,6 +114,15 @@ your Windows user (DPAPI) outside the room and never appear in the chat, the log
   read at 1000 px at most (Pillow). [Headroom](https://github.com/headroomlabs-ai/headroom) can compress long room texts
   (`config compress=1`; off by default: on chat prose it saved nothing) and [RTK](https://github.com/rtk-ai/rtk) filters
   shell output for the room's agents, never inside a pipe.
+- **One question to many models.** `chat.py spawn consult PROMPT.md OUT_DIR` asks every free model at once, with no budget of
+  its own: the most output the host takes, no deadline unless you give one, an hour of patience for a model that thinks.
+  `--web` lets them search the web and arXiv and read pages, `--attach` adds files, `--per-host 5 --stealth --new-since DATE`
+  picks like I do by hand, `--claude MODEL` asks `claude -p` too. A truncated or empty answer is never saved as an answer,
+  every route that fell says why (quota until when, not free, too big, deadline, gateway), and the same command again asks
+  only the models still without an answer. `spawn blocks` shows what the limiter keeps out, `--clear` takes it off.
+- **The model council.** `chat.py spawn council "your situation"` asks the 10 smartest free models (`--n` for another
+  number) for improvements, a constructive fact-check and brilliant ideas on what you wrote. A model that does not answer
+  gives its place to the next one, until the number is reached; `COUNCIL.md` lists the answers.
 - **The Hangar.** A spawn room has its own office: a night hangar with one gate per provider, a departures board with
   every role, quota tanks, and a few easter eggs.
 

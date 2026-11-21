@@ -44,6 +44,7 @@ FREE_LIMITS = {'open_router': (20, 16, 'key'), 'nvidia_nim': (40, 4, 'key'), 'gr
                'mistral': (60, 2, 'key'), 'cerebras': (30, 4, 'model'), 'sambanova': (20, 2, 'model'), 'cohere': (20, 2, 'key'),
                'cloudflare': (300, 4, 'key'), 'huggingface': (30, 2, 'key')}
 DEFAULT = (20, 2, 'key')
+MIXED = {'xkiro', 'open_router', 'kilo', 'huggingface', 'cloudflare', 'zai_api', 'tokenrouter', 'orcarouter'}   # hosts that list free and paid models side by side
 RECENT = 600.0                                      # the 429s that count against a route: the last 10 minutes
 _RL = re.compile(r'x-ratelimit-(limit|remaining|reset)(?:-(.+))?', re.I)
 _DURATION = re.compile(r'(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?(?:(\d+(?:\.\d+)?)ms)?')
@@ -113,8 +114,10 @@ class Limiter:
                 self._sync()
                 if lane.slow_until and self.clock() >= lane.slow_until:
                     lane.rpm, lane.slow_until = lane.base_rpm, 0.0
-                if any(self.out.get(n, 0) > time.time() for n in names):
-                    raise errors.ProviderError('quota', None, None, 'this host said its quota is over (limiter)')
+                until = max((self.out.get(n, 0) for n in names), default=0)
+                if until > time.time():                  # B3: said with the time it ends, so a caller knows when to come back
+                    raise errors.ProviderError('quota', None, None, 'this host said its quota is over (limiter), blocked until '
+                                               + time.strftime('%Y-%m-%d %H:%M', time.localtime(until)))
                 now = self.clock()
                 while lane.starts and lane.starts[0] <= now - WINDOW:
                     lane.starts.popleft()
@@ -227,7 +230,8 @@ class Limiter:
             paid = self.paid.setdefault(wide[:2], set())
             if err.kind == 'payment':
                 paid.add(model)
-            self.out[wide if len(paid) > 1 or (err.kind == 'quota' and errors.daily(err)) else one] = until
+            mixed = err.kind == 'payment' and provider in MIXED      # free and paid models on one host: money for one says nothing of the others
+            self.out[wide if (len(paid) > 1 and not mixed) or (err.kind == 'quota' and errors.daily(err)) else one] = until
             self._save_out()
             self.cond.notify_all()
 
@@ -266,6 +270,28 @@ class Limiter:
             self.path_seen = self.path.stat().st_mtime_ns
         except OSError:
             pass
+
+    def blocks(self):
+        """[(provider, key fingerprint, model or '*', until)] still in force, the soonest end first: `spawn blocks`"""
+        wall = time.time()
+        with self.cond:
+            self._sync()
+            return sorted(((n[0], n[1], n[2], u) for n, u in self.out.items() if u > wall), key=lambda x: x[3])
+
+    def clear(self, provider=None):
+        """take the blocks off (of one provider, or all) to try again on purpose; returns how many"""
+        with self.cond:
+            self._sync()
+            gone = [n for n in self.out if provider is None or n[0] == provider]
+            for n in gone:
+                del self.out[n]
+            self.path_seen = None
+            if self.path:
+                try:
+                    self.path.write_text(json.dumps({'|'.join(n): u for n, u in self.out.items()}), encoding='utf-8')
+                except OSError:
+                    pass
+            return len(gone)
 
     def is_out(self, provider, model, key=None):
         """the host said its quota is over, or wants money"""

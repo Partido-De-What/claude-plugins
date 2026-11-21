@@ -447,6 +447,17 @@ def mark_gone(canonical, adapter):
     save(cat)
 
 
+def mark_not_free(canonical, adapter):
+    """a host asked money for this model: the route stays, but no longer among the free ones (until a list says otherwise)"""
+    cat = load()
+    for m in cat['models']:
+        if m['canonical'] == canonical:
+            for r in m['routes']:
+                if r['adapter'] == adapter:
+                    r['free'] = False
+    save(cat)
+
+
 def ping(only=None, top=None, complete=None, load_key=None, workers=8, vision=False):
     """`chat.py spawn ping`: before a round, one small request with one tool to every free host that has a key: [{model, host,
     s, result}], fastest first. Through the limiter like a role's request, so a host out of quota fails at once for all its

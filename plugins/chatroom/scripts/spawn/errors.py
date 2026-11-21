@@ -28,6 +28,9 @@ _DAILY = re.compile(r"today'?s|\bdaily\b|per[- ]day|used up your|PerDay|limit:\s
 _RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')        # Gemini says the wait in its body, not in a header
 _OVERLOAD = re.compile(r'overloaded|capacity|resource[_ ]?exhausted|temporarily unavailable|degraded function', re.I)
 _RATE = re.compile(r'rate[_ ]limit|too many requests', re.I)
+# a route that wants money whatever the status (xKiro answers 403 for its premium models, Hugging Face 402): not a quota
+_PAID_TEXT = re.compile(r'pay-as-you-go|deposited balance|pre-?paid credits|purchase (?:pre-?paid )?credits|'
+                        r'requires? (?:a )?(?:real )?(?:deposit|positive balance|paid plan)|not available (?:on|for) (?:the )?free', re.I)
 
 
 class ProviderError(Exception):
@@ -84,6 +87,8 @@ def classify(status, body='', headers=None):
         wait = float(_RETRY_DELAY.search(text)[1])
     if _CONTEXT.search(text):
         kind = 'context'
+    elif _PAID_TEXT.search(text):
+        kind = 'payment'
     elif 'tool_use_failed' in text:                 # Groq: the model wrote a tool call it could not finish; asked again, it can
         kind = 'tool_json'
     elif status == 401:
