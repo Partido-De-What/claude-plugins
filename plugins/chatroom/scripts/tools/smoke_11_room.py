@@ -159,5 +159,43 @@ codex = json.loads((SCRIPTS.parent / '.codex-plugin' / 'plugin.json').read_text(
 ok('Codex is pointed to an empty hooks file', codex.get('hooks') == './hooks/codex.json'
    and json.loads((SCRIPTS.parent / 'hooks' / 'codex.json').read_text(encoding='utf-8'))['hooks'] == {})
 
+# ---- 3.6: a 4 or 5 on trial where it was born; it passes (accept) or is refused and deleted (retire)
+home = BASE / 'claude' / 'chatroom'
+(home / 'lessons.json').unlink(missing_ok=True)
+r1 = new_room('trial1')
+run(r1, 'lessons', 'topic', 'use', 'kernels', '--confirmed', '--as', 'LEAD')
+c, o = run(r1, 'lessons', 'propose', 'Measure both arms in one run', '--score', '4', '--reach', 'general', '--scope', 'ratio metrics', '--as', 'LEAD')
+les = json.loads((home / 'lessons.json').read_text(encoding='utf-8'))['lessons']
+ok('3.6 a 4 general enters on trial, born in the topic', c == 0 and les[0]['status'] == 'trial' and les[0]['origin']['topic'] == 'kernels' and 'on trial' in o, (o, les))
+def prompt_of(room):
+    c, o = run(room, 'prompt', 'A', '--tools', 'shell', '--out', str(room / 'A.md'))
+    return (room / 'A.md').read_text(encoding='utf-8') if c == 0 else o
+r2 = new_room('trial2'); run(r2, 'lessons', 'topic', 'use', 'kernels', '--confirmed', '--as', 'LEAD')
+r3 = new_room('trial3'); run(r3, 'lessons', 'topic', 'use', 'webapps', '--confirmed', '--as', 'LEAD')
+ok('3.6 a room of the same topic carries it', 'Measure both arms in one run' in prompt_of(r2))
+ok('3.6 a room of another topic does not', 'Measure both arms in one run' not in prompt_of(r3))
+c, o = run(r1, 'lessons', 'trial', '--as', 'LEAD')
+ok('3.6 lessons trial lists it on trial, with where it was born and its rooms', 'L1' in o and 'kernels' in o and '2 room' in o, o)
+c, o = run(r1, 'lessons', 'accept', 'L1', '--as', 'LEAD')
+les = json.loads((home / 'lessons.json').read_text(encoding='utf-8'))['lessons']
+ok('3.6 after a second room it passes: active, for every room', c == 0 and les[0]['status'] == 'active' and 'Measure both arms in one run' in prompt_of(r3), (o, les))
+c, o = run(r1, 'lessons', 'propose', 'Name the bench in every status', '--score', '5', '--reach', 'general', '--scope', 'shared benches', '--as', 'LEAD')
+c, o = run(r1, 'lessons', 'retire', 'L2', '--as', 'LEAD')
+les = json.loads((home / 'lessons.json').read_text(encoding='utf-8'))
+ok('3.6 refused on trial: deleted, not only retired', c == 0 and all(x['id'] != 'L2' for x in les['lessons']) and 'deleted' in o, (o, les))
+c, o = run(r1, 'lessons', 'trial', '--as', 'LEAD')
+ok('3.6 lessons trial shows what passed and what was refused', o.index('PASSED') < o.index('L1', o.index('PASSED')) and 'Name the bench' in o[o.index('REFUSED'):], o)
+ok('3.6 a refused lesson is in no prompt', 'Name the bench in every status' not in prompt_of(r2))
+
+# ---- 3.7: task done --lesson
+r4 = new_room('donelesson')
+run(r4, 'task', 'add', 'parse dates', '--as', 'A'); run(r4, 'task', 'take', 'T1', '--as', 'A')
+c, o = run(r4, 'task', 'done', 'T1', '--proof', 'pytest: 4 passed, exit 0', '--lesson', 'Parse dates with the locale of the file', '--as', 'A')
+ok('3.7 a lesson without a score is refused before anything closes', c != 0 and '--score' in o, o)
+c, o = run(r4, 'task', 'done', 'T1', '--proof', 'pytest: 4 passed, exit 0', '--lesson', 'Parse dates with the locale of the file', '--score', '4', '--as', 'A')
+les = json.loads((home / 'lessons.json').read_text(encoding='utf-8'))['lessons']
+ok('3.7 task done --lesson closes the task and proposes the lesson, with the task as its case', c == 0 and 'done by A' in o
+   and any(x['text'] == 'Parse dates with the locale of the file' and x['status'] == 'trial' and 'T1' in x.get('evidence', '') for x in les), (o, les[-1:]))
+
 print(f'fails {fails}')
 sys.exit(1 if fails else 0)

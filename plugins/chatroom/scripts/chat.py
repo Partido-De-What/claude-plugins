@@ -2891,7 +2891,21 @@ def cmd_task(room, a):
             print(say('chat.say.posted', n=n))
             return print_alert(room, a.name, n, line, [])
     elif act == 'done' and rest:
+        if getattr(a, 'lesson', None) and getattr(a, 'score', None) not in (1, 2, 3, 4, 5):
+            sys.exit(say('chat.err.cmd_task.lesson_score'))
         line = b.done(a.name, rest[0], a.proof or '', a.force, getattr(a, 'gaps', None) or '', getattr(a, 'mcp', False))
+        if getattr(a, 'lesson', None):                # 3.7: the lesson proposed at the end of the task, with the case still at hand
+            import argparse
+            import lessons
+            t = Board.find(b.load(), rest[0])
+            p = argparse.Namespace(name=a.name, score=a.score, reach=getattr(a, 'reach', None) or 'general', kind='improvement',
+                                   scope=getattr(a, 'scope', None) or f"tasks like: {t['title'][:120]}", expect=None,
+                                   note=f"{t['id']} {t['title'][:80]}: {(a.proof or '')[:150]}")
+            try:
+                with lessons.lessons_lock():
+                    lessons.propose(room, p, [a.lesson], lessons.load())
+            except ValueError as exc:             # the task is closed all the same: the lesson's refusal is said, not fatal
+                print(say('chat.say.cmd_task.lesson_refused', exc=exc))
         if getattr(a, 'touched', None):           # interfaces changed: a finding everyone reads, read --focus included
             room.append(a.name, say('chat.say.cmd_task.changed_what_others_may', upper=rest[0].upper(), touched=a.touched[:300]), 'finding')
         b.review_packet(rest[0], getattr(a, 'touched', None))
@@ -4363,10 +4377,10 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
         values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.tests', dirs=data['tests'])
     if data.get('lessons') != 'off':                  # what earlier rooms taught and the user kept (brief lessons=trial: the ones on trial too)
         import lessons
-        kept = lessons.for_prompt(data.get('lessons') == 'trial', lessons.topic_of(room))
+        kept = lessons.for_prompt(data.get('lessons') == 'trial', lessons.topic_of(room), room.dir)
         if kept:
             values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.lessons') + '\n' + '\n'.join(kept)
-            lessons.used(room.dir, data.get('lessons') == 'trial')
+            lessons.used(room.dir, data.get('lessons') == 'trial', lessons.topic_of(room))
         slug = lessons.topic_of(room)                 # the skills the topic remembers for this role: names only, the library is one
         roles = [config.get('profiles', {}).get(name, {}).get('role'), *[r for r, who in read_json(room.dir / 'research' / 'contract.json', {}).get('roles', {}).items() if name in who]]
         mine = lessons.role_skills(slug, roles) if slug else []
@@ -6510,6 +6524,7 @@ def _main():
     p.add_argument('--parent', help='research assign: base, best or att-N: where the cycle starts')
     p.add_argument('--type', help='research assign: explorer (a fresh agent, one new idea) or optimizer (the same agent refines)')
     p.add_argument('--kind', help='research evaluate: attempt, fix, smoke, explore (outside the seal, never official), probe (a service measure in phase 2: never counted, never the best; --env), ablation, baseline, control or repeat; lessons propose: improvement, bug or plugin')
+    p.add_argument('--lesson', help='task done: a rule the harness should learn from this task (with --score 1-5, --reach, --scope)')
     p.add_argument('--score', type=int, help='lessons propose: 1 to 5 (4 and 5 are applied by themselves, 1 to 3 wait for the closing)')
     p.add_argument('--reach', help='lessons add / propose: local (this machine), general (the harness for anyone) or topic (the profile of this room\'s topic)')
     p.add_argument('--expect', help='lessons propose --reach topic: what the lesson should improve; the next room on the topic checks it')

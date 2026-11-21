@@ -145,20 +145,33 @@ def gate(text, data):
     return None
 
 
-def for_prompt(trial=False, topic=''):
-    """the lines a prompt carries: the active lessons, the ones on trial when the room's brief asks for them, and the lessons
-    of the room's topic profile"""
-    want = ('active', 'trial') if trial else ('active',)
-    return [f"- {x['text']}" + (f" ({x['when']})" if x.get('when') else '') for x in load()['lessons'] if x.get('status') in want] + topic_lines(topic)
+def born_here(x, topic='', room_dir=None):
+    """a lesson on trial reaches the rooms it was born for: the same topic, or the same room when it was born without one"""
+    o = x.get('origin') or {}
+    if not o:
+        return False
+    if o.get('topic'):
+        return o['topic'] == topic
+    return bool(room_dir) and o.get('room') == str(Path(room_dir).resolve())
 
 
-def used(room_dir, trial=False):
+def carried(x, trial=False, topic='', room_dir=None):
+    return x.get('status') == 'active' or (x.get('status') == 'trial' and (trial or born_here(x, topic, room_dir)))
+
+
+def for_prompt(trial=False, topic='', room_dir=None):
+    """the lines a prompt carries: the active lessons, the ones on trial born for this room (its topic, or the room itself),
+    all the ones on trial when the room's brief asks for them, and the lessons of the room's topic profile"""
+    return [f"- {x['text']}" + (f" ({x['when']})" if x.get('when') else '') for x in load()['lessons'] if carried(x, trial, topic, room_dir)] + topic_lines(topic)
+
+
+def used(room_dir, trial=False, topic=''):
     """a room whose prompts carried a lesson is written on it: a lesson on trial is accepted on what it did in rooms"""
-    want, key = ('active', 'trial') if trial else ('active',), str(Path(room_dir).resolve())
+    key = str(Path(room_dir).resolve())
     with lessons_lock():
         data, changed = load(), False
         for x in data['lessons']:
-            if x.get('status') in want and key not in x.setdefault('rooms', []):
+            if carried(x, trial, topic, room_dir) and key not in x.setdefault('rooms', []):
                 x['rooms'].append(key)
                 changed = True
         if changed:
@@ -383,13 +396,15 @@ def propose(room, a, rest, data):
             room.locked(keep)
             raise ValueError(refusal)
         lid = f"L{max([int(x['id'][1:]) for x in data['lessons']] or [0]) + 1}"
-        data['lessons'].append({'id': lid, 'text': text, 'when': when, 'evidence': p['note'], 'status': 'active', 'reach': reach, 'score': score,
-                                'auto': True, 'rooms': [str(Path(room.dir).resolve())], 'ts': p['ts'], 'by': p['by']})
+        origin = {'topic': topic_of(room) or '', 'room': str(Path(room.dir).resolve())}   # 3.6: on trial where it was born, general only after a second room
+        data['lessons'].append({'id': lid, 'text': text, 'when': when, 'evidence': p['note'], 'status': 'trial', 'reach': reach, 'score': score,
+                                'auto': True, 'origin': origin, 'rooms': [str(Path(room.dir).resolve())], 'ts': p['ts'], 'by': p['by']})
         save(data)
         p.update(status='applied', lesson=lid)
     room.locked(keep)
     print(say('lessons.propose.kept', id=p['id'], score=score, reach=reach) if p['status'] == 'presented'
-          else say('lessons.propose.applied', id=p['id'], score=score, reach=reach, lesson=p['lesson']))
+          else say('lessons.propose.applied', id=p['id'], score=score, reach=reach, lesson=p['lesson'],
+                   where=say('lessons.where.topic', slug=topic_of(room)) if topic_of(room) else say('lessons.where.room')))
 
 
 def room_causes(room, at=CAUSE_AT):
@@ -427,6 +442,24 @@ def auto_propose(room, cause, n, who, detail):
     return out[0] if out else None
 
 
+def trial_report(data):
+    """`lessons trial`: the lessons on trial (where they were born, how many rooms carried them), then what passed and what was refused"""
+    out = [say('lessons.trial.head')]
+    now = [x for x in data['lessons'] if x.get('status') == 'trial']
+    for x in now:
+        o = x.get('origin') or {}
+        where = say('lessons.where.topic', slug=o['topic']) if o.get('topic') else say('lessons.where.room') if o else say('lessons.where.brief')
+        out.append(f"    {x['id']} (score {x.get('score', '-')}, {x.get('reach', '-')}) {x['text']} · {where} · {say('lessons.rooms', n=len(x.get('rooms', [])))}")
+    out.append('    -' if not now else say('lessons.trial.how'))
+    for status in ('passed', 'refused'):
+        rows = [h for h in data.get('history', []) if h.get('status') == status]
+        out.append(say(f'lessons.trial.{status}'))
+        out.extend(f"    {h['id']} {h['text']} · {time.strftime('%Y-%m-%d', time.localtime(h['at']))} · {say('lessons.rooms', n=h.get('rooms', 0))}" for h in rows[-20:])
+        if not rows:
+            out.append('    -')
+    return out
+
+
 def closing(room):
     """the closing summary of a room, in the parts the user's rule asks: a. what the harness learned and applied by itself, b. what
     the session found and is left to decide (the creator's), c. the plugin's bugs (the creator's), each listed local and general apart"""
@@ -442,6 +475,8 @@ def closing(room):
             if not mine:
                 out.append('    -')
     block(say('lessons.close.auto'), [p for p in items if p['status'] == 'applied'])
+    if any(p['status'] == 'applied' for p in items):
+        out.append(say('lessons.close.trial_how'))
     refused = [p for p in items if p['status'] == 'refused']
     if refused:
         out.append(say('lessons.close.refused'))
@@ -515,9 +550,19 @@ def _command(room, a):
             raise ValueError(say('lessons.none', id=rest[0]))
         if act == 'accept' and len(x.get('rooms', [])) < 2 and not getattr(a, 'force', False):
             raise ValueError(say('lessons.two_rooms', id=x['id'], n=len(x.get('rooms', []))))
+        hist = data.setdefault('history', [])
+        if act == 'retire' and x.get('status') == 'trial' and x.get('origin'):   # 3.6: refused on trial: deleted, one line kept
+            data['lessons'].remove(x)
+            hist.append({'id': x['id'], 'text': x['text'][:200], 'status': 'refused', 'at': int(time.time()), 'by': a.name or '', 'rooms': len(x.get('rooms', []))})
+            save(data)
+            return print(say('lessons.deleted', id=x['id']))
+        if act == 'accept' and x.get('status') == 'trial':
+            hist.append({'id': x['id'], 'text': x['text'][:200], 'status': 'passed', 'at': int(time.time()), 'by': a.name or '', 'rooms': len(x.get('rooms', []))})
         x.update(status='active' if act == 'accept' else 'retired', changed=int(time.time()))
         save(data)
         return print(say('lessons.accepted', id=x['id']) if act == 'accept' else say('lessons.retired', id=x['id']))
+    if act == 'trial':                                # 3.6: what is on trial, what passed, what was refused
+        return print('\n'.join(trial_report(data)))
     if act:
         raise ValueError(say('lessons.usage'))
     dirs = rooms([room.dir])

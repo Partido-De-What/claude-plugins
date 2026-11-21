@@ -378,7 +378,7 @@ if section('A4'):      # the score rule: 4 and 5 apply by themselves, 1 to 3 wai
     c, o = P('Name the changed test in the proof', '--score', '4', '--reach', 'general', '--scope', 'a room with tests kept outside git')
     ok('A4 a 4 too', c == 0 and 'applied by itself' in o and 'L2' in o, o)
     lessons = json.loads((home / 'lessons.json').read_text(encoding='utf-8'))['lessons']
-    ok('A4 they are active, scored and carry their reach', [(x['status'], x['score'], x['reach']) for x in lessons] == [('active', 5, 'local'), ('active', 4, 'general')], lessons)
+    ok('A4 they are on trial where they were born (1.1), scored and carry their reach', [(x['status'], x['score'], x['reach']) for x in lessons] == [('trial', 5, 'local'), ('trial', 4, 'general')], lessons)
     ok('A4 and they go into the prompt of every agent', 'Give the free task to who waits for nobody' in run(room, 'prompt', 'A')[1])
     c, o = P('A rule about T12 only', '--score', '5', '--reach', 'local', '--scope', 'x')
     ok('A4 the gate still stops a rule that holds in one room only', c != 0 and 'T12' in o, o)
