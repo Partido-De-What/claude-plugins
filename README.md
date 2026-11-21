@@ -46,7 +46,7 @@ No agent can talk its way past that. The check is the same for every agent and f
 | | |
 |---|---|
 | ⏱️ **28 hours** | One research room ran for 28 hours on a real kernel. I wrote down every place where the harness cost me time, and that list became 1.0. |
-| 🔁 **67 of 72** | The 1.0 was built by a chatroom: two Sonnet agents and a lead fixed the defects of the plugin itself, each fix merged with its own test. |
+| 🔁 **Built by itself** | Each version comes out of rooms that ran on the version before: several rounds of the plugin finding and fixing its own defects, each fix merged with its own test. |
 | ⚡ **2.1x** | One overnight research room made a text-to-speech kernel on a Meta Quest 3S 2.1 times faster than the stock one, with every attempt measured the same way and logged. |
 | 📚 **37 papers** | Every row in the [papers section](#-the-papers-behind-it) is something that changed in the code, not a reading list. |
 
