@@ -292,8 +292,8 @@ if git:
 lone = BASE / 'cache4' / 'chatroom' / '0.12.1'
 plant(lone, V1, '0.12.1')
 shutil.rmtree(C / 'plugins')
-nnew = BASE / 'cache4' / 'chatroom' / '0.19.9'
-plant(nnew, V1, '0.19.9')
+nnew = BASE / 'cache4' / 'chatroom' / '99.0.0'          # a version no real history/ holds (0.19.9 is in it since 1.0.0)
+plant(nnew, V1, '99.0.0')
 user4 = BASE / 'user4'
 r4 = M.recover(nnew, user=user4, claude=C)[0]
 ok('an old copy with no manifest and no git history is reported as not comparable and copies nothing',
