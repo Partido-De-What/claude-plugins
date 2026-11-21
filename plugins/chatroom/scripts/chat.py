@@ -5432,7 +5432,7 @@ def close_steps(room, lead, run=False, out=print):
         out(f"== {' '.join(step)}")
         try:
             r = subprocess.run([sys.executable, str(me), *args, '--room', str(room.dir)], capture_output=True, timeout=600,
-                               env={**os.environ, 'CHATROOM_RELAUNCHED': '1', 'PYTHONIOENCODING': 'utf-8'})
+                               env={**os.environ, 'CHATROOM_RELAUNCHED': '1', 'PYTHONIOENCODING': 'utf-8', 'CHATROOM_SPARE_PIDS': f'{os.getpid()},{TOP_PID}'})   # procs close must not end the relay that runs it
             out(((r.stdout + r.stderr).decode('utf-8', 'replace').strip() or '-')[-6000:])
         except (OSError, subprocess.SubprocessError) as exc:
             out(say('chat.say.close_steps.failed', step=' '.join(step), exc=exc, line=line))

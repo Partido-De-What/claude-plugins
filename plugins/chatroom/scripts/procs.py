@@ -189,7 +189,10 @@ def close(room):
     """the closing of a room: end its test processes and the test ones left without a starter; say which viewer of the user is left"""
     here, shown = Path(room).resolve(), running()
     lost = {e['pid'] for e in orphans(shown)}
+    spare = {int(x) for x in os.environ.get('CHATROOM_SPARE_PIDS', '').split(',') if x.strip().isdigit()}   # the relay that runs the closing
     for e in shown:
+        if e['pid'] in spare:
+            continue
         if e.get('purpose') == 'prova' and (e['pid'] in lost or (e['room'] and Path(e['room']).resolve() == here)):
             end(e)
             print(say('procs.stopped', kind=e['kind'], pid=e['pid'], room=e['room'] or '-'))
