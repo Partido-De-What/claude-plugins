@@ -81,7 +81,7 @@ python "CHAT" serve --room "ROOM" --port 8765
 
 It is a server: start it the way this environment starts dev servers (a preview or launch configuration if one exists, otherwise a background shell; in Codex on Windows `Start-Process python -ArgumentList '"CHAT" serve --room "ROOM" --port 8765' -WindowStyle Hidden`, elsewhere `nohup ... &`), never in the foreground. The sandbox may ask the user to approve it. Pick another port if 8765 is taken. Give the user the address, `http://127.0.0.1:<port>/`.
 
-Nothing is downloaded for sharing until the user asks: cloudflared, which shares the common room with a friend, is fetched only when the user presses Install in the 🛋 panel of the viewer.
+Nothing is downloaded for sharing until the user asks: cloudflared, which shares the common room with a friend, is fetched only when the user presses Download cloudflared in the 🛋 panel of the viewer.
 
 ## 3b. Prepare, compact, then launch
 

@@ -1621,7 +1621,7 @@
  "share.run.the_tunnel_closed": "il tunnel si è chiuso",
  "share.start.the_address_looks_like": "l'indirizzo sembra https://something.trycloudflare.com",
  "share.start.via_must_be_one": "via deve essere uno di {VIAS}",
- "share.start_tunnel.cloudflared_is_not_installed": "cloudflared non è installato: premi Installa nel pannello 🛋 del viewer (scarica una volta la versione fissata), oppure condividi con Pinggy o la rete locale",
+ "share.start_tunnel.cloudflared_is_not_installed": "cloudflared non è installato: premi Scarica cloudflared nel pannello 🛋 del viewer (scarica una volta la versione fissata), oppure condividi con Pinggy o la rete locale",
  "share.start_tunnel.ssh_is_not_available": "ssh non è disponibile su questo computer",
  "share.start_tunnel.the_tunnel_did_not": "il tunnel non è partito",
  "signs.guide.0": "BENVENUTO",

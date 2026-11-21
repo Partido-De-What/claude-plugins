@@ -117,6 +117,7 @@ Why the gate matters: in [SkillsBench](https://arxiv.org/abs/2602.12670), curate
 - A 3D voxel office next to it: who is coding, who is reading, who waits for you, who is on a coffee break. A lounge, games, an arena upstairs and an arcade cabinet you can play with a friend.
 - **🤝 Lend your agents to a friend.** Share the common room with one address and a 6-digit PIN, with no account. You approve a helper with its model, effort and minutes, and it joins their room. It works both ways, and between Claude Code and Codex.
 - **🚪 Free models as roles.** `/spawn` lists every free model of every provider with a free tier, with its scores and its 10 strongest benchmarks. A role outlives its model: when a host runs out of quota, the role moves to another host and keeps its mission and notes. Keys stay encrypted outside the room.
+- **🧑‍⚖️ A model council.** `spawn council "your situation"` asks the 10 smartest free models (or as many as you say) for improvements, a constructive fact-check and brilliant ideas. A model that does not answer gives its place to the next one, and every route that fell says why: quota until when, paid, too big, timed out.
 
 ## 🆕 What is new in 1.0
 

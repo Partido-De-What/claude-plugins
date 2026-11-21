@@ -64,7 +64,7 @@ I ran one research room for 28 hours and wrote down every place where the harnes
 - **`/chatroom:start <topic> [roles]`**: sets up a room, starts the live viewer, spawns the agents (3 by default, at most 5) with distinct roles, and reports the outcome when the chat closes.
 - **`/chatroom:say <message>`**: posts your message in the chat and alerts every agent at once.
 - **`/chatroom:style <what to change>`**: changes the look of the room (title, colours, emoji, theme, language).
-- **`/chatroom:close`**: asks every agent for a final vote, exports the transcript and summarizes it.
+- **`/chatroom:close`**: asks every agent for a final vote, then runs the closing steps (`chat.py close-steps --run`: tasks closed, transcript, cost, lessons, test viewers) and summarizes. A CLOSED that ends the room runs the same steps by itself, through the lead's relay.
 - **`/stanza`** (Claude Code 2.1.287 or later, from the plugin's mod): a pane in the terminal with the open room: who works, who waits for you, each agent's percentage, the last messages and a box to write to everyone.
 
 In Codex the same five skills are there: ask for them in words ("open a chatroom where three agents debate X") or pick them from the skills list. See [Codex](#codex) below.
@@ -143,9 +143,9 @@ Enforced by `chat.py`, identical for every agent, Claude Code and Codex.
 | Point | Mechanism |
 |---|---|
 | Shared chat | Append-only JSONL under a lock dir owned by `{pid, token}`; broken only if the owner is dead or after 60 s, by one waiter. |
-| Alerts | `post` returns whom to ping: `@NAME`, `--reply`, user to all, lead, `@all`, PLAN/VOTE/CLOSED. Untagged pings nobody. |
+| Alerts | `post` returns whom to ping: `@NAME`, `--reply`, user to all, lead, `@all`, PLAN/VOTE/CLOSED. Untagged pings nobody; `post --no-ping` pings nobody at all. |
 | Focused reading | `read/wait --focus`: full text only when relevant, else one digest line per author from its JSON status; flushed at 20 msgs or 3 heartbeats. |
-| Ranges | `read --range A-B`, cursor untouched. |
+| Ranges | `read --range A-B`, `read --ids 15,18,20-23`, cursor untouched; a lead's `read` shows again what its relay showed cut. |
 | Shared locks | `lock acquire\|release\|status NAME`: a queue, a tag to the next one with no message from anyone, an expiry (`--ttl`), an optional `--pid`. |
 | Reopen | `reopen --as LEAD --reason`: the room goes on after a CLOSED, the old votes stop counting. |
 | Silence timer | Heartbeat 240 s; a status needs `pct`; lead and user exempt. |
@@ -156,14 +156,14 @@ Enforced by `chat.py`, identical for every agent, Claude Code and Codex.
 | Evidence | Artifact = exit code, tests, `file:line`, path, `#n`, hash, link, measured time/size. Positions change only on new evidence. |
 | Task board | Tasks with deps and declared files (dirs, case-insensitive on Windows); overlapping files refused; facts, decision log. |
 | Leases | Owner silent (not idle) 5 heartbeats: task free; `task next` takes the first free. |
-| Proof of done | `task done` needs an artifact; `--gaps` left work, `--touched` interface finding; only the lead closes without. |
-| Self-testing tasks | `--verify CMD` (shell, lead/user): agent worktree, outside the lock, tree-killed at 110 s. `--merge-into BR`: refuses dirty tree, empty branch, conflicts (`git merge-tree`). |
+| Proof of done | `task done` needs an artifact; `--gaps` left work, `--touched` interface finding; only the lead closes without, and the lead may close a stopped agent's task. `task cancel` (lead): never offered again. |
+| Self-testing tasks | `--verify CMD` (shell, lead/user): agent worktree, outside the lock, tree-killed at 110 s; verifies queue among themselves and run beside another room's heavy job, saying who holds it. `--merge-into BR`: refuses dirty tree, empty branch, conflicts (`git merge-tree`). |
 | Scope | `task amend` widens files nobody holds; otherwise lead `--force`. |
 | Handoff / loans | `handoff` with context; `help` lends a piece, `accept` within 10 min or it returns; `giveback`. |
 | Checks | Proof without artifact, closed with gaps, off-scope proof, no-to-yes without evidence, 100% (first % of a status) without evidence, stalled/repeated status, unanswered tagged question, file in two statuses, undeclared files, 25-msg drift, all idle, early consensus, unaccepted loan, call budget (reset on a new agent, +10 per run in research). Once each, persisted. |
 | Call budget | Per-agent counter files, lockless; over `budget_calls` the relay reports. |
-| Relay | `alerts --follow --messages`: ALERT, WATCH (`VOTE-NO (LEAD REVIEW)`), CHECK, LEND; one owner per lead, a newer relay stops the older. |
-| Retire | `retire NAME`: generation bump, chat and research calls as `NAME` / older `NAME~G` refused, call count reset; prompt regenerated as `NAME~G`. |
+| Relay | `alerts --follow --messages`: ALERT, WATCH (`VOTE-NO (LEAD REVIEW)`), CHECK, LEND; one owner per lead, a newer relay stops the older; on a CLOSED it runs `close-steps` once. |
+| Retire | `retire NAME`: generation bump, chat and research calls as `NAME` / older `NAME~G` refused, call count reset; prompt regenerated as `NAME~G`, which stays `NAME` in the chat, the roster and the CHECKs. |
 | Checkpoint | Every `brief max` messages the agent asks the lead whether to go on; not a stop. |
 | Generated prompts | `brief` + `prompt NAME`: deterministic template fill, byte-identical. |
 | Mode choice | `init --ask-mode`: one card, one choice (user/lead), guide sent to the lead. |
@@ -307,7 +307,7 @@ Sharing survives restarts: the tunnel runs on its own, and the host keeps its po
 
 Only the common room ever leaves your computer. The viewer server stays on 127.0.0.1; sharing starts a separate server that answers only the common room's own routes, with the PIN tried at most 10 times in 10 minutes, a 48-character token per guest, and limits of 20 lines a minute, 10 documents an hour and 2 pending help requests per guest.
 
-**cloudflared**: nothing is downloaded until you ask. When you press Install in the 🛋 panel, the plugin downloads `cloudflared` 2026.9.3 from Cloudflare's GitHub release into `~/.claude/chatroom/bin`, checked against its SHA256. It only runs when you share the common room through it.
+**cloudflared**: nothing is downloaded until you ask. When you press Download cloudflared in the 🛋 panel, the plugin downloads `cloudflared` 2026.9.3 from Cloudflare's GitHub release into `~/.claude/chatroom/bin`, checked against its SHA256. It only runs when you share the common room through it.
 
 ## Using `chat.py` by hand
 
@@ -339,7 +339,7 @@ Then start a new thread and ask for a chatroom. What changes from Claude Code:
 - on Windows Codex runs PowerShell, which has no heredoc: the agents post with a single-quoted here-string, after `$OutputEncoding = [System.Text.UTF8Encoding]::new($false)`, without which Windows PowerShell 5.1 turns accented letters into `?`. With the MCP server added once (`codex mcp add chatroom -- uv run --python 3.14 --project <plugin> python <plugin>/scripts/chat.py mcp`) they call `chat_post`, `chat_read` and the board tools instead, with no quoting at all;
 - the viewer is a local server: Codex's sandbox may ask you to approve it.
 - the office, the common room, sharing and lending work the same. In a room of Codex agents the lending panel offers Codex models (`default` is your session's model) and effort up to `xhigh`, and the lead spawns the helper with `spawn_agent`;
-- Codex runs no plugin hooks: cloudflared comes from the Install button of the 🛋 panel, as in Claude Code, and `/stanza` exists only in Claude Code;
+- Codex runs no plugin hooks: cloudflared comes from the Download cloudflared button of the 🛋 panel, as in Claude Code, and `/stanza` exists only in Claude Code;
 - sharing needs the network: if Codex's sandbox blocks it, approve the command when asked or give the sandbox network access;
 - Claude Code and Codex mix: a Claude Code room and a Codex room can share the office on one computer, and a Codex user can join a Claude Code user's common room, play there, and lend or borrow agents (only the common room travels between them).
 
