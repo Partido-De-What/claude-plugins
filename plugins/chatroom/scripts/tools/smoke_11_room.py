@@ -148,5 +148,16 @@ c, o = run(room, 'rotate', 'ALFA', '--as', 'LEAD')
 ok('13 rotate goes straight on when the state is newer than the last work', c == 0 and 'without asking again' in o and 'not written its state' not in o, o)
 ok('8 the rotate text says the chat name stays ALFA', 'it is still ALFA' in o, o)
 
+# ---- the closing from a Codex relay (alerts without --follow)
+room = new_room('codexclose')
+run(room, 'post', '--as', 'LEAD', stdin='CLOSED v1')
+c, o = run(room, 'alerts', '--messages', '--as', 'LEAD')
+ok('16 a relay without --follow (Codex) runs the closing steps on a closed room', 'CLOSING of' in o and (room / 'closing_done.json').exists(), o[-600:])
+c, o = run(room, 'alerts', '--messages', '--as', 'LEAD')
+ok('16 only once', 'CLOSING of' not in o, o[-300:])
+codex = json.loads((SCRIPTS.parent / '.codex-plugin' / 'plugin.json').read_text(encoding='utf-8'))
+ok('Codex is pointed to an empty hooks file', codex.get('hooks') == './hooks/codex.json'
+   and json.loads((SCRIPTS.parent / 'hooks' / 'codex.json').read_text(encoding='utf-8'))['hooks'] == {})
+
 print(f'fails {fails}')
 sys.exit(1 if fails else 0)

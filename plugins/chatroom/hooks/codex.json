@@ -1,0 +1,4 @@
+{
+  "description": "Codex runs none of this plugin's hooks: hooks.json is written for Claude Code (its tool names, a POSIX shell). An explicit hooks entry in .codex-plugin/plugin.json replaces Codex's default discovery of hooks/hooks.json, so nothing asks to be trusted and nothing runs.",
+  "hooks": {}
+}

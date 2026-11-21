@@ -17,6 +17,7 @@
     "council"
   ],
   "skills": "./skills/",
+  "hooks": "./hooks/codex.json",
   "interface": {
     "displayName": "Agents Chatroom",
     "shortDescription": "Coordinate agents in one shared live room.",

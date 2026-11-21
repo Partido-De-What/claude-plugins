@@ -4785,6 +4785,10 @@ def cmd_alerts(room, a):
     relay_leads = [a.name] if a.name else room.config().get('self_names', [])[:1]   # the lead this relay speaks for: a message of another lead is news to it
     if not a.name and len(room.config().get('self_names', [])) > 1:
         print(say('chat.say.cmd_alerts.pass_as', name=relay_leads[0]), flush=True)
+    done = room.dir / 'closing_done.json'
+    if a.messages and relay_leads and not done.exists() and not os.environ.get('CHATROOM_NO_CLOSE_EXIT') and is_shut(room, room.messages()):
+        write_atomic(done, json.dumps({'at': time.time(), 'by': relay_leads[0]}))   # 16 in Codex too: its lead runs alerts without --follow
+        close_steps(room, relay_leads[0], run=True, out=lambda s: print(s, flush=True))
 
     def batch():
         """how long lines for the lead are gathered into one wake. --batch N: N seconds. Without it the pace of the room:

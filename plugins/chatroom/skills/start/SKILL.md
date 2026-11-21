@@ -144,7 +144,8 @@ python "CHAT" close-steps --run --room "ROOM" --as LEAD
 
 Its output ends with what to tell the user (the key moments, the outcome and its votes, the disagreements still open, the
 messages and the cost of each agent, the chat improvement in its parts a, b, c, d), the question on the topic's lessons and
-the line on the plugin's bugs: do all of it. Without --run it prints the commands, for a session that cannot run them.
+the line on the plugin's bugs: do all of it. Without --run it prints the commands, for a session that cannot run them. In the VS Code extension the plugin's skills may not be listed for the Skill tool or the `/` menu (a known issue of
+the extension): the closing does not depend on them, the relay and `close-steps` carry it.
 
 ## Known pitfalls
 
