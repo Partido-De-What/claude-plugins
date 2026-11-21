@@ -74,7 +74,7 @@ flowchart TD
     G --> E[(events.jsonl)]
     K --> E
     E --> H[🧠 Auto-harness]
-    H -->|lessons 4-5 · skills that pass their check| P[(Topic profile)]
+    H -->|lessons on trial · skills that pass their check| P[(Topic profile)]
     P -->|next room starts here| L
 ```
 
@@ -86,6 +86,7 @@ flowchart TD
 - **🚨 A dozen failure detectors.** 100% claimed without evidence, a no turned into a yes for no reason, the same status repeated, files touched outside a task, a plan closed without a single no. The lead hears about each one once.
 - **🔕 Quiet by design.** An agent pings only who a message concerns. An agent with nothing to do goes idle once and is woken by the next message for it. The lead wakes only for what needs it, with the rest in one digest.
 - **💰 Real costs.** `chat.py cost` reads each agent's transcript and tells you what it really spent, cache rewrites included.
+- **🏁 A closing that runs itself.** The moment a plan is closed, the room closes its open tasks, writes the transcript, prints the cost of every agent and what the harness learned, and shuts the test viewers. Nothing depends on the lead remembering the steps.
 
 ## 🔬 The research kernel: one file, one number, all night
 
@@ -102,8 +103,8 @@ You and the lead write a contract: the one file that may change, how it is built
 
 This is the part I am proudest of. Most agent setups forget everything when the session ends. Here the room watches what goes wrong and changes the harness for the next room, but only through a gate.
 
-- **📈 Mistakes become lessons.** Every refusal, every fix the lead makes by hand and every agent the stop hook has to let go is written to the room's events. When the same cause fires 3 times, and again at 10, the lead is asked for a lesson with the command ready to copy.
-- **🎯 A score decides what gets applied.** Each improvement or bug gets a score from 1 to 5. A 4 or a 5 is applied by the harness itself as an active lesson in every prompt. A 1 to 3 is never applied: it waits for a human. A bug of the plugin itself goes to me, apart.
+- **📈 Mistakes become lessons.** Every refusal, every fix the lead makes by hand and every agent the stop hook has to let go is written to the room's events. A cause that fires 3 times asks the lead for a lesson with the command ready; at 10 it becomes a proposal by itself. Agents add one at the end of a task, with the case still in front of them: `task done T4 --lesson "what to do" --score 4`.
+- **🧪 Lessons on trial, not on faith.** A lesson scored 4 or 5 is applied at once, but only where it was born: the rooms of its topic. When a second room has carried it, one command makes it general for every room; if it turns out wrong, it is deleted. `lessons trial` shows what is on trial, what passed and what was refused. A 1 to 3 waits for a human, and a bug of the plugin itself comes to me.
 - **🗂️ Topic profiles.** A room can join a topic, and then its lessons, the sources it read and the skills each role used stay for the next room on the same topic. A room on another topic never sees them. Every change is versioned, and `lessons topic back` undoes one step.
 - **🛠️ Skills that write themselves.** The room derives candidate skills from its own work (`SKILL.md` plus a record of its experience), improves them starting from the tasks that ended with gaps, and shows you the diff. A skill enters only after its executable check passes and you confirm.
 - **🎯 Skills that trigger when they should.** A free local check reads each skill's description for its "use when" and "do not use" clauses and finds the skills it could be confused with. An optional test writes 3 requests that should pick it and 3 near misses.
@@ -117,11 +118,12 @@ Why the gate matters: in [SkillsBench](https://arxiv.org/abs/2602.12670), curate
 - A 3D voxel office next to it: who is coding, who is reading, who waits for you, who is on a coffee break. A lounge, games, an arena upstairs and an arcade cabinet you can play with a friend.
 - **🤝 Lend your agents to a friend.** Share the common room with one address and a 6-digit PIN, with no account. You approve a helper with its model, effort and minutes, and it joins their room. It works both ways, and between Claude Code and Codex.
 - **🚪 Free models as roles.** `/spawn` lists every free model of every provider with a free tier, with its scores and its 10 strongest benchmarks. A role outlives its model: when a host runs out of quota, the role moves to another host and keeps its mission and notes. Keys stay encrypted outside the room.
+- **🌐 One question, every free model.** `spawn consult` sends the same question to every free model you have a key for, with web and arXiv search if you want it. No budget of its own: the most output each host takes and no deadline, so a model that thinks for an hour still gets to answer. A truncated or empty answer is never saved as an answer, the same command again asks only the ones that fell, and a final table says why each one fell.
 - **🧑‍⚖️ A model council.** `spawn council "your situation"` asks the 10 smartest free models (or as many as you say) for improvements, a constructive fact-check and brilliant ideas. A model that does not answer gives its place to the next one, and every route that fell says why: quota until when, paid, too big, timed out.
 
-## 🆕 What is new in 1.0
+## 🆕 Release notes
 
-The 28-hour room above gave me 45 defects; with the ones found while fixing them, 72 items. Waits on a shared device, a resealable evaluator, a relay that hands over each message once, less noise in the chat, topic profiles, events that record everything the harness needs to learn. The full list, with what I did not do, is in the [1.0 release notes](plugins/chatroom/history/RELEASE-NOTES-1.0.md).
+[1.1](plugins/chatroom/history/RELEASE-NOTES-1.1.md): the closing, the harness that collects, the model council, a consult without caps, Codex hooks. [1.0](plugins/chatroom/history/RELEASE-NOTES-1.0.md): the 72 items of a 28-hour research room.
 
 ## 📦 Install
 

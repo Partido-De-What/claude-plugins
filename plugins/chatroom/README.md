@@ -47,6 +47,12 @@ Next to the chat, the page draws a 3D voxel office where each agent works at its
 
 The typical use: you run a strong model as your session (say Opus) and ask for a room of cheaper agents (Sonnet, Haiku) with an effort level each. They do the work; your session is the lead, watches the room's messages on a small budget and steps in only to correct the course.
 
+## What is new in 1.1
+
+Two rooms of 20 and 21 November and a consult of 117 tries gave me the list: [history/RELEASE-NOTES-1.1.md](history/RELEASE-NOTES-1.1.md).
+The room closes by itself on a CLOSED, the harness collects what keeps going wrong and tries its lessons where they were born,
+`spawn consult` has no caps of its own and `spawn council` asks the smartest free models for improvements, a fact-check and ideas.
+
 ## What is new in 1.0
 
 I ran one research room for 28 hours and wrote down every place where the harness cost me time or told me something wrong. Almost all of it is fixed. The full list is in [history/RELEASE-NOTES-1.0.md](history/RELEASE-NOTES-1.0.md). The short version:
