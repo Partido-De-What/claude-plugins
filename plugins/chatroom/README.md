@@ -47,6 +47,12 @@ Next to the chat, the page draws a 3D voxel office where each agent works at its
 
 The typical use: you run a strong model as your session (say Opus) and ask for a room of cheaper agents (Sonnet, Haiku) with an effort level each. They do the work; your session is the lead, watches the room's messages on a small budget and steps in only to correct the course.
 
+## What is new in 1.2
+
+Two production rooms measured where the tokens go: [history/RELEASE-NOTES-1.2.md](history/RELEASE-NOTES-1.2.md).
+Fewer false alarms for the lead, `post --wait-for LEAD` and `post --resend`, `prompt --stub`, `brief mode=deliveries`,
+and the agent types `room-agent-lean` and `room-agent-short`.
+
 ## What is new in 1.1
 
 Two rooms of 20 and 21 November and a consult of 117 tries gave me the list: [history/RELEASE-NOTES-1.1.md](history/RELEASE-NOTES-1.1.md).

@@ -55,7 +55,13 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    `title | files | deps`), one line in the chat. `group arbitri A,B` makes @arbitri reach only A and B. A task set aside:
    `task suspend T8 --note why`; one not to be done any more: `task cancel T8 --note why` (never offered again); the task of an
    agent that stopped, whose work you checked: `task done T8 --proof "..." --as LEAD`; at the end `task close-all --note why`.
-   A message that asks nothing of anyone: `post --no-ping` (no agent is woken to read it).
+   A message that asks nothing of anyone: `post --no-ping` (no agent is woken to read it). A post of yours refused because a
+   message crossed it: `post --resend` posts the held text again; agents' reports that crossed an order of yours no longer
+   stop it, they are shown after it. A room where nobody discusses (each agent delivers a file): `brief mode=deliveries`, no
+   plan, no votes, CLOSED free, a shorter prompt. `prompt NAME --out FILE --stub` prints three lines to pass to the Agent tool
+   instead of the whole prompt. Agent types: `chatroom:room-agent-lean` (files, shell, web and chat only, compacts near 170k)
+   and `chatroom:room-agent-short` (5-minute cache, for one run that waits for nobody); a participant with no type recorded
+   (the desktop app records none) is taken as a room agent, and the cost table keeps the agents that left.
    Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
    what you read stays in your context, read again at every one of your turns.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run

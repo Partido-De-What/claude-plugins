@@ -3718,6 +3718,9 @@ MCP_TOOLS = [
          'text': {'type': 'string'}, 'status': {'type': 'boolean'}, 'idle': {'type': 'boolean'}, 'finding': {'type': 'boolean'},
          'reply': {'type': 'integer'}, 'key': {'type': 'string', 'description': 'idempotency key: a retry with the same key posts nothing twice'},
          'external': {'type': 'boolean'}, 'file': {'type': 'string', 'description': 'a path: the message carries its name and sha256, the version you mean'},
+         'wait_for': {'type': 'string', 'description': 'a name (LEAD): post the message, then wait for that name, in one call; end your turn after it'},
+         'resend': {'type': 'boolean', 'description': 'post again the text held when your last post was refused (no text needed)'},
+         'no_ping': {'type': 'boolean', 'description': 'a message that asks nothing: nobody is woken to read it'},
          'state': {'type': 'object', 'description': 'a structured status: task, step, pct, files, '
                                                                                    'blocked_by, next, needs, done, evidence, risks, '
                                                                                    'free_min (minutes you expect to wait still), waits_on (who you wait for: a name, or the lead), runs_pct (the percentage of your runs, when pct is your own work)'}}}},
@@ -3853,10 +3856,11 @@ def mcp_call(room, name, tool, args, cancel=None, wait_cap=None):
             elif tool == 'chat_post':
                 ns.status, ns.idle, ns.finding, ns.reply = bool(args.get('status')), bool(args.get('idle')), bool(args.get('finding')), args.get('reply')
                 ns.key, ns.external, ns.file = args.get('key'), bool(args.get('external')), args.get('file')
+                ns.wait_for, ns.resend, ns.no_ping = args.get('wait_for'), bool(args.get('resend')), bool(args.get('no_ping'))
                 text = json.dumps(args['state'], ensure_ascii=False) if args.get('state') else str(args.get('text', ''))
                 if args.get('state'):
                     ns.status = True
-                cmd_post(room, ns, text)
+                cmd_post(room, ns, None if ns.resend else text)
             elif tool == 'chat_wait':
                 if redeliver_missed(room, name):
                     return out.getvalue().strip(), False   # a tag it had not read: that is what a wait would return for

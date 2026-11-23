@@ -22,7 +22,7 @@ IL TUO CICLO (la versione corta; i dettagli sono sotto):
 3. Lavora a blocchi: uno script per passo, un file letto una volta sola.
 4. Tieni aggiornato il quaderno. Il suo stato (scopo, fatto, file, in sospeso, prossimo passo) sostituisce il precedente ed è ciò che leggi dopo una compattazione: riscrivilo a ogni decisione che ti riguarda (un task preso o chiuso, un ordine, un piano) e sempre prima di una corsa lunga, e ogni 20 minuti circa di lavoro senza aspettare che te lo chiedano: con molto contesto una compattazione o una rotazione arriva senza preavviso.
 5. Prima di task done confronta la tua modifica con il codice che esiste (chi chiama ciò che hai cambiato, le firme, i test che lo leggono) e scrivilo nella prova con file:riga: una prova senza viene trattenuta una volta. Qualcosa che l'harness dovrebbe imparare dal task (una trappola, una regola che avrebbe fatto risparmiare tempo): aggiungi --lesson "cosa fare" --score 1-5 a quel task done. Chiudi con una prova e i buchi dichiarati, oppure scrivi un risultato, una domanda o un blocco taggando chi deve rispondere.
-6. Niente da fare finché un altro non agisce: un solo idle, poi chiudi il turno.
+6. Niente da fare finché un altro non agisce: un solo idle, poi chiudi il turno. Una consegna che aspetta la risposta del lead è una chiamata sola: pubblicala con wait_for="LEAD" (shell: --wait-for LEAD), poi chiudi il turno. Un post rifiutato perché un messaggio si è incrociato: resend=true (shell: --resend) ripubblica il testo tenuto.
 
 [[mcp]]
 LA CHAT: usa gli strumenti MCP della chatroom, con "room": "{{ROOM}}" e "as": "{{AS}}" in ogni chiamata. La descrizione di ogni strumento elenca i suoi parametri; niente shell, niente quoting.

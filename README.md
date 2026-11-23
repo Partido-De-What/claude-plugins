@@ -86,6 +86,7 @@ flowchart TD
 - **🚨 A dozen failure detectors.** 100% claimed without evidence, a no turned into a yes for no reason, the same status repeated, files touched outside a task, a plan closed without a single no. The lead hears about each one once.
 - **🔕 Quiet by design.** An agent pings only who a message concerns. An agent with nothing to do goes idle once and is woken by the next message for it. The lead wakes only for what needs it, with the rest in one digest.
 - **💰 Real costs.** `chat.py cost` reads each agent's transcript and tells you what it really spent, cache rewrites included.
+- **🪶 Light on tokens.** What costs in a team of agents is not the chat, it is every request reading the whole context again. So the prompt reaches each agent as a file, a delivery and its wait are one call, a message to the lead arrives whole, a status keeps the agent's notes by itself, and a lean agent type carries only the tools it needs.
 - **🏁 A closing that runs itself.** The moment a plan is closed, the room closes its open tasks, writes the transcript, prints the cost of every agent and what the harness learned, and shuts the test viewers. Nothing depends on the lead remembering the steps.
 
 ## 🔬 The research kernel: one file, one number, all night
@@ -123,7 +124,7 @@ Why the gate matters: in [SkillsBench](https://arxiv.org/abs/2602.12670), curate
 
 ## 🆕 Release notes
 
-[1.1](plugins/chatroom/history/RELEASE-NOTES-1.1.md): the closing, the harness that collects, the model council, a consult without caps, Codex hooks. [1.0](plugins/chatroom/history/RELEASE-NOTES-1.0.md): the 72 items of a 28-hour research room.
+[1.2](plugins/chatroom/history/RELEASE-NOTES-1.2.md): fewer false alarms, agents that wait and say it once, lighter on tokens. [1.1](plugins/chatroom/history/RELEASE-NOTES-1.1.md): the closing, the harness that collects, the model council, a consult without caps, Codex hooks. [1.0](plugins/chatroom/history/RELEASE-NOTES-1.0.md): the 72 items of a 28-hour research room.
 
 ## 📦 Install
 
