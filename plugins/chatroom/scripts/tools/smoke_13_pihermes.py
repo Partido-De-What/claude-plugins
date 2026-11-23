@@ -54,7 +54,7 @@ ok('1 a state with its parts is kept quietly', c == 0 and 'blocked' not in o, o)
 room = new_room('lessons')
 c, o = run(room, 'lessons', 'propose', 'Check the render on 2026-11-21 before mixing', '--score', '4', '--reach', 'local', '--scope', 'renders', '--as', 'LEAD')
 ok('3 a lesson with a date is refused as a log', c != 0 and 'not the story' in o, o)
-c, o = run(room, 'lessons', 'propose', 'As Adrian said "we need to render it again at full size first" always', '--score', '4', '--reach', 'local', '--scope', 'renders', '--as', 'LEAD')
+c, o = run(room, 'lessons', 'propose', 'As the user said "we need to render it again at full size first" always', '--score', '4', '--reach', 'local', '--scope', 'renders', '--as', 'LEAD')
 ok('3 a lesson with a long quote is refused', c != 0 and 'not the story' in o, o)
 import lessons  # noqa: E402
 data = {'lessons': [{'id': f'L{i}', 'text': 'x' * 290, 'status': 'trial'} for i in range(1, 10)]}
