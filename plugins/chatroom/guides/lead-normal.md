@@ -68,6 +68,12 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    agent that reads fifteen files in a row without a change or a message is told to conclude. Each final report starts
    with `END: completed|partial|blocked|error; files: ...; gaps: ...`, and `close-steps` lists them. `rotate` gives the
    fresh agent the last eight messages that concern it.
+   `init` checks whether a newer chatroom is out: if so it stops and the user chooses, update or `--skip-update`. A state in
+   the notebook has fixed parts (`notebook --state` alone lists them). Lessons that reach the prompts share a budget of
+   characters, and a lesson that reads like a log (a date, a PR number, a quote) is refused. `close-steps --reflect` asks a
+   Sonnet with high effort to read the room and propose lessons, to decide with the user. A final report without its END
+   line is sent back once. Skill candidates nobody took go stale after 14 days and to the archive after 30, never deleted.
+   Two agents that answer only each other for six messages come to you as a CHECK.
    Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
    what you read stays in your context, read again at every one of your turns.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run

@@ -2,7 +2,7 @@
 
 ## Why this release
 
-I read how two other teams build the layer around their agents: DeepSeek Harness, where every part is a plugin and the session log is the only truth, and Qwen Code, which ships something new every week. Seven of their ideas fit a room of agents well, and each one removes a wake, a loop or a lost piece of work.
+I read how four other teams build the layer around their agents: DeepSeek Harness, where every part is a plugin and the session log is the only truth; Qwen Code, which ships something new every week; Pi, which keeps its prompt under a thousand tokens on purpose; and Hermes, which learns from every session. Fourteen of their ideas fit a room of agents, and each one removes a wake, a loop or a lost piece of work.
 
 ## What changed
 
@@ -13,8 +13,19 @@ I read how two other teams build the layer around their agents: DeepSeek Harness
 - **Loops reach the lead.** The same refusal three times in a row to one agent becomes a check for the lead, with where to read the last attempt.
 - **A rotation that keeps the thread.** `rotate` gives the fresh agent the last eight messages that concern it, not only its notes.
 - **What was tried, not only why it failed.** A refused post keeps its text in the room's events, so the harness learns from the attempt.
+- **A check for updates before the room starts.** If a newer chatroom is out, `init` stops and you choose: update now, or go on with the version you have.
+
+## What I took from Pi and Hermes
+
+- **One shape for an agent's state.** Goal, constraints, done, doing, blocked, decisions, files, next, what must not be lost: the parts a good compaction summary keeps, now the parts of the notebook.
+- **Lessons with a budget.** The lessons that reach every prompt share a budget of characters: a new one past it asks to merge or shorten, never a silent cut. A lesson that reads like a log, with a date, a PR number or a quote, is refused: a lesson is a rule and one reason.
+- **A second look at the end.** `close-steps --reflect` asks a Sonnet with high effort to read the room and propose lessons. They wait for your decision; none is applied by itself.
+- **One correction for the final report.** A report without its END line is sent back once, with the line it needs.
+- **Skill candidates that age.** A candidate nobody took goes stale after 14 days and to the archive after 30, never deleted; a pinned one stays, and every promotion is written down with the hashes before and after.
+- **A loop between two agents.** Two agents that answer only each other for six messages, with nothing moving on the board, come to the lead as a check.
 
 ## What I did not do
 
 - The gate runs only on the timed wakes of the relay; messages that need the lead still wake it at once.
-- The END line is asked in the prompt: an agent that skips it simply has no line in the closing, nothing is invented.
+- The END line is asked in the prompt and once more at the hand-back: an agent that still skips it has no line in the closing, nothing is invented.
+- The update check needs the network: offline, the room starts as before.

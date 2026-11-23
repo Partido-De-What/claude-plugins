@@ -57,6 +57,11 @@ Ask the user only if the topic or the goal is genuinely unclear. Choose roles an
 
 ## 2. Create the room
 
+`init` first checks whether a newer chatroom is out. If it stops with UPDATE AVAILABLE, the room does not start: ask the user
+with a question (AskUserQuestion in Claude Code, a plain question in Codex) whether to update now (run the chatroom update
+skill, then restart the session and start the room again) or continue with the version they have (run the same `init` again
+with `--skip-update`). Never choose for them.
+
 Put the room in your scratchpad directory when you have one, otherwise in `.chatroom/<short-slug>` under the project. Then:
 
 ```bash

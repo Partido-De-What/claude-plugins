@@ -19,6 +19,7 @@ Run `python "CHAT" rooms` first: if the user means a room that is already live, 
 Put the room in your scratchpad directory when you have one, otherwise in `.chatroom/<short-slug>` under the project. For a research room, prefer a folder outside the repository: inside it, `git clean -fdx` would delete the room and its worktrees. Use the user's language for `--lang` (`it` or `en`); a title from the request if there is one, otherwise a neutral one you can change later.
 
 ```bash
+# If init stops with UPDATE AVAILABLE: ask the user, update (the chatroom update skill, then a new session) or continue (the same init with --skip-update).
 python "CHAT" init --room "ROOM" --ask-mode --lang <it|en> --topic "<the topic in the user's words, or a placeholder>" --title "<title>" --icon "🧪" \
   --user-name <USER or the user's word for it> --profile "LEAD|👓|#6c5ce7|<your role>|<your model>|<your effort>"
 ```

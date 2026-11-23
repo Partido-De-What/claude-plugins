@@ -125,7 +125,7 @@ def keep_report(room, name, inp):
     text = '\n'.join(str(v) for v in (inp.values() if isinstance(inp, dict) else [inp]) if isinstance(v, str))
     m = END_RE.search(text)
     if not m:
-        return
+        return False
     rest = m.group(2)
     part = lambda k: (re.search(rf'{k}\s*:\s*([^;\n]*)', rest, re.I) or [None, ''])[1].strip()[:300]
     try:
@@ -134,6 +134,7 @@ def keep_report(room, name, inp):
                                                                            'at': time.time()}, ensure_ascii=False))
     except OSError:
         pass
+    return True
 
 
 def handback(ev):
@@ -145,7 +146,10 @@ def handback(ev):
         return None
     import chat
     room = chat.Room(key)
-    keep_report(room, name, ev.get('tool_input') or {})   # idea 2: its END line, for the closing
+    if not keep_report(room, name, ev.get('tool_input') or {}) and bump(room, f'endask_{name}') == 1:   # idea 5 (Hermes): one correction turn
+        chat.use(room.config().get('lang'))
+        return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                                       'permissionDecisionReason': chat.say('chat.say.hold.add_end')}}
     why = waits(room, name)
     if closed(room) or done_closing(room, name) or chat.voted_latest(room, name):
         return None
@@ -392,10 +396,10 @@ def _prova():
     r.set_cursor('A', 1)
     assert decide({'agent_id': 'zzzz'}) is None                                   # not a room agent: it stops
     assert decide({'agent_id': 'aaaa1111'}, wait=5, poll=0.2) is None             # no reason to stay: its work is done, it goes
-    assert handback({'agent_id': 'aaaa1111'}) is None                             # and its report passes
+    assert handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}}) is None                             # and its report passes
     r.append('A', '40%: waiting for @B', 'idle')
     r.set_cursor('A', 2)
-    assert handback({'agent_id': 'aaaa1111'})['hookSpecificOutput']['permissionDecision'] == 'deny'   # it waits: the report comes later
+    assert handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}})['hookSpecificOutput']['permissionDecision'] == 'deny'   # it waits: the report comes later
     threading.Timer(1.0, lambda: r.append('B', '@A your turn')).start()
     t0 = time.time()
     got = decide({'agent_id': 'aaaa1111'}, wait=20, poll=0.2)
@@ -408,8 +412,8 @@ def _prova():
     assert decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2) is None             # then it goes: no endless empty turns
     (room / 'empty_A.txt').write_text('0')
     (room / 'handback_A.txt').write_text('0')
-    assert all(handback({'agent_id': 'aaaa1111'}) for _ in range(HANDBACK_MAX))
-    assert handback({'agent_id': 'aaaa1111'}) is None                             # the third report goes through
+    assert all(handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}}) for _ in range(HANDBACK_MAX))
+    assert handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}}) is None                             # the third report goes through
     (room / 'research').mkdir()
     (room / 'research' / 'gpu.hold').write_text(json.dumps({'by': 'A', 'reason': 'bench', 'until': time.time() + 600}))
     (room / 'empty_A.txt').write_text('0')

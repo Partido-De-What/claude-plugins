@@ -49,7 +49,7 @@ The typical use: you run a strong model as your session (say Opus) and ask for a
 
 ## What is new in 1.3
 
-Seven ideas from DeepSeek Harness and Qwen Code: [history/RELEASE-NOTES-1.3.md](history/RELEASE-NOTES-1.3.md). A timed wake
+Fourteen ideas from DeepSeek Harness, Qwen Code, Pi and Hermes, and a check for updates before a room starts: [history/RELEASE-NOTES-1.3.md](history/RELEASE-NOTES-1.3.md). A timed wake
 only when a check prints something (`--wake-gate`), final reports with an END line, a nudge after fifteen reads in a row,
 locks released when an agent leaves, refusal loops sent to the lead, rotations that keep the last messages.
 

@@ -102,7 +102,7 @@ def candidate(room_id, d, others):
         body = f.read_text(encoding='utf-8')
     except (OSError, UnicodeError):
         return None
-    status = meta.get('status') if meta.get('status') in ('new', 'added', 'dismissed') else 'new'
+    status = meta.get('status') if meta.get('status') in ('new', 'added', 'dismissed', 'stale') else 'new'
     improves = meta.get('improves') if isinstance(meta.get('improves'), str) else None
     cov, ratio = (None, 0.0) if status == 'added' else covered(read_front(f).get('description', ''), d.name, [s for s in others if s['id'] != improves])
     raw = meta.get('criteria') if isinstance(meta.get('criteria'), dict) else {}
@@ -468,6 +468,9 @@ def act(room, action, body, skill_list, confirm):
     if action == 'dismiss':
         write_meta(d, status='dismissed')
         return {'ok': True}
+    if action == 'pin':                                    # idea 6: a pinned candidate never goes stale nor to the archive
+        write_meta(d, pinned=not bool((read_json_file(d / 'meta.json') or {}).get('pinned')))
+        return {'ok': True}
     if t is None:
         return fail(say('skills.d6.err_no_target', skill=c['improves'] or ''))
     if t['exists'] and not c['improves']:
@@ -489,6 +492,7 @@ def act(room, action, body, skill_list, confirm):
     if glist and t['exists'] and str(body.get('token') or '') != skills_d8.token_of(glist):
         return {'ok': False, 'error': say('skills.d8.err_token'), 'needs': 'token', 'token': skills_d8.token_of(glist)}
     before = skills_d8.gate_baseline(gate, t['path']) if t['exists'] and glist else None
+    sha_before = skills_d8.file_hash(t['path'] / 'SKILL.md') if t['exists'] else ''
     tmp = t['path'].with_name(t['path'].name + '.new')
     try:
         if t['exists']:
@@ -514,8 +518,47 @@ def act(room, action, body, skill_list, confirm):
             return fail(say('skills.d6.err_write', exc=str(exc)[:200]))
         return {'ok': False, 'error': gated['why'], 'reverted': True, **gated['view']}
     write_meta(d, status='added')
+    ledger({'name': c['name'], 'to': to, 'backup': bk, 'before': sha_before, 'after': skills_d8.file_hash(t['path'] / 'SKILL.md')})
     skills_d8.carry(raw, new_id, t['path'] / 'SKILL.md', c['verified'], gated, gate)
     return {'ok': True, 'id': new_id, 'backup': bk, **(gated['view'] if gated else {})}
+
+
+STALE_DAYS, ARCHIVE_DAYS = 14, 30       # idea 6 (Hermes curator): a candidate nobody took goes stale, then to the archive, never deleted
+
+
+def sweep(folder, now=None):
+    """candidates of a room still 'new' after STALE_DAYS become 'stale'; after ARCHIVE_DAYS they move to skills-candidates/.archive.
+    A pinned one (meta pinned) stays. Returns the names it moved or marked"""
+    import time
+    now, out = now or time.time(), []
+    base = Path(folder) / 'skills-candidates'
+    for d in sorted(p for p in base.iterdir() if p.is_dir() and SLUG.match(p.name)) if base.is_dir() else ():
+        m = read_json_file(d / 'meta.json')
+        if not isinstance(m, dict) or m.get('pinned') or m.get('status') in ('added', 'dismissed'):
+            continue
+        age = (now - float(m.get('at') or now)) / 86400
+        if age >= ARCHIVE_DAYS:
+            arch = base / '.archive' / d.name
+            arch.parent.mkdir(exist_ok=True)
+            if not arch.exists():
+                shutil.move(str(d), str(arch))
+                out.append(f'{d.name} (archived)')
+        elif age >= STALE_DAYS and m.get('status') != 'stale':
+            write_meta(d, status='stale')
+            out.append(f'{d.name} (stale)')
+    return out
+
+
+def ledger(entry):
+    """one line of skills-ledger.jsonl: a promotion with the hashes before and after, for a rollback by hand"""
+    import time
+    try:
+        p = user_dir().parent / 'skills-ledger.jsonl'
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open('a', encoding='utf-8') as f:
+            f.write(json.dumps({'at': int(time.time()), **entry}, ensure_ascii=False) + '\n')
+    except OSError:
+        pass
 
 
 def write_meta(d, **kv):

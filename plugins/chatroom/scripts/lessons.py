@@ -32,6 +32,8 @@ REACH = ('local', 'general', 'topic')
 KINDS = ('improvement', 'bug', 'plugin')
 CAP = 8               # active and trial lessons together: every one is read at every request of every agent
 LONG = 300            # characters of a rule: a lesson is one instruction, not a page
+LESSON_CHARS = 2400   # idea 2 (Hermes): the live lessons of one store together, so what every prompt carries stays bounded
+LOG_LIKE = re.compile(r'\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b|\b(?:PR|issue|pull)\s*#?\d+|"[^"]{25,}"|“[^”]{25,}”', re.I)   # idea 3
 SPECIFIC = re.compile(r'#\d+\b|\bT\d+\b|[A-Za-z]:[\\/]|(?<![\w.])/(?:[\w.-]+/){2,}|\b[0-9a-f]{7,40}\b|\battempt-?\d+\b', re.IGNORECASE)
 
 
@@ -134,6 +136,9 @@ def gate(text, data):
     """why a lesson may not enter (None: it may): the quality gate against a harness that grows by itself"""
     if len(text) > LONG:
         return say('lessons.gate.long', n=len(text), max=LONG) + ' ' + say('lessons.gate.cut', text=text[:LONG].rsplit(' ', 1)[0])
+    log = LOG_LIKE.search(text)
+    if log:                                                # idea 3: a rule plus why, not the story of one day
+        return say('lessons.gate.log', what=log.group(0)[:60])
     m = SPECIFIC.search(text)
     if m:
         return say('lessons.gate.specific', what=m.group(0))
@@ -142,6 +147,9 @@ def gate(text, data):
         return say('lessons.gate.same')
     if len(live) >= CAP:
         return say('lessons.gate.cap', cap=CAP, ids=', '.join(x['id'] for x in live))
+    used = sum(len(x['text']) for x in live)
+    if used + len(text) > LESSON_CHARS:                    # idea 2: merge or shorten, never a silent cut
+        return say('lessons.gate.budget', used=used, n=len(text), max=LESSON_CHARS, ids=', '.join(x['id'] for x in live))
     return None
 
 
@@ -244,7 +252,10 @@ def topic_propose(room, a, text, p):
         raise ValueError(say('lessons.topic.need'))
     data = load_topic(slug)
     live = [x for x in data['lessons'] if x.get('status') in ('trial', 'active')]
+    used = sum(len(x['text']) for x in live)
     refusal = (say('lessons.gate.long', n=len(text), max=LONG) if len(text) > LONG else
+               say('lessons.gate.log', what=LOG_LIKE.search(text).group(0)[:60]) if LOG_LIKE.search(text) else
+               say('lessons.gate.budget', used=used, n=len(text), max=LESSON_CHARS * 2, ids=', '.join(x['id'] for x in live)) if p['score'] >= 4 and used + len(text) > LESSON_CHARS * 2 else
                say('lessons.gate.same') if any(x['text'].casefold() == text.casefold() for x in live) else
                say('lessons.gate.cap', cap=TOPIC_CAP, ids=', '.join(x['id'] for x in live)) if p['score'] >= 4 and len(live) >= TOPIC_CAP else None)
     if refusal:

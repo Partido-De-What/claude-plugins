@@ -1683,7 +1683,44 @@ class Room:
 
 
 # ---------------------------------------------------------------------- commands
+LATEST_URL = 'https://raw.githubusercontent.com/Partido-De-What/claude-plugins/main/plugins/chatroom/.claude-plugin/plugin.json'
+UPDATE_EVERY = 6 * 3600   # seconds a check of the newest version is kept: init does not ask the network each time
+
+
+def vkey(v):
+    return tuple(int(x) if x.isdigit() else 0 for x in re.split(r'[.\-+]', str(v))[:3])
+
+
+def newer_version(fetch=None, now=None):
+    """(installed, latest) when a newer chatroom is out, else None. The answer is kept UPDATE_EVERY seconds; no network,
+    a slow one or CHATROOM_NO_UPDATE_CHECK=1: None, the room starts as before"""
+    if os.environ.get('CHATROOM_NO_UPDATE_CHECK') == '1':
+        return None
+    import lessons
+    mine, now = lessons.core_version(), now or time.time()
+    cache = layers.chatroom_dir() / 'update_check.json'
+    got = read_json(cache, {})
+    if not (isinstance(got, dict) and now - float(got.get('at', 0)) < UPDATE_EVERY and got.get('latest')):
+        try:
+            if fetch:
+                latest = fetch()
+            else:
+                import urllib.request
+                latest = json.loads(urllib.request.urlopen(LATEST_URL, timeout=4).read()).get('version', '')
+        except Exception:                             # offline, a proxy, a slow answer: the room is not held up
+            latest = ''
+        got = {'at': now, 'latest': latest}
+        with contextlib.suppress(OSError):
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            write_atomic(cache, json.dumps(got))
+    latest = got.get('latest') or ''
+    return (mine, latest) if latest and mine != '?' and vkey(latest) > vkey(mine) else None
+
+
 def cmd_init(room, a):
+    newer = None if getattr(a, 'skip_update', False) or (room.dir / 'config.json').exists() else newer_version()
+    if newer:                                         # the user chooses before the room starts: update, or go on with this one
+        sys.exit(say('chat.err.cmd_init.update_first', mine=newer[0], latest=newer[1]))
     room.dir.mkdir(parents=True, exist_ok=True)
     participants = [p.strip() for p in (a.participants or '').split(',') if p.strip()]
     config = {'topic': a.topic or 'Chat room', 'title': a.topic or 'Chat room', 'subtitle': '', 'icon': '💬',
@@ -3161,6 +3198,9 @@ def cmd_lock(room, a):
     sys.exit(3)
 
 
+STATE_PARTS = ('goal', 'constraints', 'done', 'doing', 'blocked', 'decisions', 'files', 'next', 'critical')   # idea 1 (Pi, Hermes)
+
+
 def cmd_notebook(room, a):
     """an agent's own notebook (ROOM/notes/NAME.md): what it must not forget when its context is compacted or it
     resumes. notebook --as NAME prints it; notebook "text" --as NAME adds a dated line."""
@@ -3170,9 +3210,13 @@ def cmd_notebook(room, a):
     rules = path.with_suffix('.rules.md')           # --rule: kept word for word, never trimmed, printed first (a summary keeps half the rules after one compaction)
     text = ' '.join(a.pairs).strip()                 # the text to add comes as arguments: no stdin, so reading never waits
     state = path.with_suffix('.state.md')           # --state: where it is now, in fixed parts; one state, the newest (a handover it writes for itself)
+    if getattr(a, 'state', False) and not text:          # idea 1: the parts of a state, the same as a compaction summary keeps
+        return print(say('chat.say.cmd_notebook.state_parts'))
     if text and getattr(a, 'state', False):
         state.parent.mkdir(exist_ok=True)
         state.write_text(f"{time.strftime('%H:%M')} " + '\n'.join(x.strip() for x in text.split('|') if x.strip()) + '\n', encoding='utf-8')
+        if not any(re.match(rf'\s*{k}\s*:', x, re.I) for x in text.split('|') for k in STATE_PARTS):
+            print(say('chat.say.cmd_notebook.state_parts'))
         return print(say('chat.say.cmd_notebook.noted_in', path=state))
     if text and getattr(a, 'rule', False):
         rules.parent.mkdir(exist_ok=True)
@@ -3479,6 +3523,22 @@ def state_gap(room, k, items, now):
     return int(minutes), time.strftime('%H:%M', time.localtime(at)), sum(1 for m in items if m.get('from') == k and m.get('ts', 0) > at)
 
 
+PING_PONG = 6             # messages in a row between the same two agents, with no board change and nobody else
+
+
+def ping_pong(room, items):
+    """(a, b, last n) when the last PING_PONG messages of the room are only a and b answering each other, with no board line"""
+    tail = [m for m in items if not m.get('kind') or m.get('kind') == 'board'][-PING_PONG:]
+    if len(tail) < PING_PONG or any(m.get('kind') == 'board' for m in tail):
+        return None
+    people = {m['from'] for m in tail}
+    lead = set(room.user_names())
+    if len(people) != 2 or people & lead or any(x['from'] == y['from'] for x, y in zip(tail, tail[1:])):
+        return None
+    a, b = sorted(people)
+    return a, b, tail[-1]['n']
+
+
 REFUSAL_LOOP = 3          # the same refusal this many times in a row to one agent: the lead is told
 
 
@@ -3510,6 +3570,9 @@ def failures(room, now=None):
     config = room.config()
     items, out, people, users = room.messages(), [], set(config.get('participants', [])), room.user_names()
     board = Board(room).load()
+    pp = ping_pong(room, items)                         # idea 7 (Hermes max_hops): two agents that only answer each other
+    if pp:
+        out.append((f'pingpong:{pp[0]}:{pp[1]}:{pp[2]}', say('chat.check.ping_pong', a=pp[0], b=pp[1], n=PING_PONG)))
     for name, key, n in refusal_loops(room):            # idea 5 (Qwen): a refusal met three times in a row goes to the lead
         out.append((f'loop:{name}:{key}:{n // REFUSAL_LOOP}', say('chat.check.refusal_loop', k=name, key=key, n=n)))
     for t in board['tasks']:
@@ -5536,7 +5599,7 @@ def left_text(left):
 CLOSE_STEPS = (('task', 'close-all', '--note', 'the room closed'), ('transcript',), ('cost',), ('lessons', 'close'), ('procs', 'close'))
 
 
-def close_steps(room, lead, run=False, out=print):
+def close_steps(room, lead, run=False, out=print, reflect_on=False):
     """the closing of a room, the same list for the start and the close skill: the fixed commands (run, or printed to run),
     then what the lead tells the user. The relay runs it by itself when the room closes, so nothing depends on memory"""
     me = Path(__file__).resolve()
@@ -5560,10 +5623,59 @@ def close_steps(room, lead, run=False, out=print):
         out(say('chat.say.close_steps.reports'))
         for k, r in sorted(reps.items()):
             out(f"  {k}: {r.get('end') or '?'} · files: {r.get('files') or '-'} · gaps: {r.get('gaps') or '-'}")
+    if reflect_on:
+        reflect(room, lead, out)
+    else:
+        out(say('chat.say.close_steps.reflect_hint'))
+    try:
+        import skills_d6                               # idea 6: candidates left unused go stale, then to the archive
+        moved = skills_d6.sweep(room.dir)
+        if moved:
+            out(say('chat.say.close_steps.swept', what=', '.join(moved)))
+    except Exception:
+        pass
     out(say('chat.say.close_steps.tell'))
     topic = room.config().get('topic_profile')
     out(say('chat.say.close_steps.topic', slug=topic) if topic else say('chat.say.close_steps.no_topic'))
     out(say('chat.say.close_steps.plugin_bugs'))
+
+
+REFLECT_MODEL, REFLECT_EFFORT, REFLECT_CHARS = 'claude-sonnet-5-5', 'high', 60_000
+REFLECT_LINE = re.compile(r'^\s*LESSON\s*\|\s*([1-5])\s*\|\s*(local|general|topic)\s*\|\s*([^|]+?)\s*\|\s*(.+?)\s*$', re.I | re.M)
+
+
+def reflect(room, lead, out=print, runner=None):
+    """idea 4 (Hermes background review): a Sonnet with high effort reads the room (its transcript, its repeated causes) and
+    proposes lessons. They are proposals to decide, never applied: kept for the plugin's creator, printed for anyone"""
+    import lessons
+    tfile = room.dir / 'transcript.md'
+    body = tfile.read_text(encoding='utf-8', errors='replace') if tfile.is_file() else '\n'.join(f"#{m['n']} {m['from']}: {m.get('text', '')}" for m in room.messages())
+    causes = '\n'.join(f'{k} x{n} ({", ".join(w)}) {d}' for k, n, w, d in lessons.room_causes(room)) or '-'
+    ask = say('chat.say.reflect.prompt', causes=causes, transcript=body[-REFLECT_CHARS:])
+    out(say('chat.say.reflect.start', model=REFLECT_MODEL, effort=REFLECT_EFFORT))
+    try:
+        if runner:
+            text = runner(ask)
+        else:
+            r = subprocess.run([shutil.which('claude') or 'claude', '-p', '--model', REFLECT_MODEL, '--effort', REFLECT_EFFORT, '--output-format', 'text'],
+                               input=ask.encode('utf-8'), capture_output=True, timeout=1200, env=user_env())
+            text = r.stdout.decode('utf-8', 'replace')
+    except (OSError, subprocess.SubprocessError) as exc:
+        return out(say('chat.say.reflect.failed', exc=exc))
+    found = REFLECT_LINE.findall(text)
+    if not found:
+        return out(say('chat.say.reflect.none'))
+    keep = lessons.creator()
+    got = lessons.proposals(room)
+    for score, reach, when, rule in found[:8]:
+        out(f'  [{score} {reach.lower()}] {rule}  ({when})')
+        if keep:
+            got.append({'text': rule[:300], 'score': int(score), 'reach': reach.lower(), 'kind': 'improvement', 'note': f'reflect: {when[:200]}',
+                        'by': 'reflect', 'ts': int(time.time()), 'status': 'presented',
+                        'id': f"P{max([int(x['id'][1:]) for x in got if str(x.get('id', '')).startswith('P')] or [0]) + 1}"})
+    if keep:
+        write_atomic(room.dir / 'proposals.json', json.dumps(got, indent=1, ensure_ascii=False))
+    out(say('chat.say.reflect.done', n=len(found[:8])))
 
 
 def final_reports(room):
@@ -5578,7 +5690,7 @@ def final_reports(room):
 
 def cmd_close_steps(room, a):
     """chat.py close-steps [--run] --as LEAD: the closing steps of the room, printed or run"""
-    close_steps(room, a.name or (room.config().get('self_names') or ['LEAD'])[0], run=a.run)
+    close_steps(room, a.name or (room.config().get('self_names') or ['LEAD'])[0], run=a.run, reflect_on=getattr(a, 'reflect', False))
 
 
 def cmd_transcript(room, a):
@@ -6626,6 +6738,8 @@ def _main():
     p.add_argument('--image', action='append', help='post: attach a picture (png, jpg, webp, gif); repeat for more')
     p.add_argument('--file', help='post: add the name and sha256 of this file, the version you mean; post --common: share a text document (up to 5 MB) in the common room')
     p.add_argument('--out')
+    p.add_argument('--skip-update', dest='skip_update', action='store_true', help='init: start the room with this version, though a newer one is out (the user chose it)')
+    p.add_argument('--reflect', action='store_true', help='close-steps: a Sonnet (high effort) reads the room and proposes lessons to decide')
     p.add_argument('--run', action='store_true', help='close-steps: run the fixed closing steps instead of printing them')
     p.add_argument('--program', help='research init: the one file of the repository that may change')
     p.add_argument('--evaluate', help='research init: the command that evaluates the program and prints "METRIC: value"')

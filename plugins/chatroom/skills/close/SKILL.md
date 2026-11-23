@@ -29,7 +29,7 @@ EOF
    fixed closing steps, the one list of the plugin (`task close-all`, `transcript`, `cost`, `lessons close`, `procs close`):
 
 ```bash
-python "CHAT" close-steps --run --room "ROOM" --as LEAD
+python "CHAT" close-steps --run --reflect --room "ROOM" --as LEAD
 ```
 
    When a CLOSED ended the room, your relay already ran them and handed you their output: do not run them twice, read it.
