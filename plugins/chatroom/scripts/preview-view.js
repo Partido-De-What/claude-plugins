@@ -164,7 +164,7 @@
       + `<button class="pv-pill" data-pv="grid">${esc(I18N.text('previewv.grid'))}</button>` : '';
   }
   function shell() {
-    main.innerHTML = `<div class="pv-top"><button class="pv-logo" data-close="1" title="${esc(I18N.text('previewv.back'))}">${IC.view}</button><span class="pv-title">${esc(I18N.text('previewv.title'))}</span>`
+    main.innerHTML = `<div class="pv-top"><button class="pv-logo" data-close="1" title="${esc(I18N.text('previewv.back'))}">${IC.view}</button><span class="pv-title">${esc(I18N.text('previewv.title'))}</span><span class="esc-hint" title="${esc(I18N.text('view.esc_title'))}">${esc(I18N.text('view.esc'))}</span>`
       + `<span id="pvStrip" class="pv-top" style="gap:8px"></span><span class="pv-sp"></span><span class="pv-sub pv-count"></span></div>`
       + (PV.err && !PV.data ? `<div class="pv-empty">${esc(I18N.text('previewv.loadErr', {why: PV.err}))}</div>` : `<div class="pv-empty" id="pvEmpty">${esc(I18N.text('previewv.empty'))}<br><br><code>chat.py preview PATH --as NAME</code></div>`)
       + `<div class="pv-grid" id="pvGrid" data-n="1"></div>`;

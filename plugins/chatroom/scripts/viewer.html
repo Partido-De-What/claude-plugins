@@ -165,6 +165,7 @@
   .pill svg.i { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
   .pill.common { border: 1px dashed var(--d-accent); background: transparent; }
   .scope { display: flex; gap: 6px; padding: 4px var(--gut) 6px; flex-wrap: wrap; }
+  .esc-hint { font-size: 11.5px; font-weight: 600; color: var(--muted); border: 1px solid var(--d-line); border-radius: 7px; padding: 2px 7px; margin: 0 8px; white-space: nowrap; flex: none; }   /* the full-screen views: Esc goes back to the chat */
   .scope button { border: 1px solid var(--d-line); background: var(--d-card); color: inherit; border-radius: var(--d-r-pill); padding: 4px 13px; cursor: pointer; font-size: 12.5px;
                   transition: background var(--d-t-fast), color var(--d-t-fast), transform var(--d-t-fast) var(--d-spring); }
   .scope button:hover { transform: translateY(-1px); }
@@ -336,6 +337,32 @@
     .scope { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } .scope button { flex: none; }   /* 20 neighbour rooms must not eat half the phone: one row, swipe */
     #preview.show { max-height: min(280px, 34vh); } #preview .pv-in { max-height: min(270px, 32vh); }
   }
+  /* the chat beside the office is a narrow column on a wide window: the same rules as a phone (body.chat-narrow, set by the size of the column) */
+  body.chat-narrow { --gut: 12px; }
+  body.chat-narrow header { padding-top: 10px; flex-wrap: wrap; gap: 4px 6px; }
+  body.chat-narrow .head-text { flex: 1 1 calc(100% - 56px); }
+  body.chat-narrow header .icon-btn { margin: 0; }
+  body.chat-narrow .group-icon, body.chat-narrow .head-text { margin-right: 0; }
+  body.chat-narrow header #search.open { flex: 1 1 100%; width: auto; order: 9; }
+  body.chat-narrow .live { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  body.chat-narrow .icon-btn.has-lbl, body.chat-narrow #cmdBtn.has-lbl, body.chat-narrow #attach.has-lbl { flex-direction: column; justify-content: center; gap: 3px; padding: 4px 3px; min-width: 0; height: 46px; font-size: 10px; }
+  body.chat-narrow .tools { display: flex; flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; justify-content: space-between; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  body.chat-narrow .tools::-webkit-scrollbar { display: none; }
+  body.chat-narrow .bubble { max-width: 94%; }
+  body.chat-narrow .icon-btn { width: 36px; height: 36px; }
+  body.chat-narrow .group-icon { width: 38px; height: 38px; border-radius: 13px; }
+  body.chat-narrow #hint { display: none; }
+  body.chat-narrow footer { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  body.chat-narrow #newer { bottom: 100px; right: 14px; }
+  body.chat-narrow .card { margin-left: 0; width: 100%; }
+  body.chat-narrow .strip { gap: 6px; }
+  body.chat-narrow .chip { gap: 6px; padding-right: 9px; }
+  body.chat-narrow .chip .av { width: 24px; height: 24px; }
+  body.chat-narrow .strip .count { position: sticky; right: 0; margin-left: auto; padding-left: 14px; background: linear-gradient(90deg, transparent, var(--d-bg) 12px); }
+  body.chat-narrow .scope { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  body.chat-narrow .scope button { flex: none; }
+  body.chat-narrow #preview.show { max-height: min(280px, 34vh); }
+  body.chat-narrow #preview .pv-in { max-height: min(270px, 32vh); }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
 
   /* the Research tab of a research room: phases, chart, runs, ideas, verdicts (research.json) */
@@ -1374,5 +1401,20 @@ I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); se
 <script src="skills-view.js"></script>
 <script src="preview-view.js"></script>
 <script type="module" src="office.js"></script>
+<script>
+/* the chat column beside the office: narrow when it is under 700 px, whatever the window (the office takes 62% of it) */
+(function () {
+  const NARROW = 700;
+  function check() {
+    const cs = getComputedStyle(document.body);
+    const w = document.body.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
+    document.body.classList.toggle('chat-narrow', w > 0 && w < NARROW && window.innerWidth > 640);
+  }
+  addEventListener('resize', check);
+  if (window.ResizeObserver) new ResizeObserver(check).observe(document.body);
+  new MutationObserver(check).observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] });
+  check();
+})();
+</script>
 </body>
 </html>

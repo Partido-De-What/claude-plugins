@@ -534,7 +534,7 @@
     const n = skills().length;
     const bar = `<span class="sk-sp"></span><span class="sk-upd">${esc(I18N.text('skillsv.count', {n}))}</span>`
       + `<button class="sk-btn small" data-act="addform">${IC.plus} ${esc(I18N.text('skillsv.add'))}</button>`;
-    return `<div class="sk-top"><button class="sk-logo" data-close="1" title="${esc(I18N.text('skillsv.back'))}">${IC.spark}</button><span class="sk-title">${esc(I18N.text('skillsv.title'))}</span>${tabs}${bar}</div>`;
+    return `<div class="sk-top"><button class="sk-logo" data-close="1" title="${esc(I18N.text('skillsv.back'))}">${IC.spark}</button><span class="sk-title">${esc(I18N.text('skillsv.title'))}</span><span class="esc-hint" title="${esc(I18N.text('view.esc_title'))}">${esc(I18N.text('view.esc'))}</span>${tabs}${bar}</div>`;
   }
   function shell() {
     let body = '';

@@ -143,7 +143,7 @@
     const pr = L.probing || {};
     const probe = pr.running ? `<span>${esc(I18N.text('spawnv.probeRun', {done: pr.done || 0, total: pr.total || 0}))}</span>`
                              : `<button class="sv-btn small" data-do="probe" title="${esc(I18N.text('spawnv.probeTip'))}">${esc(I18N.text('spawnv.probeAll'))}</button>`;
-    return `<div class="sv-top"><button class="sv-logo" data-close="1" title="${esc(I18N.text('spawnv.back'))}">🛸</button><span class="sv-title">Spawn</span>
+    return `<div class="sv-top"><button class="sv-logo" data-close="1" title="${esc(I18N.text('spawnv.back'))}">🛸</button><span class="sv-title">Spawn</span><span class="esc-hint" title="${esc(I18N.text('view.esc_title'))}">${esc(I18N.text('view.esc'))}</span>
       ${['keys', 'models', 'roles'].map(k => `<button class="sv-pill ${SV.tab === k ? 'on' : ''}" data-tab="${k}">${esc(label[k])}</button>`).join('')}
       <span class="sv-sp"></span><span class="sv-upd">${probe}${esc(upd)}<button class="sv-icon" data-do="update" title="${esc(I18N.text('spawnv.update'))}">↻</button></span></div>`;
   }

@@ -2149,6 +2149,8 @@
  "skillsv.agoNow": "just now",
  "skillsv.all": "All",
  "skillsv.allAgents": "All agents",
+ "view.esc": "Esc to exit",
+ "view.esc_title": "Press Esc to go back to the chat",
  "skillsv.back": "Back to the chat",
  "skillsv.btn": "Skills",
  "skillsv.cancel": "Cancel",
