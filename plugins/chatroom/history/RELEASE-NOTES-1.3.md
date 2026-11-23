@@ -24,6 +24,10 @@ I read how four other teams build the layer around their agents: DeepSeek Harnes
 - **Skill candidates that age.** A candidate nobody took goes stale after 14 days and to the archive after 30, never deleted; a pinned one stays, and every promotion is written down with the hashes before and after.
 - **A loop between two agents.** Two agents that answer only each other for six messages, with nothing moving on the board, come to the lead as a check.
 
+## 1.3.1
+
+With the office open, the chat sits in a column of about 600 pixels, and it was laid out as on a wide screen: the toolbar wrapped one button per line and the messages were left 26 pixels. The chat now takes the compact layout whenever its own column is narrow. The Skill, Spawn and Previews screens say that Esc goes back to the chat.
+
 ## What I did not do
 
 - The gate runs only on the timed wakes of the relay; messages that need the lead still wake it at once.
