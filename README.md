@@ -124,7 +124,7 @@ Why the gate matters: in [SkillsBench](https://arxiv.org/abs/2602.12670), curate
 
 ## 🆕 Release notes
 
-[1.2](plugins/chatroom/history/RELEASE-NOTES-1.2.md): fewer false alarms, agents that wait and say it once, lighter on tokens. [1.1](plugins/chatroom/history/RELEASE-NOTES-1.1.md): the closing, the harness that collects, the model council, a consult without caps, Codex hooks. [1.0](plugins/chatroom/history/RELEASE-NOTES-1.0.md): the 72 items of a 28-hour research room.
+[1.3](plugins/chatroom/history/RELEASE-NOTES-1.3.md): wakes only when something happened, final reports the closing can read, loops sent to the lead. [1.2](plugins/chatroom/history/RELEASE-NOTES-1.2.md): fewer false alarms, agents that wait and say it once, lighter on tokens. [1.1](plugins/chatroom/history/RELEASE-NOTES-1.1.md): the closing, the harness that collects, the model council, a consult without caps, Codex hooks. [1.0](plugins/chatroom/history/RELEASE-NOTES-1.0.md): the 72 items of a 28-hour research room.
 
 ## 📦 Install
 

@@ -10,6 +10,7 @@ ROOM_IDLE, or the lead retired it. Any fault lets the agent stop, as without thi
 import contextlib
 import io
 import json
+import re
 import os
 import sys
 import time
@@ -115,6 +116,26 @@ def waits(room, name):
     return ''
 
 
+END_RE = re.compile(r'(?im)^\W*END\s*:\s*(completed|partial|blocked|error)\b(.*)$')
+
+
+def keep_report(room, name, inp):
+    """the END line of a final report (END: completed|partial|blocked|error; files: a, b; gaps: ...) as ROOM/reports/NAME.json"""
+    import chat
+    text = '\n'.join(str(v) for v in (inp.values() if isinstance(inp, dict) else [inp]) if isinstance(v, str))
+    m = END_RE.search(text)
+    if not m:
+        return
+    rest = m.group(2)
+    part = lambda k: (re.search(rf'{k}\s*:\s*([^;\n]*)', rest, re.I) or [None, ''])[1].strip()[:300]
+    try:
+        (room.dir / 'reports').mkdir(exist_ok=True)
+        chat.write_atomic(room.dir / 'reports' / f'{name}.json', json.dumps({'end': m.group(1).lower(), 'files': part('files'), 'gaps': part('gaps'),
+                                                                           'at': time.time()}, ensure_ascii=False))
+    except OSError:
+        pass
+
+
 def handback(ev):
     """PreToolUse of SubagentHandback, the tool that ends an agent's run (auto mode): an agent that still waits in an open
     room reports later, so that a run in queue or a tag can still reach it; one with nothing left passes. The report is
@@ -124,6 +145,7 @@ def handback(ev):
         return None
     import chat
     room = chat.Room(key)
+    keep_report(room, name, ev.get('tool_input') or {})   # idea 2: its END line, for the closing
     why = waits(room, name)
     if closed(room) or done_closing(room, name) or chat.voted_latest(room, name):
         return None
@@ -176,6 +198,7 @@ def left(room, name, why=''):
                      'tasks': [t['id'] for t in chat.Board(room).load()['tasks'] if t.get('owner') == name and t['state'] == 'taken'],
                      'procs': running_procs(room, name)}
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
+        chat.release_all(room, name)                     # idea 4: what it held goes back to the others
         if why or got[name]['tasks'] or got[name]['procs']:   # B3: an agent that ends with nothing in hand finished its job: no event, no lesson
             chat.note_event(room, 'hold', 'left', name, ','.join(got[name]['tasks']), why or 'nothing in hand')
     except (OSError, ValueError, KeyError):

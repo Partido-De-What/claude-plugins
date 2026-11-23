@@ -27,7 +27,7 @@
         ]
       },
       {
-        "matcher": "Read|Write",
+        "matcher": "Read|Write|Edit",
         "hooks": [
           {
             "type": "command",

@@ -47,6 +47,12 @@ Next to the chat, the page draws a 3D voxel office where each agent works at its
 
 The typical use: you run a strong model as your session (say Opus) and ask for a room of cheaper agents (Sonnet, Haiku) with an effort level each. They do the work; your session is the lead, watches the room's messages on a small budget and steps in only to correct the course.
 
+## What is new in 1.3
+
+Seven ideas from DeepSeek Harness and Qwen Code: [history/RELEASE-NOTES-1.3.md](history/RELEASE-NOTES-1.3.md). A timed wake
+only when a check prints something (`--wake-gate`), final reports with an END line, a nudge after fifteen reads in a row,
+locks released when an agent leaves, refusal loops sent to the lead, rotations that keep the last messages.
+
 ## What is new in 1.2
 
 Two production rooms measured where the tokens go: [history/RELEASE-NOTES-1.2.md](history/RELEASE-NOTES-1.2.md).

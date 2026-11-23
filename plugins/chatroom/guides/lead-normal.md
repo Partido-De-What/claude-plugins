@@ -62,6 +62,12 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    instead of the whole prompt. Agent types: `chatroom:room-agent-lean` (files, shell, web and chat only, compacts near 170k)
    and `chatroom:room-agent-short` (5-minute cache, for one run that waits for nobody); a participant with no type recorded
    (the desktop app records none) is taken as a room agent, and the cost table keeps the agents that left.
+   A timed wake that should come only when something happened: `alerts --heartbeat N --wake-gate "cmd"` runs the command
+   at each wake and wakes you only when it prints something. An agent that leaves releases its locks, its places in the
+   queues and its device hold by itself; the same refusal three times in a row to one agent comes to you as a CHECK; an
+   agent that reads fifteen files in a row without a change or a message is told to conclude. Each final report starts
+   with `END: completed|partial|blocked|error; files: ...; gaps: ...`, and `close-steps` lists them. `rotate` gives the
+   fresh agent the last eight messages that concern it.
    Long reads of your own (a big diff, a run's log, a long transcript) go to a subagent that returns about ten lines:
    what you read stays in your context, read again at every one of your turns.
    Alarm clock: in the desktop app nothing arms the plugin's monitor, so after your first call as LEAD run

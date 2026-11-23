@@ -421,7 +421,7 @@ def is_shut(room, items):
     return False
 
 
-def note_event(room, kind, key, name='', task='', detail=''):
+def note_event(room, kind, key, name='', task='', detail='', attempt=''):
     """ROOM/events.jsonl: one line per refusal, check, valve or guard that fired: the scorecard counts them and the
     lessons group them across rooms (a control that never fires is a control to remove). Each line says who (name) and
     on which task (the one given, else the ones the agent holds on the board), and the detail the cause needs (0.19.9: a
@@ -431,7 +431,7 @@ def note_event(room, kind, key, name='', task='', detail=''):
             task = ','.join(t['id'] for t in read_json(room.dir / 'board.json', {}).get('tasks', [])
                             if t.get('owner') == name and t.get('state') == 'taken')
         row = {'ts': int(time.time()), 'kind': kind, 'key': key, 'name': name, **({'task': task} if task else {}),
-               **({'detail': str(detail)[:200]} if detail else {})}
+               **({'detail': str(detail)[:200]} if detail else {}), **({'attempt': str(attempt)[:400]} if attempt else {})}
         with open(room.dir / 'events.jsonl', 'a', encoding='utf-8') as f:
             f.write(json.dumps(row, ensure_ascii=False) + '\n')
     except OSError:
@@ -454,7 +454,8 @@ def note_refusal(code):
     room, a = CALL.get('room'), CALL.get('a')
     if room is None or a is None or not isinstance(code, str) or a.command == 'research' or not room.dir.is_dir():
         return
-    note_event(room, 'refusal', call_key(a), getattr(a, 'name', None) or '', detail=' '.join(code.split())[:200])
+    note_event(room, 'refusal', call_key(a), getattr(a, 'name', None) or '', detail=' '.join(code.split())[:200],
+               attempt=' '.join(str(getattr(a, '_text', '') or '').split())[:400])     # idea 7 (dsh): what was tried, not only why it was refused
 
 
 LEARN_AT = (3, 10)       # times a cause fires in a room before the lead is told to propose a lesson, and told again
@@ -1769,6 +1770,26 @@ def resolve_name(room, raw):
     return base
 
 
+def release_all(room, name):
+    """idea 4 (dsh: registrations unwind when their owner goes): the locks it holds, its places in their queues and its device
+    hold are released, and the room is told once. Returns what was released"""
+    locks, out = Locks(room), []
+    for key in list(locks.load()):
+        got = locks.release(key, name)
+        if got:
+            out.append(f'{key} ({got})')
+    hold = room.dir / 'research' / 'gpu.hold'
+    try:
+        if json.loads(hold.read_text(encoding='utf-8')).get('by') == name:
+            hold.unlink()
+            out.append('device hold')
+    except (OSError, ValueError):
+        pass
+    if out:
+        room.append(name, say('chat.say.released_on_leave', name=name, what=', '.join(out)), 'board')
+    return out
+
+
 def cmd_retire(room, a, quiet=False):
     """chat.py retire NAME --as LEAD: the agent behind NAME is replaced; its calls are refused from now on, its call count
     starts again, and the next prompt of NAME carries the new identity (NAME~G)"""
@@ -1845,6 +1866,10 @@ def long_to_notes(room, name, text):
 def cmd_post(room, a, text=None):
     if text is None:
         text = post_text(a, room)
+    a._text = text                                    # the attempt a refusal records (idea 7)
+    aid = room.roster().get(a.name or '')
+    if aid:                                           # idea 3: a message ends a run of reads
+        (room.dir / f'reads_{aid}.txt').unlink(missing_ok=True)
     if a.idle and a.status:                           # an idle is a status with a wait: nothing to refuse, its text stays
         a.status = False
     if sum(map(bool, (a.status, a.idle, a.finding))) > 1:
@@ -3454,6 +3479,27 @@ def state_gap(room, k, items, now):
     return int(minutes), time.strftime('%H:%M', time.localtime(at)), sum(1 for m in items if m.get('from') == k and m.get('ts', 0) > at)
 
 
+REFUSAL_LOOP = 3          # the same refusal this many times in a row to one agent: the lead is told
+
+
+def refusal_loops(room):
+    """[(name, key, n)]: agents whose last n (>= REFUSAL_LOOP) events are the same refusal"""
+    try:
+        rows = [json.loads(x) for x in (room.dir / 'events.jsonl').read_text(encoding='utf-8').splitlines()[-400:] if x.strip()]
+    except (OSError, ValueError):
+        return []
+    last = {}
+    for e in rows:
+        k = e.get('name')
+        if not k or e.get('kind') not in ('refusal', 'guard', 'check'):
+            continue
+        if e.get('kind') != 'refusal':
+            continue
+        key, run = last.get(k, (None, 0))
+        last[k] = (e.get('key'), run + 1 if e.get('key') == key else 1)
+    return [(k, key, n) for k, (key, n) in last.items() if n >= REFUSAL_LOOP]
+
+
 def failures(room, now=None):
     """the commonest ways a multi-agent chat goes wrong, seen in the room: [(key, text)]. Tasks closed without an artifact
     or with gaps, one file in two agents' statuses, tags left unanswered, stalls and loops, votes flipped without evidence,
@@ -3464,6 +3510,8 @@ def failures(room, now=None):
     config = room.config()
     items, out, people, users = room.messages(), [], set(config.get('participants', [])), room.user_names()
     board = Board(room).load()
+    for name, key, n in refusal_loops(room):            # idea 5 (Qwen): a refusal met three times in a row goes to the lead
+        out.append((f'loop:{name}:{key}:{n // REFUSAL_LOOP}', say('chat.check.refusal_loop', k=name, key=key, n=n)))
     for t in board['tasks']:
         if t['state'] == 'done' and not t.get('proof'):
             out.append((f"noproof:{t['id']}", say('chat.check.was_closed_by_without', id=t['id'], owner=t['owner'])))
@@ -4816,6 +4864,18 @@ def relay_redeliver(room, lead):
                n=rec['tries'], lines=' | '.join(rec.get('lines', [])))
 
 
+def gate_says(cmd):
+    """the output of a gate command (its first 600 characters), '' when it printed nothing, None without a gate. A gate that fails
+    to run says so: the lead must know its check is broken"""
+    if not cmd:
+        return None
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, timeout=120, stdin=subprocess.DEVNULL, env=user_env())
+        return ' '.join((r.stdout + r.stderr).decode('utf-8', 'replace').split())[:600]
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f'gate failed: {exc}'
+
+
 def watch_author(room, author, follow=True):
     """alerts --from NAME: wait for a message of NAME (another session of the lead, a worker) and print what it wrote, then end: the
     end is the wake, as for the relay. It keeps its own place (the first start is from now), so what it printed is not printed again"""
@@ -4941,7 +5001,9 @@ def cmd_alerts(room, a):
                 return
         if a.follow and beat_every and time.time() - beat_at >= beat_every:
             beat_at = time.time()
-            out(say('chat.say.cmd_alerts.heartbeat', seconds=beat_every), urgent=True, flush=True)
+            said_gate = gate_says(getattr(a, 'wake_gate', None))          # idea 1 (Qwen): a timed wake only when the check says something
+            if said_gate is None or said_gate:
+                out(say('chat.say.cmd_alerts.heartbeat', seconds=beat_every) + (f' · GATE: {said_gate}' if said_gate else ''), urgent=True, flush=True)
         if a.messages and relay_leads:                # lines the lead did not answer with a command: they come again
             again = relay_redeliver(room, relay_leads[0])
             if again:
@@ -5275,6 +5337,7 @@ def cmd_reopen(room, a):
     print(say('chat.say.reopen.done', n=room.append(a.name, say('chat.say.reopen.line', reason=a.reason))))
 
 
+ROTATE_RECENT = 8         # messages that concern a rotated agent, carried into its fresh prompt
 STATE_READY = re.compile(r'\b(?:state|stato|notebook|quaderno)\b.{0,30}\b(?:ready|pronto|written|scritto|saved|salvato)\b', re.I)
 
 
@@ -5333,6 +5396,9 @@ def cmd_rotate(room, a):
     text = fill_prompt(room, name, template, tools) + '\n\n' + say(
         'chat.say.rotate.resume', name=name, rules=rules or '-', state=state or '-', tasks='; '.join(tasks) or '-',
         lines=len(book.splitlines()), as_=as_)
+    recent = [m for m in room.messages() if not m.get('kind') and (m['from'] == name or tags(m.get('text', ''), name) or tags_everyone(m.get('text', '')))][-ROTATE_RECENT:]
+    if recent:                                        # idea 6 (dsh fork): the fresh agent starts from where the talk was, not only from its notes
+        text += '\n\n' + say('chat.say.rotate.recent') + '\n' + '\n'.join(f"#{m['n']} {m['from']}: {' '.join(m.get('text', '').split())[:300]}" for m in recent)
     out = Path(a.out or room.dir / 'prompts' / f'{name}-rotated.md')
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding='utf-8')
@@ -5489,10 +5555,25 @@ def close_steps(room, lead, run=False, out=print):
             out(((r.stdout + r.stderr).decode('utf-8', 'replace').strip() or '-')[-6000:])
         except (OSError, subprocess.SubprocessError) as exc:
             out(say('chat.say.close_steps.failed', step=' '.join(step), exc=exc, line=line))
+    reps = final_reports(room)                          # idea 2 (dsh: a result with its stop reason): what each agent said it left
+    if reps:
+        out(say('chat.say.close_steps.reports'))
+        for k, r in sorted(reps.items()):
+            out(f"  {k}: {r.get('end') or '?'} · files: {r.get('files') or '-'} · gaps: {r.get('gaps') or '-'}")
     out(say('chat.say.close_steps.tell'))
     topic = room.config().get('topic_profile')
     out(say('chat.say.close_steps.topic', slug=topic) if topic else say('chat.say.close_steps.no_topic'))
     out(say('chat.say.close_steps.plugin_bugs'))
+
+
+def final_reports(room):
+    """{name: {end, files, gaps}} from ROOM/reports/NAME.json, written by the handback hook from each agent's END line"""
+    out = {}
+    for p in sorted((room.dir / 'reports').glob('*.json')) if (room.dir / 'reports').is_dir() else ():
+        got = read_json(p, {})
+        if isinstance(got, dict):
+            out[p.stem] = got
+    return out
 
 
 def cmd_close_steps(room, a):
@@ -6649,6 +6730,7 @@ def _main():
     p.add_argument('--note', help='task handoff / help / giveback: the decisions taken, the files touched, what was tried')
     p.add_argument('--scope', help='task help: what the lent piece is, what is in and what is out')
     p.add_argument('--done-when', dest='done_when', help='task help: the proof that closes the lent piece')
+    p.add_argument('--wake-gate', dest='wake_gate', help='alerts --heartbeat N: a command run at each timed wake; the lead is woken only when it prints something')
     p.add_argument('--resend', action='store_true', help='post: post again the text held when your last post was refused')
     p.add_argument('--wait-for', dest='wait_for', help='post: the message, then an idle that waits for NAME (one call)')
     p.add_argument('--stub', action='store_true', help='prompt --out: print the three lines to pass to the Agent tool, not the prompt')

@@ -29,15 +29,46 @@ def room_of(aid):
     return None
 
 
+READ_STREAK = 15          # reads in a row without a change or a message: the agent is told to conclude (idea 3, Qwen)
+
+
+def streak(aid, tool):
+    """count this agent's reads in a row; a Write or an Edit ends the run (a chat post ends it too: chat.py removes the file)"""
+    room = room_of(aid)
+    if not room:
+        return None
+    p = room / f'reads_{aid}.txt'
+    if tool != 'Read':
+        p.unlink(missing_ok=True)
+        return None
+    try:
+        n = int(p.read_text()) + 1
+    except (OSError, ValueError):
+        n = 1
+    p.write_text(str(n))
+    if n % READ_STREAK:
+        return None
+    return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'additionalContext':
+            f'[chatroom: {n} reads in a row without a change or a message. Each one stays in your context. Conclude: '
+            f'write what you found, change what you meant to change, or ask the one who knows.]'}}
+
+
 def answer(ev):
     tool, inp, aid = ev.get('tool_name'), ev.get('tool_input') or {}, str(ev.get('agent_id') or '')
+    if aid and tool in ('Read', 'Write', 'Edit'):
+        got = streak(aid, tool)
+        if got and not (tool == 'Read' and not inp.get('offset') and not inp.get('limit')):
+            return got
+        nudge = got
+    else:
+        nudge = None
     path = Path(str(inp.get('file_path') or ''))
     if not aid or not path.name or path.suffix.lower() in SKIP:
-        return None
+        return nudge
     try:
         size = path.stat().st_size
     except OSError:
-        return None
+        return nudge
     if tool == 'Read' and size > READ_BIG and not inp.get('offset') and not inp.get('limit'):
         if not room_of(aid):
             return None
@@ -64,7 +95,7 @@ def answer(ev):
                                        'permissionDecisionReason': f'[chatroom: {path.name} already exists ({size // 1000} KB): change it '
                                                                    f'with Edit, so only the change enters your context. If you mean '
                                                                    f'to rewrite it whole, send the same Write again.]'}}
-    return None
+    return nudge
 
 
 def main():

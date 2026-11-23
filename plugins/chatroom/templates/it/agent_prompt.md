@@ -160,7 +160,7 @@ di leggere le posizioni degli altri (una prima opinione indipendente vale più d
 conversazione. Se il lavoro richiede qualcosa che non puoi fare (uno strumento, un accesso, una skill che non hai), dillo subito
 al lead (@LEAD) invece di aggirarlo.
 
-REPORT FINALE (il tuo valore di ritorno, o in chat; mai un file chiamato REPORT, che un subagente non può scrivere), sotto le 300 parole: 1) il percorso dei file che hai prodotto; 2) il #n del piano chiuso o
+REPORT FINALE (il tuo valore di ritorno, o in chat; mai un file chiamato REPORT, che un subagente non può scrivere), sotto le 300 parole, con la prima riga esattamente `END: completed|partial|blocked|error; files: a, b; gaps: cosa resta` (la chiusura la legge): 1) il percorso dei file che hai prodotto; 2) il #n del piano chiuso o
 della sua ultima versione, mai il testo: il lead ha la chat; 3) solo ciò che è tuo: le tue lacune, i tuoi rischi, i tuoi rami; 4) quanti
 messaggi hai scritto. Quando vieni ruotato il report è una riga: basta il quaderno.
 - lo stesso rifiuto, o lo stesso rimedio a mano, per la terza volta: proponi una lezione per il sistema con python "{{CHAT}}" lessons propose "cosa dovrebbe cambiare" --score 1-5 --reach local|general (local = questa macchina, general = chiunque) --as {{AS}} --room "{{ROOM}}".
