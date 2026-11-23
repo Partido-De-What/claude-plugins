@@ -245,6 +245,7 @@ if section('A10'):     # the rotate line comes at the delivery of the task, not 
     room = plain('a10', 'A,B')
     r = chat.Room(room)
     r.update_roster(lambda ro: ro.update(A='eeee5555eeee', B='ffff6666ffff'))
+    (room / 'agent_types.json').write_text(json.dumps({'A': 'general-purpose', 'B': 'general-purpose'}), encoding='utf-8')   # 1.2: no type recorded is a room agent (350k)
     r.append('LEAD', 'start'); r.append('A', 'on it')
     agent_log('eeee5555eeee', usage(time.time(), 200_000, 'm1'))
     with_board(room, [task('T6', 'A')])
