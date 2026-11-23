@@ -63,6 +63,7 @@ Look options (init) and config keys: --title, --subtitle, --icon (an emoji), --a
 "NAME|emoji|#color|role" once per participant. The viewer's settings panel changes the same fields.
 """
 import argparse
+import contextlib
 import base64
 import json
 import math
@@ -509,7 +510,7 @@ def closing_refusal(room, name, text):
     whenever they decide (they review a split)"""
     is_closing, v = closing(text)
     config = room.config()
-    if not is_closing or name in room.user_names() or not config.get('closing_gate', 1):
+    if not is_closing or name in room.user_names() or not config.get('closing_gate', 1) or brief(room).get('mode') == 'deliveries':
         return None
     items = room.messages()
     v = v or max((plan_version(x.get('text', '')) or 0 for x in items if not x.get('kind')), default=0)
@@ -540,6 +541,9 @@ TASK_IDLE_TURNS = 3       # turns a task holder is held with nothing new before 
 FELL_MIN = 60             # seconds after an API error ended an agent's run before the relay says so (the hold resumes it at once, when it runs)
 
 
+WAITS_RE = re.compile(r'\b(?:aspetto|attendo|resto in attesa|in attesa d|waiting for|i wait for|awaiting|your (?:ok|go|answer|review))\b', re.I)   # B4: a wait said without '?'
+
+
 def waits_for_lead(room, items=None, only=None, now=None):
     """[(name, n, minutes, text)]: who wrote to the lead and got nothing back. Its latest line (a status means it is working)
     is a message or an idle that names the lead, not an acknowledgement, and the lead has written nothing for it since"""
@@ -555,7 +559,7 @@ def waits_for_lead(room, items=None, only=None, now=None):
         if on:                                        # structured: who it waits for says it, the text is not guessed at
             if not any(names(str(on), n) for n in leads):
                 continue
-        elif not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text):
+        elif not any(names(text, n) for n in leads) or is_ack(text) or (m.get('kind') != IDLE and '?' not in text and not WAITS_RE.search(text)):
             continue                                  # a report to the lead is no question: 49 of 55 such CHECKs were noise
         elif any(tags(text, p) for p in c.get('participants', []) if p != k and p not in leads) and not any(tags(text, n) for n in leads):
             continue                                  # written to another agent, the lead only named in it
@@ -1266,7 +1270,12 @@ class Room:
         forced = self.config().get('cache_ttl')
         if forced in ('1h', '5m'):
             return forced == '1h'
-        return bool(name) and str(read_json(self.dir / 'agent_types.json', {}).get(name, '')).startswith('chatroom:room-agent')
+        if not name:
+            return False
+        seen = read_json(self.dir / 'agent_types.json', {}).get(name)
+        if seen is None:                              # B1: the desktop app records no spawn: a participant spawned by the start skill is a room agent
+            return name in self.config().get('participants', [])
+        return str(seen).startswith('chatroom:room-agent')
 
     def idle_wait_max(self, name=None):
         """the longest idle wait: under name's prompt cache (5 minutes, or 1 hour)"""
@@ -1787,8 +1796,14 @@ def cmd_retire(room, a, quiet=False):
         print(say('chat.say.cmd_retire.retired_calls_as_or', name=name, g=g))
 
 
-def post_text(a):
-    """the text of a post: the words after `post` (post --as ME "text"), else stdin (a heredoc); a tty with neither is ''"""
+def post_text(a, room=None):
+    """the text of a post: the words after `post` (post --as ME "text"), else stdin (a heredoc); a tty with neither is ''.
+    --resend: the text held the last time a post of this name was refused (B7: it was written again by hand)"""
+    if getattr(a, 'resend', False) and room is not None:
+        held = room.dir / 'drafts' / f'{a.name}.txt'
+        if not held.is_file():
+            sys.exit(say('chat.err.cmd_post.no_draft'))
+        return held.read_text(encoding='utf-8').strip()
     words = ' '.join(getattr(a, 'pairs', None) or []).strip()
     if words or sys.stdin.isatty():
         return words
@@ -1829,7 +1844,7 @@ def long_to_notes(room, name, text):
 
 def cmd_post(room, a, text=None):
     if text is None:
-        text = post_text(a)
+        text = post_text(a, room)
     if a.idle and a.status:                           # an idle is a status with a wait: nothing to refuse, its text stays
         a.status = False
     if sum(map(bool, (a.status, a.idle, a.finding))) > 1:
@@ -1904,7 +1919,9 @@ def cmd_post(room, a, text=None):
               and (tags(m.get('text', ''), a.name) or tags_everyone(m.get('text', ''))
                    or (m['from'] in users and not re.search(r'(?<![\w.])@\w', m.get('text', ''))))]
     first = not any(m['from'] == a.name and not m.get('kind') for m in room.messages())   # its first position comes before reading, by rule
-    if missed and not kind and not first:             # crossed: shown here and read, so the same post goes through if it still stands
+    lead_free = a.name in room.config().get('self_names', []) and not (plan_version(text) or votes_in(text) or closing(text)[0]) \
+        and all(m['from'] not in users or m['from'] == a.name for m in room.messages() if m['n'] in missed)   # B7: an order of the lead is not held for an agent's report
+    if missed and not kind and not first and not lead_free:   # crossed: shown here and read, so the same post goes through if it still stands
         if a.name in room.config().get('self_names', []):
             for m in [m for m in room.messages() if m['n'] in missed[:5]]:
                 print(f"  #{m['n']} {m['from']}: {' '.join(m.get('text', '').split())[:400]}")
@@ -1937,6 +1954,8 @@ def cmd_post(room, a, text=None):
         flags = {**(flags or {}), 'missed': missed[:8]}
         write_atomic(room.dir / f'missed_{a.name}.json', json.dumps(missed[:8]))   # a typed post went through: its next command brings them again
     n = room.append(a.name, text, kind or False, images, state=state, flags=flags)
+    if n and state and a.name in room.config().get('participants', []):
+        auto_state(room, a.name, state)
     if n is None:
         for rel in images:                    # nothing was posted: do not leave the copied pictures behind
             try:
@@ -1944,6 +1963,15 @@ def cmd_post(room, a, text=None):
             except OSError:
                 pass
         sys.exit(say('chat.err.cmd_post.error_you_already_said2', name=a.name, IDLE_WAIT_MAX=room.idle_wait_max(a.name)))
+    if not kind and a.name in room.config().get('self_names', []) and relay_down(room):    # B8: said before the confirmation, once in 30 minutes
+        mark = room.dir / f'relay_off_said_{a.name}.txt'
+        try:
+            fresh = time.time() - mark.stat().st_mtime < 1800
+        except OSError:
+            fresh = False
+        if not fresh:
+            print(say('chat.say.cmd_post.relay_off', cmd=relay_command(room, a.name)))
+            mark.write_text(str(time.time()))
     print(say('chat.say.posted_at', n=n, time=time.strftime('%H:%M:%S')) + (say('chat.say.posted_images', images=len(images)) if images else ''))
     if not kind:
         for f in (room.dir / 'drafts').glob(f'{a.name}.*') if (room.dir / 'drafts').is_dir() else ():
@@ -1974,8 +2002,9 @@ def cmd_post(room, a, text=None):
     if getattr(a, 'no_ping', False):                 # 12: says, asks nothing: no ping wakes a stopped agent that rereads 300-450k tokens
         return print(say('chat.say.cmd_post.info_no_ping'))
     print_alert(room, a.name, n, text, images)
-    if a.name in room.config().get('self_names', []) and relay_down(room):
-        print(say('chat.say.cmd_post.relay_off', cmd=relay_command(room, a.name)))
+    if getattr(a, 'wait_for', None):                 # T4: the message and the wait in one call: an idle that waits on that name follows it
+        room.append(a.name, say('chat.say.cmd_post.waits_line', who=a.wait_for, n=n), IDLE, state={'waits_on': a.wait_for})
+        print(say('chat.say.cmd_post.waits_now', who=a.wait_for))
     stuck = waiting_names(room)
     for k in stuck:
         if k != a.name and k in recipients(room, {'from': a.name, 'text': text}):
@@ -2832,6 +2861,20 @@ class Board:
         return '\n'.join(lines)
 
 
+def auto_state(room, name, state):
+    """T3: a JSON status keeps the notebook state current by itself: its last line `auto HH:MM ...` is replaced, the lines the
+    agent wrote stay (9 notebook calls of one agent were only answers to the CHECK on an old state)"""
+    p = room.dir / 'notes' / f'{name}.state.md'
+    keys = ('task', 'step', 'pct', 'files', 'next', 'needs', 'blocked_by', 'waits_on')
+    line = 'auto ' + time.strftime('%H:%M') + ' ' + ' · '.join(f"{k}: {', '.join(map(str, state[k])) if isinstance(state[k], list) else state[k]}" for k in keys if state.get(k) not in (None, '', []))
+    try:
+        old = [x for x in p.read_text(encoding='utf-8').splitlines() if not x.startswith('auto ')] if p.is_file() else []
+        p.parent.mkdir(exist_ok=True)
+        p.write_text('\n'.join([*old, line]) + '\n', encoding='utf-8')
+    except OSError:
+        pass
+
+
 def state_note(room, name, act):
     """a decision that concerns the agent (a task taken, done, handed over, a rule of the room) while its notebook state is older than
     STATE_OLD_MIN minutes, or missing: said once with the age. The state is what a compaction or a rotation leaves it"""
@@ -3465,7 +3508,7 @@ def failures(room, now=None):
         full = (st and st.get('pct') == 100) or (not st and m.get('kind') in ('status', 'stato') and pct and pct.group(1) == '100')
         if full and not (st and st.get('evidence')) and not has_artifact((st or {}).get('done', '') if st else m.get('text', '')):
             out.append((f"claim:{m['from']}:{m['n']}", say('chat.check.says_without_evidence_which', from_=m['from'], n=m['n'])))
-        if m.get('after_read') and not research_room:
+        if m.get('after_read') and not research_room and brief(room).get('mode') != 'deliveries':
             out.append((f"echo:{m['from']}", say('chat.check.wrote_its_first_position', from_=m['from'], n=m['n'])))
     real_since = 0
     for m in items:
@@ -4262,7 +4305,7 @@ def cmd_add(room, a):
 
 # what the lead writes once about the room for the agents' prompts (chat.py brief); chat.py prompt fills the template
 # from it and from the config, so a prompt is never rewritten by hand and every agent gets the same rules
-BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests', 'permissions')
+BRIEF_KEYS = ('goal', 'style', 'materials', 'constraints', 'closing', 'max', 'ground', 'lessons', 'tests', 'permissions', 'mode')
 
 
 def valve_line(room, name, mine=None):
@@ -4371,6 +4414,8 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
                                                str(room.dir / 'research' / 'task.md').replace('\\', '/')
                                                if (room.dir / 'research' / 'task.md').is_file() else '-'),
         **{k.upper(): data.get(k) or tr(lang, f'brief.default.{k}') for k in ('style', 'constraints', 'closing', 'max')}}
+    if data.get('mode') == 'deliveries' and not data.get('closing'):      # O4: nobody discusses: deliver, close the task, go
+        values['CLOSING'] = tr(lang, 'brief.deliveries.closing')
     values['CONSTRAINTS'] += '\n' + tr(lang, 'prompt.permissions', by=data.get('permissions_by') or '-', at=data.get('permissions_at') or '-',
                                        text=data.get('permissions') or tr(lang, 'prompt.permissions_none'))   # a permission the lead names in the chat is not in the brief: it is not the agents'
     if data.get('tests'):
@@ -4411,6 +4456,8 @@ def fill_prompt(room, name, template='agent_prompt.md', host='both'):
     if host == 'shellblock':                         # help shell: the commands alone
         source = ''.join(re.findall(r'\[\[shell\]\]\n(.*?)\[\[/shell\]\]\n', source, flags=re.DOTALL))
     text = re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), m.group(0)), host_blocks(source, host))
+    if data.get('mode') == 'deliveries':              # O4/T6: the rules of plans and votes do not apply: out of the prompt
+        text = re.sub(r'(?m)^6\. [^\n]*CHALLENGE[^\n]*\n', '', text)
     py = Path(sys.executable).as_posix()
     if sys.version_info >= (3, 14) and ' ' not in py:     # the environment's own Python: no relaunch per call (bash and PowerShell alike)
         text = text.replace(f'python "{values["CHAT"]}"', f'{py} "{values["CHAT"]}"')
@@ -4605,6 +4652,8 @@ def cmd_prompt(room, a):
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(text, encoding='utf-8')
+        if getattr(a, 'stub', False):                # O1: three lines to pass to the Agent tool instead of the whole prompt
+            return print(say('chat.say.cmd_prompt.stub', out=Path(a.out).resolve().as_posix(), name=a.pairs[0]))
         return print(say('chat.say.cmd_prompt.prompt_for_written_to', pairs=a.pairs[0], out=a.out, len_text=len(text)))
     sys.stdout.write(text)
 
@@ -6596,6 +6645,9 @@ def _main():
     p.add_argument('--note', help='task handoff / help / giveback: the decisions taken, the files touched, what was tried')
     p.add_argument('--scope', help='task help: what the lent piece is, what is in and what is out')
     p.add_argument('--done-when', dest='done_when', help='task help: the proof that closes the lent piece')
+    p.add_argument('--resend', action='store_true', help='post: post again the text held when your last post was refused')
+    p.add_argument('--wait-for', dest='wait_for', help='post: the message, then an idle that waits for NAME (one call)')
+    p.add_argument('--stub', action='store_true', help='prompt --out: print the three lines to pass to the Agent tool, not the prompt')
     p.add_argument('--no-ping', action='store_true', help='post: a message that asks nothing (no ping: the agents read it at their next read)')
     p.add_argument('--finding', action='store_true', help='post: a finding the others should know now (no ping, no percentage); read --focus always shows it')
     p.add_argument('--reply', type=int, help='post: answer message #N; its author is tagged and gets the ping')
@@ -6650,7 +6702,15 @@ def _main():
         if a.command in commands:
             if a.command in ('task', 'board', 'notebook') and getattr(a, 'name', None):
                 redeliver_missed(room, a.name)            # the commands of an agent at work: what its status missed comes again
-            out = commands[a.command](room, a)
+            if a.command == 'serve':                   # B10: a viewer that ends says why, in the room (one ended with code 4, silent)
+                try:
+                    out = commands[a.command](room, a)
+                except BaseException as exc:
+                    with contextlib.suppress(OSError):
+                        write_atomic(room.dir / 'viewer.exit', f"{time.strftime('%Y-%m-%d %H:%M:%S')} {type(exc).__name__}: {exc}")
+                    raise
+            else:
+                out = commands[a.command](room, a)
             if a.command in LEAD_ACTS:                    # a remedy by hand: the harness learns from how often it is needed
                 note_event(room, 'lead', a.command, getattr(a, 'name', None) or '', detail=' '.join(getattr(a, 'pairs', None) or [])[:120])
             return out

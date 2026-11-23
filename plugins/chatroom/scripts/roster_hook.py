@@ -46,6 +46,11 @@ def main():
         return
     import chat
     chat.Room(d).update_roster(lambda ro: ro.setdefault(name, aid))
+    kind = str(ev.get('agent_type') or '')[:60]                 # B1: the desktop app sends no spawn event: the type comes with the call, when the hook has it
+    if kind:
+        types = chat.read_json(d / 'agent_types.json', {})
+        if types.get(name) != kind:
+            chat.write_atomic(d / 'agent_types.json', json.dumps({**types, name: kind}))
 
 
 if __name__ == '__main__':

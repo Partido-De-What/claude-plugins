@@ -12,7 +12,7 @@ from pathlib import Path
 
 import layers
 
-LIMIT = 32_000                 # characters, about 8k tokens
+LIMIT = 16_000                 # characters, about 4k tokens (T9: render logs of 12-30k were read again at every turn)
 TAIL_C, HEAD_C, LINE_C = 16_000, 6_000, 2_000   # the budget goes to the tail first (the result), then the head, then errors
 ERROR = re.compile(r'error|fail|traceback|exception|assert|fatal|panic|denied|not found', re.IGNORECASE)
 

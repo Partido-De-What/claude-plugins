@@ -133,7 +133,7 @@ def causes(dirs):
 def gate(text, data):
     """why a lesson may not enter (None: it may): the quality gate against a harness that grows by itself"""
     if len(text) > LONG:
-        return say('lessons.gate.long', n=len(text), max=LONG)
+        return say('lessons.gate.long', n=len(text), max=LONG) + ' ' + say('lessons.gate.cut', text=text[:LONG].rsplit(' ', 1)[0])
     m = SPECIFIC.search(text)
     if m:
         return say('lessons.gate.specific', what=m.group(0))

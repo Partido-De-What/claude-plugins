@@ -95,6 +95,8 @@ def waits(room, name):
         return 'hold'
     if room.idle_entry(name, room.messages()):
         return 'idle'
+    if chat.waits_for_lead(room, only=name):          # B4: "I wait for your ok" without --idle: it stays until the lead answers
+        return 'lead'
     if any(t.get('owner') == name and t['state'] == 'taken' for t in chat.Board(room).load()['tasks']):
         return 'task'
     if chat.Locks(room).involves(name):
@@ -136,7 +138,7 @@ def handback(ev):
                                    'permissionDecisionReason': chat.say('chat.say.hold.report_later', why={
                                        'idle': chat.say('chat.say.hold.why_idle'), 'task': chat.say('chat.say.hold.why_task'),
                                        'run': chat.say('chat.say.hold.why_run'), 'hold': chat.say('chat.say.hold.why_hold'), 'pause': chat.say('chat.say.hold.why_pause'),
-                                       'lock': chat.say('chat.say.hold.why_lock')}[why])}}
+                                       'lock': chat.say('chat.say.hold.why_lock'), 'lead': chat.say('chat.say.hold.why_lead')}[why])}}
 
 
 def running_procs(room, name):
@@ -174,7 +176,8 @@ def left(room, name, why=''):
                      'tasks': [t['id'] for t in chat.Board(room).load()['tasks'] if t.get('owner') == name and t['state'] == 'taken'],
                      'procs': running_procs(room, name)}
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
-        chat.note_event(room, 'hold', 'left', name, ','.join(got[name]['tasks']), why or 'nothing in hand')
+        if why or got[name]['tasks'] or got[name]['procs']:   # B3: an agent that ends with nothing in hand finished its job: no event, no lesson
+            chat.note_event(room, 'hold', 'left', name, ','.join(got[name]['tasks']), why or 'nothing in hand')
     except (OSError, ValueError, KeyError):
         pass
 
@@ -325,7 +328,7 @@ def _hold(room, aid, key, name, end, wait, poll):
                 pass
             return {'decision': 'block', 'reason': reason(room, name, new)}
         if time.time() >= end:
-            cap = None if why in ('run', 'hold', 'pause') else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why == 'task' else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
+            cap = None if why in ('run', 'hold', 'pause') else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why in ('task', 'lead') else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
             if cap and bump(room, f'empty_{name}') > cap:
                 left(room, name, why)
                 return report(room, name)

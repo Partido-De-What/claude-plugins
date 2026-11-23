@@ -12,6 +12,7 @@ Idea and the parent-process check adapted from concord-mcp, plugin/concord-relay
 Test: python inbox.py --prova"""
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ POLL = 2                      # seconds between looks at the chat file
 ROOMS_EVERY = 5               # seconds between looks at rooms.json while no room is found
 SHOWN = 5                     # lines printed at most for one batch: the older ones are one line of count
 MAX_TEXT = 160
+LEAD_TEXT = 800          # a message to the lead, or from the user, reaches the lead whole up to this
 
 
 SHELLS = {'python', 'python3', 'pythonw', 'py', 'uv', 'bash', 'sh', 'zsh', 'dash', 'fish', 'cmd', 'conhost', 'env', 'timeout'}
@@ -163,10 +165,13 @@ def lines(room_dir, name, after=0):
     out = []
     if len(new) > SHOWN:
         out.append(i18n.tr(lang, 'inbox.more', n=len(new) - SHOWN))
+    lead = name in c.get('self_names', [])
+    users = {c.get('user_name', 'USER'), *c.get('user_aliases', [])}
     for m in new[-SHOWN:]:
         text = ' '.join(m.get('text', '').split())
+        cap = LEAD_TEXT if lead and (m.get('from') in users or re.search(rf'@{re.escape(name)}\b', text, re.I)) else MAX_TEXT   # T5: no read just to see the rest
         out.append(i18n.tr(lang, 'inbox.line', room=title, n=m['n'], who=m['from'],
-                           text=text if len(text) <= MAX_TEXT else f"{text[:MAX_TEXT - 1]}… [expand {m['n']}]"))   # cut and marked delivered: the reader must know the rest exists
+                           text=text if len(text) <= cap else f"{text[:cap - 1]}… [expand {m['n']}]"))   # cut and marked delivered: the reader must know the rest exists
     mark_delivered(room_dir, name, new[-1]['n'])
     return out, new[-1]['n']
 

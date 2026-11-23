@@ -99,7 +99,11 @@ def room_costs(room):
     except OSError:
         since = 0.0
     out = {}
-    for name, aid in room.roster().items():
+    try:                                              # B2: an agent that ended is moved to roster.left.json: its cost stays in the table
+        left = json.loads((room.dir / 'roster.left.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        left = {}
+    for name, aid in {**(left if isinstance(left, dict) else {}), **room.roster()}.items():
         p = transcript_of(agent_id=aid) if re.fullmatch(r'[0-9a-z]{8,40}', str(aid)) else None
         out[name] = scan(p, since) if p else None
     try:
