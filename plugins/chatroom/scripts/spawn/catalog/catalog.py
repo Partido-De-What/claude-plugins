@@ -174,27 +174,40 @@ def save(cat):
     os.replace(tmp, path)
 
 
-def refresh(cat, provider_ids, list_models, now=None, force=False):
+PAID_NEW_DAYS = 7         # D9: a model seen only paid stays in "new, not yet free" this long
+
+
+def refresh(cat, provider_ids, list_models, now=None, force=False, progress=None):
     """le liste dei provider dovuti (mai letti, letti più di 12 ore fa, o force); un provider che fallisce tiene le sue
-    strade di prima e segna l'errore. Le strade di un provider riletto sono sostituite dalla lista nuova"""
+    strade di prima e segna l'errore. Le strade di un provider riletto sono sostituite dalla lista nuova. progress: una
+    riga per provider mentre procede (spawn refresh, D8)"""
     now = now or time.time()
+    say = progress or (lambda line: None)
     models = {m['canonical']: m for m in cat['models']}
+    baseline = 'paid_seen' not in cat                      # D9: la prima lettura fa da base: nessun modello pagato è "nuovo"
+    paid = cat.setdefault('paid_seen', {})
     for pid in provider_ids:
         st = cat['providers'].get(pid) or {}
         if not force and st.get('ok') and now - st.get('at', 0) < MAX_AGE:
+            say(f'  {pid}: up to date ({st.get("count", 0)} models)')
             continue
+        say(f'  {pid}: reading the model list...')
         t0 = time.time()
         try:
             listed = list_models(pid)
         except Exception as exc:                           # un provider giù non ferma gli altri
             cat['providers'][pid] = {**st, 'at': now, 'ok': False, 'error': f'{type(exc).__name__}: {str(exc)[:160]}'}
+            say(f'  {pid}: failed, {cat["providers"][pid]["error"]}')
             continue
         ms = int((time.time() - t0) * 1000)
         cat['providers'][pid] = {'at': now, 'ok': True, 'ms': ms, 'count': len(listed)}
+        say(f'  {pid}: {len(listed)} models, {sum(x.get("free") is True for x in listed)} free, {ms / 1000:.1f} s')
         for m in models.values():
             m['routes'] = [r for r in m['routes'] if r['adapter'] != pid]
         for item in listed:
             key = canonical_id(item.get('id'))
+            if key and item.get('free') is False and not NOT_CHAT.search(str(item['id'])) and key not in paid:
+                paid[key] = {'first': 0 if baseline else now, 'name': str(item.get('name') or item['id'])[:120], 'adapter': pid}
             if not key or item.get('free') is not True or NOT_CHAT.search(str(item['id'])):   # D12 solo gratis; solo chat
                 continue
             if isinstance(item.get('benchmarks'), dict):  # OpenRouter: punteggi gratis dentro la lista (letti da update)
@@ -207,6 +220,13 @@ def refresh(cat, provider_ids, list_models, now=None, force=False):
     cat['models'] = sorted((m for m in models.values() if m['routes']), key=order)
     cat['updated'] = now
     return cat
+
+
+def paid_new(cat, now=None):
+    """D9: models first seen in the last PAID_NEW_DAYS days, only paid on every host read, and with no free route yet"""
+    now, free = now or time.time(), {m['canonical'] for m in cat.get('models', [])}
+    return [{'canonical': k, **v} for k, v in sorted((cat.get('paid_seen') or {}).items(), key=lambda kv: -kv[1].get('first', 0))
+            if v.get('first') and now - v['first'] < PAID_NEW_DAYS * 86400 and k not in free]
 
 
 def _who(name):
@@ -525,7 +545,7 @@ def stale(cat=None):
     return age is not None and age > STALE_DAYS
 
 
-def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None):
+def update(room_dir=None, force=False, list_models=None, load_key=None, aa_payload=None, or_payloads=None, modelsdev=None, progress=None):
     """il giro completo, da chiamare in un thread (la card Catalogo, Prepara spawn): le liste dei provider che hanno una
     chiave, la fonte veloce Artificial Analysis una volta al giorno (con la sua chiave, D2), i risultati del ricercatore
     arrivati nella stanza; poi punti forti e stato, e il file. Il risultato di un ricercatore fuori schema è messo da
@@ -537,7 +557,7 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
     if load_key is None:
         from spawn.keys import load as load_key
     g, now = strengths.load_glossary(), time.time()
-    cat = refresh(load(), [p for p in providers.FREE if load_key(p)], list_models, now=now, force=force)
+    cat = refresh(load(), [p for p in providers.FREE if load_key(p)], list_models, now=now, force=force, progress=progress)
     canon = [m['canonical'] for m in cat['models']]
     aa, st = load_key('artificial_analysis'), cat['providers'].get('artificial_analysis') or {}
     scores, partial = {}, False
@@ -549,6 +569,8 @@ def update(room_dir=None, force=False, list_models=None, load_key=None, aa_paylo
     fast = {**({'artificial_analysis': lambda: sources.aa_scores(aa['key'], canon, g, payload=aa_payload)} if aa and due(st) else {}),
             **({'openrouter_benchmarks': lambda: sources.or_bench_scores(ork['key'], canon, g, payloads=or_payloads)} if ork and due(ost) else {})}
     for name, fn in fast.items():                         # una alla volta: ognuna ha il suo stato (riuscita, quanti modelli)
+        if progress:
+            progress(f'  {name}: reading the scores...')
         got, late = fast_scores({name: fn})
         partial = partial or late
         for c, s in got.items():

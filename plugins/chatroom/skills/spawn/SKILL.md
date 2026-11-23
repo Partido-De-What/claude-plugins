@@ -46,6 +46,8 @@ request, but the user chooses the models.
 
 Before a round on many models, `python "CHAT" spawn ping --room "ROOM" [--top N] [canonical ...]` asks each free host with a
 key one small request with one tool, prints who answers and in how long, and writes ROOM/spawn/ping.json.
+`python "CHAT" spawn refresh --room "ROOM"` brings the catalog up to date from the terminal, one line per provider as it
+goes, and lists the models out in the last days that no host offers free yet.
 
 ## 4. While the roles work
 

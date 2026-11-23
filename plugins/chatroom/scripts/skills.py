@@ -453,7 +453,7 @@ def tags(names):
 
 
 def post(room, text):
-    return room.append(room.config().get('user_name', 'USER'), text[:4000])
+    return room.append(room.config().get('user_name', 'USER'), text[:4000], status='auto')   # D5: the panel writes it, not the user: it wakes only whom it tags
 
 
 def do(room, body, cwd=None):

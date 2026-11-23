@@ -25,6 +25,8 @@ python "CHAT" init --room "ROOM" --ask-mode --lang <it|en> --topic "<the topic i
 ```
 
 `--ask-mode` posts the choice card in the chat: two buttons, **Normal** and **Research**; the user can also type `/normale` (`/normal`) or `/research`. The choice is taken once: chat.py refuses a second one.
+If the user answers in the conversation instead of the viewer ("go normal"), make the choice for them:
+`python "CHAT" command normal --room "ROOM" --as <the user's name>` (or `research`).
 
 ## 2. Open the viewer on the chat
 

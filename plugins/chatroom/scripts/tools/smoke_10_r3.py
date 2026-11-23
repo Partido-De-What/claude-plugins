@@ -57,8 +57,9 @@ import hold  # noqa: E402
 it = r.messages()
 ok('a worker with a device hold is not closed', chat.turn_state(r, it, 'A', chat.gone_numbers(r), r.roster()) != 'closed' and chat.turn_state(r, it, 'B', chat.gone_numbers(r), r.roster()) == 'closed')
 (room / 'gone.json').unlink()
-# no command: the lines come again, twice at most
-chat.relay_handover(r, 'LEAD', n, ['WATCH #2 A: @LEAD I need a decision'])
+# no command: the lines come again, twice at most (new lines: what was delivered already is not handed again, D7)
+n = r.append('A', '@LEAD I need a decision on the mix')
+chat.relay_handover(r, 'LEAD', n, ['WATCH #3 A: @LEAD I need a decision on the mix'])
 ok('nothing to redeliver at once', chat.relay_redeliver(r, 'LEAD') == '')
 for want in (1, 2):
     rec = chat.read_json(room / 'relay_sent_LEAD.json', {})

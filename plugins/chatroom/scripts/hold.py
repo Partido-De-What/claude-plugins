@@ -151,7 +151,7 @@ def handback(ev):
         return {'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
                                        'permissionDecisionReason': chat.say('chat.say.hold.add_end')}}
     why = waits(room, name)
-    if closed(room) or done_closing(room, name) or chat.voted_latest(room, name):
+    if closed(room) or done_closing(room, name) or chat.voted_latest(room, name) or gone_now(room, name):   # D3: the hold let it go: its report goes through
         return None
     if not why:
         left(room, name)
@@ -197,16 +197,45 @@ def left(room, name, why=''):
     job from one left half way: the relay tells it (CHECK), unless the agent comes back and writes"""
     import chat
     try:
+        if gone_now(room, name):                         # D4: the same exit, seen again (the report turn after it): one entry, one event
+            return
         got = chat.read_json(room.dir / 'gone.json', {})
-        got[name] = {'n': max((m['n'] for m in room.messages() if m['from'] == name), default=0), 'why': why,
+        got[name] = {'n': last_n(room, name), 'why': why, 'aid': room.roster().get(name),
                      'tasks': [t['id'] for t in chat.Board(room).load()['tasks'] if t.get('owner') == name and t['state'] == 'taken'],
                      'procs': running_procs(room, name)}
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
+        chat.write_atomic(room.dir / f'letgo_{name}.json', json.dumps({'n': got[name]['n'], 'aid': got[name]['aid']}))   # gone.json goes at its next command: this stays for its report turn
         chat.release_all(room, name)                     # idea 4: what it held goes back to the others
-        if why or got[name]['tasks'] or got[name]['procs']:   # B3: an agent that ends with nothing in hand finished its job: no event, no lesson
+        if got[name]['tasks'] or got[name]['procs'] or why not in ('', 'idle'):   # B3: nothing in hand, or only waiting: its job is done, no event, no lesson
             chat.note_event(room, 'hold', 'left', name, ','.join(got[name]['tasks']), why or 'nothing in hand')
+        elif why == 'idle':                              # D4: an idle agent nobody needed goes: a fact of the room, not a fault
+            chat.note_event(room, 'flow', 'left_idle', name)
     except (OSError, ValueError, KeyError):
         pass
+
+
+def last_n(room, name):
+    return max((m['n'] for m in room.messages() if m['from'] == name), default=0)
+
+
+def gone_now(room, name):
+    """the hold already let this agent go and it has written nothing since (same agent id): its report turn, not a new stretch"""
+    import chat
+    e = chat.read_json(room.dir / f'letgo_{name}.json', None)
+    return isinstance(e, dict) and e.get('n') == last_n(room, name) and e.get('aid') == room.roster().get(name)
+
+
+def demo_kept(room):
+    """D1: config demo=on and someone looks at this room's viewer: an idle agent stays at its desk, however long nothing comes"""
+    if room.config().get('demo') != 'on':
+        return False
+    try:
+        import procs
+        here = room.dir.resolve()
+        return any(e.get('kind') == 'serve' and e.get('room') and Path(e['room']).resolve() == here and e.get('clients')
+                   for e in procs.running())
+    except Exception:
+        return False
 
 
 def bump(room, key, reset=False):
@@ -342,6 +371,8 @@ def _hold(room, aid, key, name, end, wait, poll):
                 return {'decision': 'block', 'reason': chat.say('chat.say.hold.fell', err=err[0], minutes=max(0, int((time.time() - err[1]) // 60)))}
             if not err:
                 bump(room, f'fell_{name}', reset=True)
+        if not new and gone_now(room, name):              # D3, D4: it was let go and turned for its report: no second hold of 9 minutes
+            return report(room, name)
         why = waits(room, name)
         if not new and (not why or done_closing(room, name)):   # nothing it waits for: its work is done, it goes
             left(room, name, why)
@@ -356,6 +387,8 @@ def _hold(room, aid, key, name, end, wait, poll):
             return {'decision': 'block', 'reason': reason(room, name, new)}
         if time.time() >= end:
             cap = None if why in ('run', 'hold', 'pause') else (chat.settings()['task_empty_max'] or TASK_EMPTY_MAX) if why in ('task', 'lead') else EMPTY_MAX   # a queued run of the kernel wakes it; a task holder stays longer (B1: it left with T6 "in corso"), and when it goes gone.json names its tasks and the relay tells the lead; the rest goes
+            if why in ('idle', 'lead') and demo_kept(room):
+                cap = None
             if cap and bump(room, f'empty_{name}') > cap:
                 left(room, name, why)
                 return report(room, name)
@@ -412,12 +445,19 @@ def _prova():
     assert decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2) is None             # then it goes: no endless empty turns
     (room / 'empty_A.txt').write_text('0')
     (room / 'handback_A.txt').write_text('0')
+    t0 = time.time()
+    assert decide({'agent_id': 'aaaa1111'}, wait=5, poll=0.2) is None and time.time() - t0 < 3   # D3: let go already: no second hold
+    assert handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}}) is None                                   # D3: and its report passes, not put off again
+    left_rows = [x for x in (room / 'events.jsonl').read_text(encoding='utf-8').splitlines() if '"left' in x]
+    assert len(left_rows) == 1 and '"flow"' in left_rows[0], left_rows   # D4: one exit, one event, not a fault
+    (room / 'letgo_A.json').unlink()
     assert all(handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}}) for _ in range(HANDBACK_MAX))
     assert handback({'agent_id': 'aaaa1111', 'tool_input': {'result': 'END: completed; files: -; gaps: -'}}) is None                             # the third report goes through
     (room / 'research').mkdir()
     (room / 'research' / 'gpu.hold').write_text(json.dumps({'by': 'A', 'reason': 'bench', 'until': time.time() + 600}))
     (room / 'empty_A.txt').write_text('0')
     (room / 'gone.json').unlink(missing_ok=True)
+    (room / 'letgo_A.json').unlink(missing_ok=True)
     assert waits(r, 'A') == 'hold'
     for _ in range(EMPTY_MAX + 2):                                                # it holds the device: never asked to report, never gone
         got = decide({'agent_id': 'aaaa1111'}, wait=1, poll=0.2)

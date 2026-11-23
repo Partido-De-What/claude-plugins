@@ -141,6 +141,8 @@ majority (DECIDE: more rounds cost tokens and rarely move it). Act on the ones t
 A silent agent (over twice the heartbeat, not idle): ping it to read and post a status. An idle agent waits on purpose:
 wake it only by tagging it. One that waits for nobody, next to a free task, is given the task by the relay after two minutes
 (`task assign`: it accepts or declines, and you are told in the digest); `config idlefree=off` keeps the tasks in your hands.
+An idle agent nobody needs goes after three empty turns (about 30 minutes). For a demo, `config demo=on` keeps the idle
+agents at their desks as long as someone has the viewer open.
 
 ## 6. The user
 

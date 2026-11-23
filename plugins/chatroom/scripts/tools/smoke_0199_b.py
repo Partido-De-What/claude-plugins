@@ -126,7 +126,7 @@ ok('B5: a transcript that goes on after the end is working again', turn()['A'] =
 transcript(AID, asst('tool_use', {'type': 'tool_use', 'name': 'SubagentHandback', 'input': {}}))          # A handed its report back
 ok('B5: the hand-back of the report is stopped too', turn()['A'] == 'stopped', turn())
 (room / 'waiting_A.txt').write_text(f'{time.time() + 60:.0f} {os.getpid()}')                                # held by the hook: waiting wins
-ok('B5: an agent held in a wait is waiting, not stopped', turn()['A'] == 'waiting', turn())
+ok('B5: an agent held by the hook after its run ended is held, not stopped', turn()['A'] == 'held', turn())   # S3: a hold is held, not waiting
 
 # ---- B6: the lead's inbox does not hand over again what it was already given or read
 room = mkroom('r6')

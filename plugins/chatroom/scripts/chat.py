@@ -172,8 +172,9 @@ sys.stderr.reconfigure(encoding='utf-8')            # sys.exit messages go to st
 PALETTE = ['#1fa855', '#027eb5', '#d9730d', '#8e44ad', '#c0392b', '#16a085', '#b7950b', '#6c5ce7', '#e84393', '#0984e3']
 LOOK_KEYS = {'title': str, 'subtitle': str, 'icon': str, 'accent': str, 'theme': str, 'wallpaper': str, 'lang': str,
              'heartbeat': int, 'lead_pace': int, 'lead_pace_runs': int, 'topic_profile': str, 'lead_pace_start': int, 'lead_warmup': int, 'user_name': str, 'topic': str, 'budget_calls': int, 'closing_gate': int, 'compress': int, 'guard': str,
-             'cache_ttl': str, 'thumbs': int, 'vision': int, 'idlefree': str}
-CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h'), 'idlefree': ('on', 'off')}
+             'cache_ttl': str, 'thumbs': int, 'vision': int, 'idlefree': str, 'demo': str}
+CHOICES = {'theme': ('auto', 'light', 'dark'), 'wallpaper': ('dots', 'plain', 'grid'), 'lang': ('en', 'it'), 'guard': ('on', 'off'), 'cache_ttl': ('5m', '1h'), 'idlefree': ('on', 'off'),
+           'demo': ('on', 'off')}
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
 IMAGE_TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
                '.gif': 'image/gif'}
@@ -183,6 +184,7 @@ STATUS_KINDS = ('status', 'stato', 'board', 'finding')   # 'stato': older rooms'
 STATE_KEYS = {'task': str, 'step': str, 'pct': int, 'files': list, 'blocked_by': str, 'next': str, 'needs': str,
               'done': str, 'evidence': list, 'risks': str, 'free_min': int, 'waits_on': str, 'runs_pct': int}
 IDLE = 'idle'
+AUTO = 'auto'             # D5: a line the viewer writes by itself under the user's name (a skill search): it wakes only whom it tags
 SETUP_KINDS = ('choice', 'mode')   # the mode card of init --ask-mode and the choice made on it: for the lead only
 PERCENT = re.compile(r'\d[^\S\n]?%')
 # a plan, a vote or a closing concerns everyone: it wakes idle participants like a tag to all
@@ -1273,6 +1275,7 @@ class Room:
             return forced == '1h'
         if not name:
             return False
+        name = name.partition('~')[0]                 # a rotated agent (X~2) keeps the type of its role
         seen = read_json(self.dir / 'agent_types.json', {}).get(name)
         if seen is None:                              # B1: the desktop app records no spawn: a participant spawned by the start skill is a room agent
             return name in self.config().get('participants', [])
@@ -1375,7 +1378,7 @@ class Room:
             n = len(items) + 1
             entry = {'n': n, 'time': time.strftime('%H:%M:%S'), 'ts': time.time(), 'from': name, 'text': text.replace('{n}', str(n))}
             if status:
-                entry['kind'] = IDLE if status == IDLE else status if status in ('board', 'finding', 'card', *SETUP_KINDS) else 'status'
+                entry['kind'] = IDLE if status == IDLE else status if status in ('board', 'finding', 'card', AUTO, *SETUP_KINDS) else 'status'
             if state:
                 entry['state'] = state
             if images:
@@ -1452,6 +1455,8 @@ class Room:
         if m.get('kind') in (*SETUP_KINDS, 'card'):      # the mode card, the choice and the cards (cards.py): the user's and the lead's, nobody else's
             return name in users
         text = m.get('text', '')
+        if m.get('kind') == AUTO:                       # D5: not the user writing: only the agents it tags
+            return bool(tags(text, name))
         if m.get('from') in users and not m.get('kind') and (closing_call(text) or closing(text)[0]):
             return True                                 # a closing concerns everyone, whoever else it tags
         if not m.get('kind') and decision_for_all(text):
@@ -1475,8 +1480,8 @@ class Room:
         for m in items:
             kind = m.get('kind')
             tag = (' [IDLE]' if kind == IDLE else ' [BOARD]' if kind == 'board' else ' [FINDING]' if kind == 'finding'
-                   else say('chat.word.room_setup') if kind in SETUP_KINDS else ' [STATUS]' if kind in STATUS_KINDS else '')
-            if kind in SETUP_KINDS or kind == 'board' or (reader and m['from'] == reader):
+                   else say('chat.word.room_setup') if kind in SETUP_KINDS else ' [STATUS]' if kind in STATUS_KINDS else ' [AUTO]' if kind == AUTO else '')
+            if kind in SETUP_KINDS or kind in ('board', AUTO) or (reader and m['from'] == reader):
                 pass                          # no banner: it asks nothing of the agents (a board line), or it is the reader's own (2)
             elif m['from'] in leads:  # the lead is not the user: own banner, same priority
                 print(say('chat.say.show.message_from_the_lead'))
@@ -1904,6 +1909,11 @@ def cmd_post(room, a, text=None):
     if text is None:
         text = post_text(a, room)
     a._text = text                                    # the attempt a refusal records (idea 7)
+    word = text.strip()
+    if (re.fullmatch(r'/[\w-]+', word) and not (a.status or a.idle or a.finding or a.reply) and a.name in room.user_names()
+            and find_command(word, room.config().get('lang', 'en'), modes=True)):
+        a.pairs = [word]                              # E2: a quick command posted as text went in as plain words, the mode stayed "choose" and nothing said so
+        return cmd_command(room, a)
     aid = room.roster().get(a.name or '')
     if aid:                                           # idea 3: a message ends a run of reads
         (room.dir / f'reads_{aid}.txt').unlink(missing_ok=True)
@@ -3340,6 +3350,15 @@ def cmd_spawn(room, a):
         if arm:
             arm.join()
         return
+    if a.pairs[:1] == ['refresh']:                    # D8: spawn refresh: the catalog from the terminal, one line per provider as it goes
+        from spawn.catalog import catalog
+        t0 = time.time()
+        cat = catalog.update(room.dir, force=True, progress=lambda line: print(line, flush=True))
+        print(say('spawn.refresh.done', n=len(cat['models']), s=f'{time.time() - t0:.0f}'))
+        fresh = catalog.paid_new(cat)
+        if fresh:                                     # D9: out today, only paid: said, never offered as a route
+            print(say('spawn.refresh.paid_new', n=len(fresh), names=', '.join(f"{m['name']} ({m['adapter']})" for m in fresh[:12])))
+        return
     if a.pairs[:1] == ['ping']:                       # spawn ping [canonical...] [--top N]: who answers now, with its tools, before a round
         from spawn.catalog import catalog
         if catalog.stale():                           # a catalog a day old offered routes that were gone: brought up to date first
@@ -4756,6 +4775,8 @@ def cmd_prompt(room, a):
     if len(a.pairs) != 1:
         sys.exit(say('chat.err.cmd_prompt.prompt_give_one_participant'))
     template, tools = a.template or 'agent_prompt.md', getattr(a, 'tools', None) or 'both'
+    if getattr(a, 'stub', False) and not a.out:       # D6: --stub alone printed the whole prompt; the file goes where the start skill puts it
+        a.out = str(room.dir / 'prompts' / f'{a.pairs[0]}.md')
     text = fill_prompt(room, a.pairs[0], template, tools)
     if a.out:                                         # `rotate` writes the fresh prompt the same way (B7: it used `both`, 23k instead of 14k)
         how = room.dir / 'prompts' / f'{a.pairs[0]}.how.json'
@@ -4795,6 +4816,21 @@ def cmd_remove(room, a):
     print(say('chat.say.cmd_remove.room_left_participants_now', dir=room.dir, names=', '.join(names), v3=', '.join(config['participants']) or say('chat.word.none')))
 
 
+def help_for(parser, cmd):
+    """the help of one command: its lines of the usage above, then the options whose help names it"""
+    out, on = [], False
+    for line in (__doc__ or '').splitlines():
+        if re.match(rf'  chat\.py {re.escape(cmd)}(?:\b|\|)', line):
+            on = True
+        elif on and not line.startswith('      '):
+            on = False
+        if on:
+            out.append(line)
+    opts = [f"  {', '.join(x.option_strings):<22} {x.help}" for x in parser._actions
+            if x.option_strings and x.help and any(re.match(rf'{re.escape(cmd)}(?![\w-])', s.strip()) for s in re.split(r'[,/]', str(x.help).split(':')[0]))]   # 'research init' is not init
+    return '\n'.join([*(out or [f'  chat.py {cmd}']), *(['', 'options:', *opts] if opts else []), '', 'every option of every command: chat.py --help'])
+
+
 def cmd_command(room, a):
     """chat.py command NAME [--as AUTHOR]: post a quick command (default author: the user)"""
     if not a.pairs:
@@ -4819,6 +4855,8 @@ def alert_lines(room, items, users):
             continue                          # only the user's messages: the lead pings its own; the room's setup is the lead's
         text = m.get('text', '')
         named = [k for k in roster if tags(text, k)]
+        if m.get('kind') == AUTO and not named:
+            continue                          # D5: a line of the viewer itself pings only whom it tags
         if named and not tags_everyone(text):
             targets = named
         else:
@@ -4903,7 +4941,11 @@ REDELIVER_MAX = 2
 
 def relay_handover(room, lead, upto, lines):
     """the relay has put its lines in front of the lead: only now they count as delivered (they were marked when queued, and a
-    relay that died with them queued lost them), and the lead has REDELIVER_MIN minutes to show a command"""
+    relay that died with them queued lost them), and the lead has REDELIVER_MIN minutes to show a command. Lines its hook
+    or its monitor already showed it (delivered before the hand-over) are in its context: never handed again (D7)"""
+    if room.delivered(lead) >= upto:
+        (room.dir / f'relay_sent_{lead}.json').unlink(missing_ok=True)
+        return note_event(room, 'relay', 'wake', lead, detail=f'upto #{upto}, {len(lines)} lines, already shown')
     write_atomic(room.dir / f'relay_sent_{lead}.json', json.dumps({'upto': upto, 'first': time.time(), 'ts': time.time(), 'tries': 0,
                                                                   'lines': lines}, ensure_ascii=False))
     from inbox import mark_delivered
@@ -6863,6 +6905,8 @@ def _main():
     p.add_argument('--port', type=int, default=8765)
     p.add_argument('--repo', default='', help='serve: the project folder the GitHub window on the office wall reads (gh and git run there); or "repo" in the room config')
     p.add_argument('--host', default='127.0.0.1')
+    if len(argv) > 1 and not argv[0].startswith('-') and ('--help' in argv or '-h' in argv):
+        return print(help_for(p, argv[0]))  # E4: `init --help` printed every option of every command
     a = p.parse_intermixed_args()        # roster and config pairs may come after the options
     if a.command == 'rooms':
         return cmd_rooms(None, a)
@@ -6878,6 +6922,9 @@ def _main():
         sys.exit(doctor.main(a.room, source=a.compare))
     if a.command == 'mcp' and not a.room:                # one server for every room: each call names its room
         return cmd_mcp(None, a)
+    if a.command == 'lessons' and not a.room and [x.lower() for x in a.pairs[:2]] == ['topic', 'list']:
+        import lessons                                   # E3: the topics are the user's, not a room's
+        return lessons.topic_command(None, a, ['list'])
     if not a.room:
         sys.exit(say('chat.err.main.no_room_pass_room'))
     room = Room(a.room)

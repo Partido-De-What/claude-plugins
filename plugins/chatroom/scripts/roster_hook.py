@@ -40,17 +40,31 @@ def main():
         return
     d = Path(room)
     roster = d / 'roster.json'
+    kind = str(ev.get('agent_type') or '')[:60]                 # B1: the desktop app sends no spawn event: the type comes with the call, when the hook has it
     if roster.is_file() and aid in roster.read_text(encoding='utf-8'):
+        if kind:                                                # D2: written by the lead (`roster`) before its first call: its type still counts
+            note_type(d, aid, kind)
         return                                                  # cheap first: most calls come from an agent already written
     if name not in json.loads((d / 'config.json').read_text(encoding='utf-8')).get('participants', []):
         return
     import chat
     chat.Room(d).update_roster(lambda ro: ro.setdefault(name, aid))
-    kind = str(ev.get('agent_type') or '')[:60]                 # B1: the desktop app sends no spawn event: the type comes with the call, when the hook has it
     if kind:
-        types = chat.read_json(d / 'agent_types.json', {})
-        if types.get(name) != kind:
-            chat.write_atomic(d / 'agent_types.json', json.dumps({**types, name: kind}))
+        note_type(d, aid, kind)
+
+
+def note_type(d, aid, kind):
+    """agent_types.json: the type of the roster name of this agent id (its cache life and its waits come with it). Written
+    only when it changes: chat is imported only then"""
+    try:
+        types = json.loads((d / 'agent_types.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        types = {}
+    name = next((k for k, v in json.loads((d / 'roster.json').read_text(encoding='utf-8')).items() if v == aid), None)
+    if not name or types.get(name) == kind:
+        return
+    import chat
+    chat.write_atomic(d / 'agent_types.json', json.dumps({**types, name: kind}))
 
 
 if __name__ == '__main__':

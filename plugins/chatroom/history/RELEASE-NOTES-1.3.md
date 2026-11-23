@@ -28,6 +28,25 @@ I read how four other teams build the layer around their agents: DeepSeek Harnes
 
 With the office open, the chat sits in a column of about 600 pixels, and it was laid out as on a wide screen: the toolbar wrapped one button per line and the messages were left 26 pixels. The chat now takes the compact layout whenever its own column is narrow. The Skill, Spawn and Previews screens say that Esc goes back to the chat.
 
+## 1.3.2
+
+Fixes from a demo room run in the desktop app.
+
+- **The report after the exit.** When the room let an idle agent go, it asked for the report and then put it off again,
+  so four agents of four went without one. Once the exit is decided, the report goes through, and the agent is not held
+  another nine minutes first.
+- **One exit, one event.** The exit was written twice per agent, and counted as a fault. An idle agent nobody needed
+  is now one plain event, outside the lessons.
+- **The agent type in the desktop app.** An agent the lead wrote in the roster before its first call never got its
+  type recorded. It does now, and a rotated agent keeps the hour of cache of its role.
+- **Demo rooms.** `config demo=on` keeps idle agents at their desks while someone has the viewer open.
+- **Automatic lines wake nobody.** The line the skill panel writes for a search went out under the user's name and
+  woke every agent. It now wakes only the agent it tags.
+- **`prompt --stub` alone** writes the prompt to `ROOM/prompts/NAME.md` and prints the three lines, never the whole prompt.
+- **No second delivery.** Lines the lead's hook had already shown it are no longer handed again by the relay.
+- **`spawn refresh`** updates the catalog from the terminal with one line per provider, and lists the models that
+  came out paid only and are not free anywhere yet.
+
 ## What I did not do
 
 - The gate runs only on the timed wakes of the relay; messages that need the lead still wake it at once.
