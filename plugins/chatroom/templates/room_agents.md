@@ -30,7 +30,8 @@ those when you have them: shorter answers).
   run holds the evaluator, `research queue --desc "..."` starts yours when it is free; in phase 5 `research report`
   saves the report (text, a file or stdin).
 - Heavy work (a test suite, a build, a profile): `chat.py heavy -- <command>`, which waits while another room's heavy
-  work runs, so two rooms on one machine do not spoil each other's measures.
+  work runs, so two rooms on one machine do not spoil each other's measures. The jobs wait in one queue, in order;
+  `--key NAME` skips a job that already ended well under that key, and the exit code is the command's own.
 - Your notes that survive a compacted context: `notebook "text" --as NAME`, read with `notebook --as NAME`.
 
 CHAT is the plugin's scripts/chat.py; ROOM is this folder.

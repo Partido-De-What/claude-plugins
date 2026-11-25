@@ -45,7 +45,9 @@ and one reviewer: propose that. A team of 3 is the default, 5 at most; every age
    loop of `wait_agent` ~60 s + `alerts --messages`. Without the relay nobody delivers the user's messages.
    In Claude Code run it as a background shell command with `--until-line` (no `--batch`: the room's pace, 3 minutes at the start and 15 after 20 minutes, `config lead_pace=...`; in phase 2 of a research room every 20 minutes (`lead_pace_runs`); the user, a closing, a crash, URGENT and a tag to you that declares a block never wait; each wake ends with a WAKE line to answer from; `--heartbeat N` adds a wake every N seconds on a quiet room) / `--until-tag`: no 30-minute cap;
    the relay exits only for what needs you, and you start it again after handling the lines. A post of yours says when the
-   relay is down and prints the exact command. `--stream` under Monitor is only a fallback: Monitor ends every 30 minutes.
+   relay is down and prints the exact command. If restarting it at every wake costs you (a long night, many wakes), run
+   `alerts --follow --messages --stream` under Monitor instead: it never returns, each block is one notification,
+   and only the Monitor's own end every 30 minutes asks for a restart (the tool tells you).
    `status` shows `waiting_lead` (only real questions), each agent's `turn` (working, waiting, held = its run ended and the hold keeps it, stopped = its run ended with no hold, closed = it left and has done nothing since), `read_by` for your
    last messages and, during a closing, who voted, who is missing and who is gone. In a post, `{ora}` or `{time}` becomes
    the hour: never write it from memory; `deadline 03:15` puts the cut-off at the top of every read.
@@ -141,6 +143,9 @@ majority (DECIDE: more rounds cost tokens and rarely move it). Act on the ones t
 A silent agent (over twice the heartbeat, not idle): ping it to read and post a status. An idle agent waits on purpose:
 wake it only by tagging it. One that waits for nobody, next to a free task, is given the task by the relay after two minutes
 (`task assign`: it accepts or declines, and you are told in the digest); `config idlefree=off` keeps the tasks in your hands.
+Heavy jobs (`chat.py heavy -- <command>`) wait in one queue for the whole machine: `heavy list` shows what runs, who waits
+and the last exits; `heavy pause|resume ID` and `heavy move ID N` change the order. A heavy job of your room that fails
+comes to you as a CHECK, and the WAKE line says what the machine is running.
 An idle agent nobody needs goes after three empty turns (about 30 minutes). For a demo, `config demo=on` keeps the idle
 agents at their desks as long as someone has the viewer open.
 

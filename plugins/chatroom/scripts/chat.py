@@ -691,7 +691,20 @@ def wake_summary(room):
     count = lambda s: sum(t['state'] == s for t in b['tasks'])
     return say('chat.say.cmd_alerts.wake_summary', open=count('open'), taken=count('taken'), done=count('done'),
                waits=', '.join(waits) or '-', idle=', '.join(idle) or '-', working=len(people) - len(idle) - len(away))         + (say('chat.say.cmd_alerts.wake_away', names=', '.join(away)) if away else '') \
-        + (' ' + say('chat.say.cmd_alerts.paused_since', since=time.strftime('%H:%M', time.localtime(float(pause_info(room).get('ts', 0))))) if is_paused(room) else '')
+        + (' ' + say('chat.say.cmd_alerts.paused_since', since=time.strftime('%H:%M', time.localtime(float(pause_info(room).get('ts', 0))))) if is_paused(room) else '') \
+        + heavy_line()
+
+
+def heavy_line():
+    """the machine in a few words for the wake: what runs and how many wait; '' when it is free and nobody waits"""
+    try:
+        import machine
+        h, q = machine.holder(), machine.queue()
+    except (OSError, ValueError):
+        return ''
+    if not h and not q:
+        return ''
+    return ' ' + say('chat.say.cmd_alerts.wake_heavy', label=(h['label'][:60] if h else '-'), minutes=int((time.time() - h['since']) // 60) if h else 0, n=len(q))
 
 
 def relay_down(room):
@@ -1475,7 +1488,8 @@ class Room:
         users = self.user_names()
         leads = set(self.config().get('self_names', []))
         import compress                       # Headroom at the source: the long messages of agents come compressed, the user's never
-        big = [m for m in items if m['from'] not in users and len(m.get('text') or '') >= compress.CHARS]
+        big = [m for m in items if m['from'] not in users and len(m.get('text') or '') >= compress.CHARS
+               and not (reader and tags(m.get('text', ''), reader))]   # P4: what tags the reader comes whole, no expand needed
         short = dict(zip((m['n'] for m in big), compress.texts(self, [m['text'] for m in big]))) if big else {}
         for m in items:
             kind = m.get('kind')
@@ -3811,6 +3825,11 @@ def failures(room, now=None):
     for e in procs.running():                         # the user's viewer of this room that nobody has looked at for hours: said once
         if e['kind'] == 'serve' and e.get('purpose') == 'utente' and e['room'] and Path(e['room']).resolve() == room.dir.resolve()                 and not e.get('clients') and now - float(e.get('last_hit') or now) > 3 * 3600:
             out.append((f"procs:{e['pid']}", say('procs.check', port=e['port'], pid=e['pid'], hours=int((now - float(e['last_hit'])) // 3600))))
+    import machine                                    # a heavy job of this room that failed: the lead hears it (it may have been run in the background)
+    here = str(room.dir.resolve())
+    for e in machine.outcomes()[-50:]:
+        if e.get('code') and e.get('room') == here and now - float(e.get('end', 0)) < 6 * 3600:
+            out.append((f"heavy:{e.get('end')}", say('chat.check.heavy_failed', who=e.get('who') or '?', code=e['code'], label=str(e.get('label'))[:100])))
     out += learn_checks(room)                         # a cause that keeps firing: the lesson to propose, now
     return out
 
@@ -4953,14 +4972,31 @@ def relay_handover(room, lead, upto, lines):
     note_event(room, 'relay', 'wake', lead, detail=f'upto #{upto}, {len(lines)} lines')
 
 
+def lead_saw(room, lead, lines, tail=524288):
+    """one of these relay lines is in the lead's own transcript (the relay's output read with Read, a notification): it has them"""
+    import cost
+    sid = next((s for s, n in read_json(room.dir / 'sessions.json', {}).items() if n == lead), None)
+    p = cost.transcript_of(session_id=sid) if sid else None
+    if not p:
+        return False
+    try:
+        with open(p, 'rb') as f:
+            f.seek(max(0, f.seek(0, 2) - tail))
+            text = f.read().decode('utf-8', 'replace')
+    except OSError:
+        return False
+    frags = [json.dumps(' '.join(x.split())[:48])[1:-1] for x in lines if len(x) >= 16]
+    return any(fr in text for fr in frags)
+
+
 def relay_redeliver(room, lead):
     """the text to print again when the lead has shown no command since the hand-over; '' when there is nothing to say"""
     path = room.dir / f'relay_sent_{lead}.json'
     rec = read_json(path, None)
     if not isinstance(rec, dict) or time.time() - float(rec.get('ts', 0)) < REDELIVER_MIN * 60:
         return ''
-    if int(rec.get('tries', 0)) >= REDELIVER_MAX:
-        path.unlink(missing_ok=True)
+    if int(rec.get('tries', 0)) >= REDELIVER_MAX or lead_saw(room, lead, rec.get('lines', [])):
+        path.unlink(missing_ok=True)                  # room 37: the lead read the relay's output with Read, not a chat.py command: 12 lines came twice
         return ''
     rec['tries'], rec['ts'] = int(rec.get('tries', 0)) + 1, time.time()
     write_atomic(path, json.dumps(rec, ensure_ascii=False))
@@ -5514,15 +5550,68 @@ def cmd_heavy(room, a):
     """chat.py heavy -- <command>: run a command that loads the GPU or the CPU hard (a test suite, a build, a profile) when
     no other room's heavy work runs; it waits its turn on the machine's lock"""
     import subprocess
-    from machine import machine_lock
-    cmd = ' '.join(a.pairs).strip()
+    import machine
+    words = a.pairs
+    if '--' not in sys.argv[1:] and words[:1] and words[0] in ('list', 'pause', 'resume', 'move'):
+        return heavy_queue(words)                     # P3: the queue of the machine, for the lead
+    import shlex
+    quote = (lambda x: subprocess.list2cmdline([x])) if os.name == 'nt' else shlex.quote
+    cmd = ' '.join(quote(w) if re.search(r'\s', w) else w for w in words).strip()   # a word with spaces was quoted by the caller: it stays one word (&& and | stay operators)
     if not cmd:
         sys.exit(say('chat.err.cmd_heavy.usage'))
+    key = getattr(a, 'key', None)
+    done = machine.done_before(key)
+    if done:                                          # P3: a job that already ended well with this key is not run again
+        return print(say('chat.say.cmd_heavy.done_before', key=key, at=time.strftime('%d/%m %H:%M', time.localtime(done.get('end', 0)))))
     import procs
     procs.add('heavy', TOP_PID, room.dir.resolve() if room else '', label=cmd, starter=STARTER)
-    with machine_lock(f'{a.name or "?"}: {cmd}', tell=lambda h: print(say('chat.say.cmd_heavy.waiting', label=h['label'],
-                                                                           minutes=int((time.time() - h['since']) // 60)), flush=True)):
-        sys.exit(subprocess.run(cmd, shell=True, env=user_env()).returncode)
+    where = str(room.dir.resolve()) if room else ''
+    with machine.machine_lock(f'{a.name or "?"}: {cmd}', room=where, who=a.name or '',
+                              tell=lambda h: print(say('chat.say.cmd_heavy.waiting', label=h['label'], minutes=int((time.time() - h['since']) // 60),
+                                                       ahead=len(machine.queue()) - 1), flush=True)):
+        t0 = time.time()
+        code = subprocess.run(cmd, shell=True, env=user_env()).returncode
+    machine.note_outcome({'label': cmd[:200], 'room': where, 'who': a.name or '', 'key': key or '', 'code': code,
+                          's': round(time.time() - t0), 'end': time.time()})
+    if code:
+        print(say('chat.say.cmd_heavy.failed', code=code), flush=True)
+    sys.exit(code)
+
+
+def heavy_queue(words):
+    """chat.py heavy list | pause ID | resume ID | move ID N: who holds the machine, who waits in what order, the last outcomes"""
+    import machine
+    act, rest = words[0], words[1:]
+    if act == 'list':
+        h = machine.holder()
+        print(say('chat.say.heavy_q.holder', label=h['label'], minutes=int((time.time() - h['since']) // 60)) if h else say('chat.say.heavy_q.free'))
+        for i, e in enumerate(machine.queue(), 1):
+            print(f"  {i}. [{e['id']}] {e['label'][:100]}" + (say('chat.say.heavy_q.paused') if e.get('paused') else '')
+                  + f" ({int((time.time() - e['at']) // 60)} min)")
+        for e in machine.outcomes()[-5:]:
+            print(f"  {time.strftime('%H:%M', time.localtime(e.get('end', 0)))} exit {e.get('code')} {e.get('s', 0)} s  {str(e.get('label'))[:90]}")
+        return
+    if not rest:
+        sys.exit(say('chat.err.cmd_heavy.usage'))
+
+    def change(q):
+        e = next((x for x in q if x['id'] == rest[0]), None)
+        if not e:
+            return False
+        if act in ('pause', 'resume'):
+            e['paused'] = act == 'pause'
+        else:
+            try:
+                to = max(1, min(len(q), int(rest[1])))
+            except (IndexError, ValueError):
+                return None
+            q.remove(e)
+            q.insert(to - 1, e)
+        return True
+    got = machine.edit_queue(change)
+    if got is None:
+        sys.exit(say('chat.err.cmd_heavy.usage'))
+    print(say('chat.say.heavy_q.changed') if got else say('chat.say.heavy_q.no_such', id=rest[0]))
 
 
 def cmd_cost(room, a):
@@ -5657,7 +5746,7 @@ def close_steps(room, lead, run=False, out=print, reflect_on=False):
         try:
             r = subprocess.run([sys.executable, str(me), *args, '--room', str(room.dir)], capture_output=True, timeout=600,
                                env={**os.environ, 'CHATROOM_RELAUNCHED': '1', 'PYTHONIOENCODING': 'utf-8', 'CHATROOM_SPARE_PIDS': f'{os.getpid()},{TOP_PID}'})   # procs close must not end the relay that runs it
-            out(((r.stdout + r.stderr).decode('utf-8', 'replace').strip() or '-')[-6000:])
+            out((console_text(r.stdout + r.stderr).strip() or '-')[-6000:])
         except (OSError, subprocess.SubprocessError) as exc:
             out(say('chat.say.close_steps.failed', step=' '.join(step), exc=exc, line=line))
     reps = final_reports(room)                          # idea 2 (dsh: a result with its stop reason): what each agent said it left
@@ -5720,13 +5809,32 @@ def reflect(room, lead, out=print, runner=None):
     out(say('chat.say.reflect.done', n=len(found[:8])))
 
 
+def console_text(raw):
+    """bytes of a command: UTF-8, or the console's own code page for a tool that writes in it (accents broke in close-steps)"""
+    try:
+        return raw.decode('utf-8')
+    except UnicodeDecodeError:
+        return raw.decode(console_encoding(), 'replace')
+
+
+def console_encoding():
+    """the code page Windows tools write in (OEM, as taskkill or PowerShell do); elsewhere the locale's"""
+    if os.name == 'nt':
+        import ctypes
+        cp = ctypes.windll.kernel32.GetConsoleOutputCP() or ctypes.windll.kernel32.GetOEMCP()
+        return f'cp{cp}' if cp and cp != 65001 else 'cp1252'
+    import locale
+    return locale.getpreferredencoding(False) or 'latin-1'
+
+
 def final_reports(room):
     """{name: {end, files, gaps}} from ROOM/reports/NAME.json, written by the handback hook from each agent's END line"""
     out = {}
     for p in sorted((room.dir / 'reports').glob('*.json')) if (room.dir / 'reports').is_dir() else ():
         got = read_json(p, {})
-        if isinstance(got, dict):
-            out[p.stem] = got
+        role = p.stem.partition('~')[0]               # P5: a rotated agent (X~2) is its role: its last report, not the retired one's
+        if isinstance(got, dict) and float(got.get('at', 0)) >= float(out.get(role, {}).get('at', -1)):
+            out[role] = got
     return out
 
 
@@ -6895,7 +7003,7 @@ def _main():
     p.add_argument('--reply', type=int, help='post: answer message #N; its author is tagged and gets the ping')
     p.add_argument('--expect-version', dest='expect_version', type=int, help='task ...: the version of the task you read; refused if someone changed it since (the board shows v<N>)')
     p.add_argument('--compare', help='doctor: the plugin folder to compare with the installed one (default: this one)')
-    p.add_argument('--key', help='post: an idempotency key; a retry with the same key does not post a second copy')
+    p.add_argument('--key', help='post: an idempotency key; a retry with the same key does not post a second copy; heavy: a job with this key that ended well is not run again')
     p.add_argument('--upto', type=int, help='delivered: the session of --as has taken in the messages up to #N (the monitor and the hooks write it)')
     p.add_argument('--range', help='read: messages A-B in full (with --as your place moves on only if they are the next unread ones)')
     p.add_argument('--last', type=int, help='read: the last N messages in full (after a compaction, when a plain read says nothing is new)')
@@ -6920,6 +7028,8 @@ def _main():
     if a.command == 'doctor':                            # no room needed: it checks the installation
         import doctor
         sys.exit(doctor.main(a.room, source=a.compare))
+    if a.command == 'heavy' and not a.room:              # the machine is one for every room: its queue needs no room
+        return cmd_heavy(None, a)
     if a.command == 'mcp' and not a.room:                # one server for every room: each call names its room
         return cmd_mcp(None, a)
     if a.command == 'lessons' and not a.room and [x.lower() for x in a.pairs[:2]] == ['topic', 'list']:

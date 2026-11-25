@@ -204,7 +204,7 @@ def left(room, name, why=''):
                      'tasks': [t['id'] for t in chat.Board(room).load()['tasks'] if t.get('owner') == name and t['state'] == 'taken'],
                      'procs': running_procs(room, name)}
         chat.write_atomic(room.dir / 'gone.json', json.dumps(got))
-        chat.write_atomic(room.dir / f'letgo_{name}.json', json.dumps({'n': got[name]['n'], 'aid': got[name]['aid']}))   # gone.json goes at its next command: this stays for its report turn
+        chat.write_atomic(room.dir / f'letgo_{name}.json', json.dumps({'n': got[name]['n'], 'aid': got[name]['aid'], 'cur': room.cursor(name)}))   # gone.json goes at its next command: this stays for its report turn
         chat.release_all(room, name)                     # idea 4: what it held goes back to the others
         if got[name]['tasks'] or got[name]['procs'] or why not in ('', 'idle'):   # B3: nothing in hand, or only waiting: its job is done, no event, no lesson
             chat.note_event(room, 'hold', 'left', name, ','.join(got[name]['tasks']), why or 'nothing in hand')
@@ -222,7 +222,8 @@ def gone_now(room, name):
     """the hold already let this agent go and it has written nothing since (same agent id): its report turn, not a new stretch"""
     import chat
     e = chat.read_json(room.dir / f'letgo_{name}.json', None)
-    return isinstance(e, dict) and e.get('n') == last_n(room, name) and e.get('aid') == room.roster().get(name)
+    return (isinstance(e, dict) and e.get('n') == last_n(room, name) and e.get('aid') == room.roster().get(name)
+            and e.get('cur', room.cursor(name)) == room.cursor(name))     # it read the room since: a new stretch of work
 
 
 def demo_kept(room):
@@ -339,6 +340,8 @@ def decide(ev, wait=HOLD_WAIT, poll=POLL):
         return None
     import chat
     room = chat.Room(key)
+    if room.cursor(name) == 0 and not last_n(room, name):   # P1: its brief has not come yet (it comes by SendMessage): holding it here kept that message out for 9 minutes
+        return None
     end = time.time() + wait
     mark = room.dir / f'waiting_{name}.txt'           # held like a wait: no ping for it while this process lives (print_alert)
     try:

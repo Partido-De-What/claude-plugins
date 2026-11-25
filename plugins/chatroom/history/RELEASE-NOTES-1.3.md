@@ -47,6 +47,36 @@ Fixes from a demo room run in the desktop app.
 - **`spawn refresh`** updates the catalog from the terminal with one line per provider, and lists the models that
   came out paid only and are not free anywhere yet.
 
+## 1.3.2, also
+
+- **The mode chosen in the conversation.** The init skill says how to make the user's choice when they answer in the
+  conversation, and a post by the user that is only a quick command (`/normale`) runs it instead of leaving it as text.
+- **Topics without a room.** `lessons topic list` works without `--room`.
+- **Help for one command.** `chat.py init --help` shows init and its options, not every option of every command.
+
+## 1.3.3
+
+Fixes from a night research room that ran heavy GPU jobs for hours.
+
+- **Two heavy jobs at once, never again.** The machine lock was a file created empty and written a moment later: a waiter
+  that read it in between took it for free, and two jobs ran together twice. The lock is now the operating system's own,
+  released when its process dies.
+- **A real queue for heavy jobs.** Jobs wait in one queue, first come first served. `heavy list` shows what runs, who
+  waits and the last exits; `heavy pause`, `resume` and `move` change the order; `--key` skips a job that already ended
+  well. A heavy job of the room that fails comes to the lead as a CHECK, and the WAKE line says what the machine runs.
+  A word with spaces in the command stays one word.
+- **The start of an agent.** An agent that ends its first turn before its brief (a style to load, a confirmation) is
+  let go at once: the stop hook held it nine minutes, and the brief sent to it waited all that time.
+- **Whole messages for who is tagged.** A long message that tags the reader comes whole in `read`, and the hook line
+  to the lead keeps up to 4000 characters, so no `expand` is needed for what concerns you.
+- **The closing of a rotated agent** lists the report of its live identity, and the output of the closing steps keeps
+  its accents on a Windows console.
+- **No double wake.** Lines the lead already read from the relay's output (with Read, not a chat.py command) are no
+  longer handed to it again.
+- **A tag for an agent that ended** prints the SendMessage to send, ready to copy.
+- **The relay that stays alive** (`--stream` under Monitor) is explained as the choice for a long night, against the
+  relay that is restarted at every wake.
+
 ## What I did not do
 
 - The gate runs only on the timed wakes of the relay; messages that need the lead still wake it at once.

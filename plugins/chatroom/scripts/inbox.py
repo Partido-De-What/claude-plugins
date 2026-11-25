@@ -24,7 +24,7 @@ POLL = 2                      # seconds between looks at the chat file
 ROOMS_EVERY = 5               # seconds between looks at rooms.json while no room is found
 SHOWN = 5                     # lines printed at most for one batch: the older ones are one line of count
 MAX_TEXT = 160
-LEAD_TEXT = 800          # a message to the lead, or from the user, reaches the lead whole up to this
+LEAD_TEXT = 4000          # a message to the lead, or from the user, reaches the lead whole up to this
 
 
 SHELLS = {'python', 'python3', 'pythonw', 'py', 'uv', 'bash', 'sh', 'zsh', 'dash', 'fish', 'cmd', 'conhost', 'env', 'timeout'}
