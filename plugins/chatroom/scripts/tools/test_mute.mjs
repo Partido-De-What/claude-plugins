@@ -18,9 +18,9 @@ test('a new page: soundOn() is false (chime and games stay quiet)', tv.soundOn()
 tv = await page('{broken');
 test('a broken saved mix: still silent', SOURCES.some(k => tv.mixLevel(k) !== 0) || tv.soundOn() ? 'sound' : '');
 tv = await page(JSON.stringify({master: 0.3, tv: 0.5, arcade: 0.5, radio: 1, lofi: 1, mute: {}}));
-test('levels saved with sound on keep their sound', tv.soundOn() && Math.abs(tv.mixLevel('tv') - 0.15) < 1e-9 ? '' : `${tv.mixLevel('tv')}`);
+test('levels saved with sound on: the page still opens silent (1.3.4)', !tv.soundOn() && SOURCES.every(k => tv.mixLevel(k) === 0) ? '' : `${tv.mixLevel('tv')}`);
 tv = await page(JSON.stringify({master: 0, mute: {master: true, tv: true, arcade: true, radio: true, lofi: true}}));
 test('the mute set by hand in the rooms stays silent', SOURCES.some(k => tv.mixLevel(k) !== 0) || tv.soundOn() ? 'sound' : '');
 tv = await page(JSON.stringify({master: 0.8, mute: {master: false, tv: true}}));
-test('unmuted from the mixer: the general level comes back, a muted source stays muted', tv.soundOn() && tv.mixLevel('tv') === 0 && tv.mixLevel('radio') === 0.8 ? '' : `${tv.mixLevel('tv')} ${tv.mixLevel('radio')}`);
+test('unmuted from the mixer last time: this page opens silent all the same', !tv.soundOn() && SOURCES.every(k => tv.mixLevel(k) === 0) ? '' : `${tv.mixLevel('tv')} ${tv.mixLevel('radio')}`);
 console.log(`\n${passed}/${total} passed`);

@@ -77,6 +77,14 @@ Fixes from a night research room that ran heavy GPU jobs for hours.
 - **The relay that stays alive** (`--stream` under Monitor) is explained as the choice for a long night, against the
   relay that is restarted at every wake.
 
+## 1.3.4
+
+- **The chat beside the office on a wide screen.** The chat's side margin centred a 980 pixel column on the whole
+  window: beside the office on a 1920 screen that was 488 pixels a side, and the buttons went one per line. The margin
+  now comes from the chat's own column. 1.3.1 had fixed only columns under 700 pixels, which is why it still broke at times.
+- **Silent by default.** Every page of the office opens with the sound off, also after you turned it on last time: your
+  levels stay, and the sound comes back from the mixer.
+
 ## What I did not do
 
 - The gate runs only on the timed wakes of the relay; messages that need the lead still wake it at once.

@@ -65,6 +65,7 @@ const MIX_KEY = 'chatroom.mix.v2';
 // 0.13: a page that never saved its levels starts silent (the general mute on): sound comes back only from the mixer; saved levels stay as they are
 const MIX = {master: 0.3, tv: 0.5, arcade: 0.5, radio: 1, lofi: 1, mute: {master: true}};
 try { Object.assign(MIX, JSON.parse(localStorage.getItem(MIX_KEY) || '{}')); } catch (e) {}
+MIX.mute = {...(MIX.mute || {}), master: true};   // 1.3.4: every page opens silent, whatever was saved; the levels stay, sound comes back from the mixer
 // silent whatever the mixer says while a reason holds: the chat-only view (the office stops its frames, the levels would stay where they were)
 // and the chat's 🔕, the one switch for every sound of the page
 const quiet = new Set();

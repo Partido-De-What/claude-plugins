@@ -100,11 +100,11 @@ const camera = {matrixWorld: {elements: Array.from({length: 16}, (_, i) => (i ==
   const fresh = await tvAt({}, 'fresh');
   test('volumes: a new page is silent (0.13, sound only from the mixer)', () => (['tv', 'arcade', 'radio', 'lofi'].every(k => fresh.mixLevel(k) === 0) && !fresh.soundOn() ? '' : `tv ${fresh.mixLevel('tv')} radio ${fresh.mixLevel('radio')}`));
   const on = await tvAt({'chatroom.mix.v2': '{"mute":{}}'}, 'on');
-  test('volumes: switched on, the defaults are low (master 0.3, TV and arcade 0.5)', () => (near(on.mixLevel('tv'), 0.15) && near(on.mixLevel('arcade'), 0.15) && near(on.mixLevel('radio'), 0.3) ? '' : `tv ${on.mixLevel('tv')} arcade ${on.mixLevel('arcade')} radio ${on.mixLevel('radio')}`));
+  test('volumes: switched on last time, the page opens silent all the same (1.3.4)', () => (['tv', 'arcade', 'radio'].every(k => on.mixLevel(k) === 0) && !on.soundOn() ? '' : `tv ${on.mixLevel('tv')}`));
   const old = await tvAt({'chatroom.mix': '{"master":0.8,"tv":0.7,"mute":{}}'}, 'old');
   test('volumes: the levels saved under the old key are not read (a one-time reset, silent)', () => (old.mixLevel('tv') === 0 ? '' : `tv ${old.mixLevel('tv')}`));
   const v2 = await tvAt({'chatroom.mix.v2': '{"master":0.8,"mute":{}}'}, 'v2');
-  test('volumes: the levels saved under chatroom.mix.v2 are read', () => (near(v2.mixLevel('tv'), 0.4) ? '' : `tv ${v2.mixLevel('tv')}`));
+  test('volumes: levels saved under chatroom.mix.v2 do not make a page play by itself', () => (v2.mixLevel('tv') === 0 ? '' : `tv ${v2.mixLevel('tv')}`));
   const area = {x0: -14.8, z0: -4.3, x1: -8.7, z1: 0.8}, src0 = {x: -12, z: -0.5}, gain = d => fresh.hear(area, src0, {x: area.x1 + d, z: -0.5}, camera, 4)[0];
   test('volumes: with reach 4 the sound is 0.563 at 1 m outside its room and gone at 4 m', () => (near(gain(1), 0.5625) && gain(4) === 0 && fresh.hear(area, src0, {x: -12, z: -0.5}, camera, 4)[0] === 1 ? '' : `${gain(1)} ${gain(4)}`));
   test('volumes: the TV is heard with reach 4, like the radio and the lofi', () => (/hear\(area, at, me, camera, 4\)/.test(src('office-tv.js')) ? '' : 'the TV calls hear() without its reach'));

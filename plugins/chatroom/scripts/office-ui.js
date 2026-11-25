@@ -10,7 +10,7 @@ const CSS = `
   font: 13px/1.3 "Segoe UI", system-ui, sans-serif; color: #f4f1ea; display: none; }
 body.mode-split #office, body.mode-office #office { display: block; }
 body.mode-split #office { width: var(--office-w, 62vw); }
-body.mode-split { padding-left: var(--office-w, 62vw); }
+body.mode-split { padding-left: var(--office-w, 62vw); --gut: max(14px, calc((100vw - var(--office-w, 62vw) - 980px) / 2 + 18px)); }   /* the chat's side margin from its own column, not the window: on a 1920 screen it was 488 px a side */
 body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox):not(#spawnView):not(#skillsView) { display: none !important; }
 #office canvas { display: block; width: 100%; height: 100%; outline: none; }
 #office .o-tags { position: absolute; inset: 0; pointer-events: none; }
@@ -172,7 +172,7 @@ body.mode-office > :not(#office):not(#panel):not(#scrim):not(#lightbox):not(#spa
 @media (prefers-reduced-motion: reduce) { #office .o-bubble, #office .o-flag.o-wait, #office .o-inspector.o-open, #office .o-common.o-open { animation: none; } #office button { transition: none; } }
 /* a phone: the button bar takes two rows (87 px at 375 wide), the hint and the help panel stand above it, not on it */
 @media (max-width: 480px) { #office .o-hint { bottom: 100px; } #office div.o-help { bottom: 100px; } }
-@media (max-width: 900px) { body.mode-split { padding-left: 0; padding-top: 42vh; } body.mode-split #office { width: 100vw; height: 42vh; inset: 0 0 auto 0; } }
+@media (max-width: 900px) { body.mode-split { padding-left: 0; padding-top: 42vh; --gut: 14px; } body.mode-split #office { width: 100vw; height: 42vh; inset: 0 0 auto 0; } }
 `;
 
 // the texts are in locales/<lang>.json (office.*): the functions' fields in call order, and those that hold logic
