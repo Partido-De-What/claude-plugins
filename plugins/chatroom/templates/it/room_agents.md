@@ -1,5 +1,7 @@
 # Questa cartella è una stanza di chat (plugin chatroom)
 
+Un aiutante prestato a un amico (AIUTO1, AIUTO2...) che lavora in `common/`: questo file non è per te. Segui solo il tuo prompt, e non leggere né scrivere mai la chat di questa stanza.
+
 Più agenti (Claude Code e Codex allo stesso modo) parlano qui tramite `chat.py`, lo script del plugin. Se lavori in questa cartella come partecipante, usala; gli stessi comandi funzionano in entrambi gli strumenti, oppure gli stessi strumenti tramite `chat.py mcp`.
 
 - Leggi i nuovi messaggi: `python CHAT read --focus --as NAME --room ROOM` (per intero solo ciò che ti riguarda, il resto come una riga per autore con i numeri dei messaggi), `read --range A-B` per aprire quei messaggi, oppure senza `--focus` per tutto.

@@ -550,7 +550,7 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
           ? `<div class="o-req" data-id="${r.id}"><b>${esc(r.guest)}</b>: ${esc(r.text)}<div class="o-reqrow">
               <select data-m>${(s.codex ? CODEX_MODELS : ['sonnet', 'haiku', 'opus']).map(m => `<option>${m}</option>`).join('')}</select>
               <select data-e>${(s.codex ? ['medium', 'low', 'high', 'xhigh'] : ['medium', 'low', 'high', 'xhigh', 'max']).map(e => `<option>${e}</option>`).join('')}</select>
-              <select data-min><option value="30">30 min</option><option value="15">15 min</option><option value="60">60 min</option></select></div>
+              <select data-min><option value="30">30 min</option><option value="15">15 min</option><option value="60">60 min</option><option value="120">2 h</option><option value="180">3 h</option></select></div>
               <button data-s="lend" class="o-lend">🤝 ${esc(L.lend)}</button> <button data-s="decline">${esc(L.decline)}</button></div>`
           : `<div class="o-meta">${esc(r.guest)}: ${esc(r.text.slice(0, 60))} · ${esc(r.status === 'approved' ? L.lent(r.helper) : L.declined)}</div>`).join('');
         html += `<button data-s="stop" class="o-stop">${esc(L.shareStop)}</button>`;
@@ -570,7 +570,7 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
       html += `<div class="o-meta o-auto">⚡ ${esc(L.autoLend)} <button data-s="autotoggle" data-on="${au.on ? 0 : 1}">${esc(au.on ? L.autoOn : L.autoOff)}</button>
         <select data-am>${opt(s.codex ? CODEX_MODELS : ['sonnet', 'haiku', 'opus'], au.model)}</select>
         <select data-ae>${opt(s.codex ? ['medium', 'low', 'high', 'xhigh'] : ['medium', 'low', 'high', 'xhigh', 'max'], au.effort)}</select>
-        <select data-amin>${opt([15, 30, 60], au.minutes)}</select></div>`;
+        <select data-amin>${opt([15, 30, 60, 120, 180], au.minutes)}</select></div>`;
       if (box.dataset.html !== html) { box.innerHTML = html; box.dataset.html = html; }
       const js = cp.querySelector('.o-c-jstat'), jhtml = br && br.joined
         ? `${esc(L.joinedAt(br.host || '?'))} <button data-j="leave">${esc(L.leave)}</button>${br.error ? '<br>' + esc(br.error) : ''}` : '';
@@ -584,7 +584,7 @@ export function createUI(root, {onMode, onPov, onRun, onSound, onLook, onReset, 
           ? `<div class="o-req" data-id="${esc(a.id)}"><b>${esc(br.host || '?')}</b>: ${esc(a.text)}<div class="o-reqrow">
               <select data-m>${(s.codex ? CODEX_MODELS : ['sonnet', 'haiku', 'opus']).map(m => `<option>${m}</option>`).join('')}</select>
               <select data-e>${(s.codex ? ['medium', 'low', 'high', 'xhigh'] : ['medium', 'low', 'high', 'xhigh', 'max']).map(e => `<option>${e}</option>`).join('')}</select>
-              <select data-min><option value="30">30 min</option><option value="15">15 min</option><option value="60">60 min</option></select></div>
+              <select data-min><option value="30">30 min</option><option value="15">15 min</option><option value="60">60 min</option><option value="120">2 h</option><option value="180">3 h</option></select></div>
               <button data-s="lendin" class="o-lend">🤝 ${esc(L.lend)}</button> <button data-s="declinein">${esc(L.decline)}</button></div>`
           : `<div class="o-meta">${esc(br.host || '?')}: ${esc(a.text.slice(0, 60))} · ${esc(a.status === 'approved' ? L.lent(a.helper) : L.declined)}</div>`).join('') + (br.requests || []).map(r => `<div>${esc(r.text.slice(0, 70))} · ${esc(r.status === 'approved' ? L.lent(r.helper) : r.status === 'declined' ? L.declined : L.pending)}</div>`).join('');
         if (gs.dataset.html !== ghtml) { gs.innerHTML = ghtml; gs.dataset.html = ghtml; }

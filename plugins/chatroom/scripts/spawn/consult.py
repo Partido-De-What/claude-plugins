@@ -482,6 +482,12 @@ def claude_arm(prompt, out, model, runner=None, say=print):
         src.write_text(prompt, encoding='utf-8')
         cmd = [shutil.which('claude') or 'claude', '-p', '--model', model, '--output-format', 'json', '--allowedTools', 'WebSearch', 'WebFetch']
         if runner is None:
+            import doctor
+            problem = doctor.claude_login_problem(cmd[0])
+            if problem:
+                row.update(status='failed', tries=[{'kind': 'claude', 'detail': problem}])
+                say(problem)
+                return row
             flags = {'creationflags': 0x00000008 | 0x00000200} if sys.platform == 'win32' else {'start_new_session': True}   # DETACHED_PROCESS | NEW_PROCESS_GROUP
             with open(src, 'rb') as i, open(res, 'wb') as o, open(err, 'wb') as e:
                 proc = subprocess.Popen(cmd, stdin=i, stdout=o, stderr=e, **flags)

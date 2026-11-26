@@ -88,4 +88,6 @@ On a no, leave it: the edit stays in `<claude dir>/chatroom/user/recovered/` and
 2. Close with three lines: updated from X to Y; N changes of theirs kept (merged by the plugin or with them now); M still
    need a merge, by name, or none.
 3. Tell the user to restart Claude Code: the hooks, the agents and the skills of the new version start with the next
-   session.
+   session. Until then this session keeps the old ones (its skills even carry the old copy's path to chat.py, and the
+   new agent types are missing), so say plainly: do not open new rooms in this session, open them after the restart.
+   A room started from the old copy anyway gets a warning from `init`.

@@ -51,6 +51,22 @@ def installed():
         return None, None
 
 
+def stale_copy(here=None):
+    """(this copy's version, the installed version, its path) when this script is an installed copy older than the one Claude
+    Code has installed now: a session that updated the plugin while open keeps its old skills (with this copy's path written
+    in), agent types and hooks until it restarts. None otherwise, and always for a source tree (a developer's copy)"""
+    here = Path(here or HERE)
+    try:
+        mine = json.loads((here.parent / '.claude-plugin' / 'plugin.json').read_text(encoding='utf-8')).get('version')
+    except (OSError, ValueError, AttributeError):
+        return None
+    ver, path = installed()
+    cache = (claude_dir() / 'plugins' / 'cache').resolve()
+    if not mine or not ver or ver == mine or cache not in here.resolve().parents:
+        return None
+    return mine, ver, str(path)
+
+
 def mcp_get(claude):
     """the text of `claude mcp get chatroom`, or None when the command is missing or fails"""
     exe = claude or os.environ.get('CHATROOM_CLAUDE') or shutil.which('claude')
@@ -62,6 +78,22 @@ def mcp_get(claude):
     except (OSError, subprocess.TimeoutExpired):
         return None
     return r.stdout if r.returncode == 0 else None
+
+
+def claude_login_problem(exe=None):
+    """None when the claude CLI is there and logged in; otherwise why not, in the user's words. A headless `claude -p` started
+    while nobody is logged in from the terminal only exits 1 into a log nobody reads: every launch asks this first"""
+    from i18n import say
+    exe = exe or os.environ.get('CHATROOM_CLAUDE') or shutil.which('claude')
+    if not exe:
+        return say('doctor.claude_missing')
+    try:
+        r = subprocess.run([exe, 'auth', 'status', '--json'], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                           stdin=subprocess.DEVNULL, timeout=30)
+        logged = json.loads(r.stdout or '{}').get('loggedIn')
+    except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
+        return None          # shortcut: a claude without `auth status` is let through, its own log says what went wrong
+    return None if logged is True else say('doctor.claude_not_logged_in')
 
 
 def mcp_command(path, env):
@@ -145,6 +177,8 @@ def checks(room=None, claude=None, source=None):
     out.append(('python_ok' if py >= (3, 14) else 'python_old', OK if py >= (3, 14) else WARN, {'version': f'{py[0]}.{py[1]}'},
                 '' if py >= (3, 14) else 'uv run --python 3.14 python chat.py doctor'))
     out.append(('uv_ok', OK, {}, '') if shutil.which('uv') else ('uv_missing', FAIL, {}, 'winget install astral-sh.uv'))
+    login = claude_login_problem(claude)                       # the searchers and the other `claude -p` jobs need it
+    out.append(('claude_login_ok', OK, {}, '') if login is None else ('claude_login', WARN, {'why': login}, 'claude auth login'))
     live = viewers()
     if room and str(Path(room).resolve()) not in live:
         out.append(('viewer_off', WARN, {'room': str(room)}, f'python chat.py serve --room "{room}"'))
@@ -218,7 +252,7 @@ def checks(room=None, claude=None, source=None):
         out.append(('keys', OK if any(keys.values()) else WARN, {'yes': ', '.join(p for p, v in keys.items() if v) or '-',
                                                               'no': ', '.join(p for p, v in keys.items() if not v) or '-'}, ''))
     except Exception as exc:                                   # a broken key store must not stop the doctor
-        out.append(('keys_error', WARN, {'why': type(exc).__name__}, ''))
+        out.append(('keys_error', WARN, {'why': f"{type(exc).__name__}: {getattr(exc, 'name', None) or exc}"}, ''))   # which module, not only its kind
     return out
 
 

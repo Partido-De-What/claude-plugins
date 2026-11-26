@@ -1591,7 +1591,14 @@ const ui = createUI(root, {
   onRun: () => { running = !running; setPref('run', running); },
   onEdit: () => { if (VISIT) return; if (pov) setPov(false); ui.commonPanel(null); select(null); editor.toggle(); },
   onCommonOpen: () => ui.commonOpen() ? ui.commonPanel(null) : openCommon(),
-  onShare: async (action, extra) => { await post('share', {action, ...extra}); pollCommon(); },
+  onShare: async (action, extra) => {                       // a refusal or a crash is said: a silent panel hid a broken lend for a whole evening
+    const r = await post('share', {action, ...extra});
+    if (!r || !r.ok) {
+      const why = r ? (await r.text()).slice(0, 300) || 'HTTP ' + r.status : I18N.text('office.shareOffline');
+      alert(I18N.text('office.shareFailed', {why}));
+    }
+    pollCommon();
+  },
   onJoin: async (url, pin) => { const r = await post('join', url === null ? {leave: true} : {url, pin}); if (r && !r.ok) ui.roomTip(await r.text(), 20, 120); pollCommon(); },
   onCommonWrite: async text => { await post('common/post', {text}); pollCommon(); },
   onGame: async (game, text) => {

@@ -231,9 +231,11 @@
   #lightbox.open { display: grid; animation: fade var(--d-t) ease; }
   @keyframes fade { from { opacity: 0; } }
   #lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--d-r-md); box-shadow: 0 20px 60px rgba(0,0,0,.6); }
-  #attach, #cmdBtn { background: transparent; border: 0; cursor: pointer; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; color: var(--muted); flex: none;
+  #attach, #cmdBtn, #micBtn { background: transparent; border: 0; cursor: pointer; width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; color: var(--muted); flex: none;
                      transition: background var(--d-t-fast), color var(--d-t-fast), transform var(--d-t-fast) var(--d-spring); }
-  #attach:hover, #cmdBtn:hover { background: var(--d-hover); color: var(--text); transform: translateY(-1px); }
+  #attach:hover, #cmdBtn:hover, #micBtn:hover { background: var(--d-hover); color: var(--text); transform: translateY(-1px); }
+  #micBtn.rec { color: #fff; background: #e5484d; animation: mic-pulse 1.4s ease-in-out infinite; }
+  @keyframes mic-pulse { 50% { box-shadow: 0 0 0 7px color-mix(in oklab, #e5484d 30%, transparent); } }
   #cmdBtn.on { color: var(--d-accent); background: color-mix(in oklab, var(--d-accent) 14%, transparent); }
   #pending { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 8px 8px; }
   #pending:empty { display: none; }
@@ -977,6 +979,7 @@ function addFiles(files) {
     reader.readAsDataURL(file);
   }
 }
+window.composerAddFiles = addFiles;            // the frame studio of the Previews view sends its frames here
 async function sendMessage() {
   const text = box.value.trim(); if (!text && !pending.length) return;
   send.disabled = true;
@@ -1399,7 +1402,9 @@ I18N_READY.then(() => loadConfig(true)).then(() => { headroomCheck(); poll(); se
 </script>
 <script src="spawn-view.js"></script>
 <script src="skills-view.js"></script>
+<script src="preview-studio.js"></script>
 <script src="preview-view.js"></script>
+<script src="mic.js"></script>
 <script type="module" src="office.js"></script>
 <script>
 /* the chat column beside the office: narrow when it is under 700 px, whatever the window (the office takes 62% of it) */

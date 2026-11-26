@@ -49,7 +49,8 @@ SUMS = {
 VIAS = ('cloudflared', 'pinggy', 'lan', 'local')
 LINE_MAX = 32000                                         # a common room line: about ten pages
 DOC_MAX = 5 * 1024 * 1024                                # a document: a text file up to 5 MB
-DOC_EXT = {'.md', '.txt', '.json', '.diff', '.patch', '.py', '.js', '.ts', '.csv', '.yaml', '.yml', '.toml', '.sh', '.ps1'}
+DOC_EXT = {'.md', '.txt', '.json', '.diff', '.patch', '.py', '.js', '.mjs', '.ts', '.html', '.htm', '.css', '.csv', '.yaml', '.yml', '.toml', '.sh', '.ps1'}
+REQ_KEYS = ('id', 'guest', 'text', 'ts', 'status', 'helper', 'model', 'effort', 'minutes', 'until')   # a lend request, as share.json keeps it
 NAME = re.compile(r'[A-Za-z0-9_-]{1,24}\Z')
 COLOR = re.compile(r'#[0-9a-fA-F]{6}\Z')
 MAX_BODY = 128 * 1024
@@ -134,6 +135,7 @@ def clean_rt(m):
 
 GONE = 15                                                   # seconds without a word: a guest (or the host) is gone
 LOST = 4                                                   # seconds a guest has heard nothing from the host before the host's figures leave its screen
+OFFLINE = 20                                               # seconds of silence before the guest's panel says the host's viewer looks closed
 GAMES = {'tris': ('new', 'join', 'move', 'quit'), 'morra': ('new', 'join', 'commit', 'reveal', 'quit'), 'dadi': ('roll',), 'tv': ('play', 'pause', 'seek'),
          'pool': ('new', 'join', 'shot', 'quit'), 'pingpong': ('new', 'join', 'quit'), 'foos': ('new', 'join', 'quit'), 'nes': ('new', 'join', 'quit'), 'result': ('add',)}
 RESULT_MATCH = ('tris', 'morra', 'pool', 'pingpong', 'foos')      # games that are won or lost: the board counts wins and points
@@ -362,7 +364,8 @@ class Share:
             return
         with self.lock:
             data = {'via': self.via, 'port': self.port, 'pin': self.pin, 'url': self.url, 'pid': self.tunnel_pid,
-                    'guests': [{'token': t, **{k: g[k] for k in ('name', 'emoji', 'color')}} for t, g in self.guests.items()]}
+                    'guests': [{'token': t, **{k: g[k] for k in ('name', 'emoji', 'color')}} for t, g in self.guests.items()],
+                    'requests': [{k: r[k] for k in REQ_KEYS if k in r} for r in self.requests]}   # a restart once lost them and reused AIUTO1
         tmp = self.state.with_suffix('.tmp')
         tmp.write_text(json.dumps(data), encoding='utf-8')
         os.replace(tmp, self.state)
@@ -393,6 +396,8 @@ class Share:
                 self.guests[str(x['token'])[:100]] = {**person(x), 'agents': [], 'seen': now, 'posts': deque(), 'cids': deque(maxlen=400), 'me': None, 'office': None}
             except (KeyError, TypeError, ValueError):
                 pass
+        self.requests = [{k: r[k] for k in REQ_KEYS if k in r} for r in s.get('requests', [])
+                         if isinstance(r, dict) and isinstance(r.get('id'), int) and r.get('status') in ('pending', 'approved', 'declined')]
         if tunnel:
             self.tunnel_pid = s['pid']
             watch_tunnel(self, self.tunnel_pid, self.state.parent / 'tunnel.log', TUNNEL_URL[self.via])
@@ -537,8 +542,9 @@ class Share:
         with self.lock:
             if sum(1 for r in self.requests if r['guest'] == g['name'] and r['status'] == 'pending') >= 2:
                 raise ValueError(say('share.ask.wait_for_the_host'))
-            r = {'id': len(self.requests) + 1, 'guest': g['name'], 'text': text, 'ts': time.time(), 'status': 'pending'}
+            r = {'id': max((x['id'] for x in self.requests), default=0) + 1, 'guest': g['name'], 'text': text, 'ts': time.time(), 'status': 'pending'}
             self.requests.append(r)
+        self.save()
         if self.on_ask:                                       # the host may have said: lend by yourself
             try:
                 self.on_ask(r)
@@ -567,7 +573,7 @@ class Share:
             if not a or a['status'] != 'pending':
                 raise ValueError(say('share.ask_answer.no_such_pending_ask'))
             if ok:
-                minutes = int(num(minutes or 30, 5, 120))
+                minutes = int(num(minutes or 30, 5, 180))
                 a.update(helper=f"{g['name']}·{person({'name': helper})['name']}", model=str(model or '')[:24], minutes=minutes, until=time.time() + minutes * 60)
             a['status'] = 'approved' if ok else 'declined'
             return {}
@@ -585,7 +591,8 @@ class Share:
             r['status'] = 'approved' if ok else 'declined'
             if ok:
                 r.update(helper=helper, model=model, effort=effort, minutes=minutes, until=time.time() + minutes * 60)
-            return r
+        self.save()
+        return r
 
     def helpers(self):
         """the agents lent right now, still within their time"""
@@ -1083,7 +1090,13 @@ def call(url, path, token=None, body=None, timeout=10):
             msg = json.loads(exc.read().decode('utf-8')).get('error')
         except (ValueError, OSError):
             msg = None
-        raise PermissionError(msg or f'HTTP {exc.code}') if exc.code in (401, 403) else ValueError(msg or f'HTTP {exc.code}')
+        if exc.code in (401, 403):
+            raise PermissionError(msg or f'HTTP {exc.code}')
+        raise (Refused if 400 <= exc.code < 500 and exc.code != 429 else ValueError)(msg or f'HTTP {exc.code}')
+
+
+class Refused(ValueError):
+    """the other side answered 4xx: it would refuse the same line again (a full quota, a bad document), so no retry"""
 
 
 class Bridge:
@@ -1121,7 +1134,7 @@ class Bridge:
 
     def run(self):
         last_presence = last_office = 0
-        sent_me = None
+        sent_me, fails = None, 0
         while not self.stopped.is_set():
             try:
                 lines = self.outgoing()
@@ -1183,16 +1196,22 @@ class Bridge:
                         self.on_asks(fresh)
                     except Exception:
                         pass
-                self.error = None
+                self.error, fails = None, 0
             except PermissionError as exc:
                 self.error = say('share.run.closed_by_the_host', exc=exc)
                 self.people, self.requests, self.asks = [], [], []                  # the host's side is gone: its figures leave at once
                 break
             except (ValueError, OSError) as exc:
-                self.error = str(exc)
-                if time.time() - self.heard > LOST:
+                fails += 1
+                quiet = time.time() - self.heard
+                # the host's viewer closed (its sharing lives in it): say so in words, not a socket error, and keep trying
+                self.error = say('share.run.host_offline', s=int(quiet)) if quiet > OFFLINE else str(exc)
+                if quiet > LOST:
                     self.people = []
-            self.stopped.wait(0.3)                             # often enough for the figures to walk smoothly
+            # often enough for the figures to walk smoothly (and to leave within seconds when the host stops); past OFFLINE seconds of
+            # silence slower and slower, up to one call every 10 s (it was 3 calls a second for 21 minutes)
+            off = fails and time.time() - self.heard > OFFLINE
+            self.stopped.wait(min(10.0, 0.3 * 2 ** min(fails, 6)) if off else 0.3)
         (self.dir / 'link.json').unlink(missing_ok=True)
 
     def rt_send(self, m):
@@ -1265,6 +1284,9 @@ class Bridge:
                                                                   'data': base64.b64encode(data).decode('ascii')}, timeout=60)
                     continue
                 call(self.url, '/share/post', self.token, line)
+            except Refused as exc:                              # refused for good: dropped and said, the queue goes on (it stuck there forever)
+                self.error = say('share.push.refused', exc=exc)
+                continue
             except (ValueError, OSError):                       # a timeout may have delivered it: the cid keeps it single
                 rest = lines[k:]
                 sending.write_text(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in rest), encoding='utf-8')

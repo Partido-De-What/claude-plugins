@@ -14,7 +14,8 @@
   const ICON = p => `<svg class="pv-i" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
   const IC = {view: ICON('<rect x="3" y="4" width="18" height="13" rx="2.5"/><path d="M8 21h8M12 17v4"/>'), zoom: ICON('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M11 8.5v5M8.5 11h5"/>'),
     on: ICON('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 010 6M18 6.5a7.5 7.5 0 010 11"/>'), off: ICON('<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>'),
-    reload: ICON('<path d="M20 12a8 8 0 10-2.5 5.8"/><path d="M20 5v5h-5"/>'), out: ICON('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>')};
+    reload: ICON('<path d="M20 12a8 8 0 10-2.5 5.8"/><path d="M20 5v5h-5"/>'), lens: ICON('<circle cx="10" cy="10" r="6.5"/><path d="M20 20l-5.2-5.2"/><circle cx="10" cy="10" r="2.2"/>'),
+    snap: ICON('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'), out: ICON('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5"/>')};
   const css = document.createElement('style');
   css.textContent = `
   #previewView { --pv-chk1: color-mix(in oklab, var(--d-text) 9%, transparent); --pv-chk2: color-mix(in oklab, var(--d-text) 3%, var(--d-card2));
@@ -125,8 +126,10 @@
   function tileHtml(p, st) {
     const z = p.kind === 'image' ? `<button class="pv-ic${st.z ? ' on' : ''}" data-pv="zoom" title="${esc(I18N.text('previewv.zoom'))}">${IC.zoom}</button>` : '';
     const snd = p.kind === 'video' || p.kind === 'audio' ? `<button class="pv-ic${st.snd ? ' on' : ''}" data-pv="snd" title="${esc(I18N.text('previewv.sound'))}">${st.snd ? IC.on : IC.off}</button>` : '';
+    const tools = p.kind === 'audio' || p.missing ? '' : `<button class="pv-ic${st.lens ? ' on' : ''}" data-pv="lens" title="${esc(I18N.text('previewv.lensTip'))}">${IC.lens}</button>`
+      + `<button class="pv-ic" data-pv="snap" title="${esc(I18N.text('previewv.snapTip'))}">${IC.snap}</button>`;
     return `<div class="pv-head" data-pv="focus" title="${esc(I18N.text('previewv.focusTip'))}"><span class="pv-av" style="--h:${hue(p.agent)}">${esc(String(p.agent).charAt(0).toUpperCase())}</span><span class="pv-name">${esc(p.agent)}</span>`
-      + `<span class="pv-file">${esc(p.title || '')}</span><span class="pv-sub" data-ago>${esc(ago(p.mtime))}</span>${z}${snd}`
+      + `<span class="pv-file">${esc(p.title || '')}</span><span class="pv-sub" data-ago>${esc(ago(p.mtime))}</span>${z}${snd}${tools}`
       + `<button class="pv-ic" data-pv="reload" title="${esc(I18N.text('previewv.reload'))}">${IC.reload}</button><a class="pv-ic" data-pv="out" target="_blank" rel="noopener noreferrer" href="${SAFE.test(String(p.src || '')) && !/^data:/i.test(p.src) ? esc(p.src) : '#'}" title="${esc(I18N.text('previewv.open'))}">${IC.out}</a></div>`
       + `<div class="pv-body">${bodyHtml(p, st)}<div class="pv-cover" data-pv="focus"></div></div>`;
   }
@@ -142,6 +145,7 @@
       const key = p.kind + '|' + p.src + '|' + p.mtime + '|' + (p.missing ? 1 : 0);
       if (t.key !== key) {
         const again = !!t.p; t.p = p; t.key = key; t.el.innerHTML = tileHtml(p, t); applySound(t);
+        if (t.lens && window.previewStudio) window.previewStudio.lens(t.el, p, true);       // the lens survives a live reload
         if (again) { t.el.classList.remove('fresh'); void t.el.offsetWidth; t.el.classList.add('fresh'); }   // a live reload: the ring flashes once
       }
       else { const a = t.el.querySelector('[data-ago]'); if (a) a.textContent = ago(p.mtime); }
@@ -184,15 +188,23 @@
     else if (a === 'focus' && tile) { PV.focus = PV.focus === tile.dataset.agent ? null : tile.dataset.agent; sync(); }
     else if (a === 'reload' && st) { st.key = ''; sync(); }
     else if (a === 'zoom' && st) { st.z = !st.z; st.key = ''; sync(); }
+    else if (a === 'lens' && st && window.previewStudio) {
+      st.lens = !st.lens; t.classList.toggle('on', st.lens);
+      window.previewStudio.lens(st.el, st.p, st.lens).then(ok => { if (!ok && st.lens) { st.lens = false; t.classList.remove('on'); } });
+    }
+    else if (a === 'snap' && st && window.previewStudio) window.previewStudio.snap(st.el, st.p, t);
     else if (a === 'snd' && st) { st.snd = !st.snd; st.el.querySelector('[data-pv=snd]').innerHTML = st.snd ? IC.on : IC.off; st.el.querySelector('[data-pv=snd]').classList.toggle('on', st.snd); applySound(st); }
   });
   addEventListener('keydown', e => {
-    if (!PV.open || e.key !== 'Escape') return;
+    if (!PV.open) return;
+    if (window.previewStudio && window.previewStudio.key(e)) { e.preventDefault(); return; }
+    if (e.key !== 'Escape') return;
     if (PV.focus) { PV.focus = null; sync(); } else open(false);
   });
 
   function open(on) {
     PV.open = !!on;
+    if (!PV.open && window.previewStudio) window.previewStudio.stop();   // the tab capture ends with the view
     document.body.classList.toggle('pv-open', PV.open);
     btn.classList.toggle('on', PV.open);
     const u = new URL(location.href);

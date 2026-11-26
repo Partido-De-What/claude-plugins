@@ -217,12 +217,16 @@ def _prova():
     code = ("import sys,time; sys.path.insert(0, sys.argv[1]); import machine\n"
             "with machine.machine_lock(sys.argv[2]):\n    print('in', sys.argv[2], flush=True); time.sleep(float(sys.argv[3]))\n")
     here = str(Path(__file__).resolve().parent)
-    first = subprocess.Popen([sys.executable, '-c', code, here, 'A', '2'], stdout=subprocess.PIPE, text=True)
+    first = subprocess.Popen([sys.executable, '-c', code, here, 'A', '6'], stdout=subprocess.PIPE, text=True)
     assert first.stdout.readline().strip() == 'in A'
+    def queued(n):                                        # a busy machine starts a Python in more than a second: wait for it, not a fixed time
+        end = time.time() + 15
+        while len(queue()) < n and time.time() < end:
+            time.sleep(0.1)
     second = subprocess.Popen([sys.executable, '-c', code, here, 'B', '0'], stdout=subprocess.PIPE, text=True)
-    time.sleep(0.6)
+    queued(1)
     third = subprocess.Popen([sys.executable, '-c', code, here, 'C', '0'], stdout=subprocess.PIPE, text=True)
-    time.sleep(0.6)
+    queued(2)
     assert [e['label'] for e in queue()] == ['B', 'C'], queue()
     edit_queue(lambda q: q.reverse())                     # the lead moves C first
     second.wait(), third.wait(), first.wait()

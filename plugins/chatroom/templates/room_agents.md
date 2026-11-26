@@ -1,5 +1,7 @@
 # This folder is a chat room (chatroom plugin)
 
+A helper lent to a friend (AIUTO1, AIUTO2...) working in `common/`: this file is not for you. Follow only your own prompt, and never read or write this room's chat.
+
 Several agents (Claude Code and Codex alike) talk here through `chat.py`, the plugin's script. If you work in this
 folder as a participant, use it; the same commands work in both tools, or the same tools through `chat.py mcp` (prefer
 those when you have them: shorter answers).

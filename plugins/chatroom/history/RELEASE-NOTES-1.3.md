@@ -85,6 +85,37 @@ Fixes from a night research room that ran heavy GPU jobs for hours.
 - **Silent by default.** Every page of the office opens with the sound off, also after you turned it on last time: your
   levels stay, and the sound comes back from the mixer.
 
+## 1.3.5
+
+- **Lending an agent to a friend works.** The lend button never lent: a name in the viewer's code shadowed the lend
+  function and every lend ended in an error the panel did not show. Now the panel says why a share action fails, a
+  lend can last up to three hours, and lend requests survive a restart of the viewer (kept in `common/share.json`),
+  so a second helper no longer gets the name AIUTO1 again and writes over the first one's prompt. A helper's folder is
+  named after the helper (`common/help-aiuto2`).
+- **When the host closes the viewer.** The friend's panel says the host's viewer looks closed instead of a socket
+  error, and it asks less and less often (one call every 10 s at most, it was three a second). A line the host
+  refuses for good is dropped and said, instead of blocking the queue forever. A helper that posts in `common/` is told
+  when the room's viewer is off.
+- **`post --common`** refuses `--status`, `--idle` and `--finding` (a helper's status reached the friend's chat as raw
+  JSON), keeps `--reply N`, sends the words beside `--file` as a line of their own, and says when a long text is cut.
+  Documents in `.mjs`, `.html` and `.css` keep their extension.
+- **The user never waits for the room's pace.** A message of the user wakes the lead at once (friends and other leads
+  keep the pace).
+- **A relay that is down** is said in a last short line after every post of the lead, so `post | tail -1` shows it too.
+- **`heavy -- "the whole command"`** works again as before 1.3.3.
+- **Updated with the session open.** `init` from an old copy of the plugin says that skills, agent types and hooks
+  stay old until Claude Code restarts, and the update skill says not to open rooms before the restart.
+- **Claude not logged in.** The searchers, the reflect of the closing and the Claude arm of `spawn consult` check
+  `claude auth status` first and say it, instead of a job that dies in its log; the doctor has a line for it.
+- **Previews: lens and frame studio.** Each tile has a lens (wheel to zoom) and a studio: 31 frames around the moment
+  of a video, the picture itself, or two seconds of a page filmed through the browser's tab capture. Pick one or more
+  frames, make one sharper, draw with a pen or a highlighter, and send them to the chat as attachments. Preview videos
+  can be sought (the server answers byte ranges).
+- **Microphone.** A button beside Attach dictates into the message box through the browser's speech recognition;
+  where there is none (the desktop app's pane) it puts the cursor in the box and says to use Windows dictation, Win+H.
+- **Small ones.** `inbox.py --help` and unknown options behave; the lead's guide says `--until-tag` belongs to
+  `inbox.py`; the doctor names the module missing for the spawn keys; `read --since #N` with nothing new says so.
+
 ## What I did not do
 
 - The gate runs only on the timed wakes of the relay; messages that need the lead still wake it at once.

@@ -541,7 +541,13 @@ def launch_searcher(room, req):
 
 
 def launch(cmd, prompt, cwd, log):
-    """start the process with the prompt on stdin and its output in a log; no window, not tied to the viewer's console"""
+    """start the process with the prompt on stdin and its output in a log; no window, not tied to the viewer's console.
+    A claude that is not logged in is refused here, so the panel says why instead of a job that dies in its log"""
+    if Path(cmd[0]).stem.lower() == 'claude':
+        import doctor
+        problem = doctor.claude_login_problem(cmd[0])
+        if problem:
+            raise OSError(problem)
     with open(log, 'wb') as f:
         proc = subprocess.Popen(cmd, cwd=str(cwd), stdin=subprocess.PIPE, stdout=f, stderr=subprocess.STDOUT,
                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))

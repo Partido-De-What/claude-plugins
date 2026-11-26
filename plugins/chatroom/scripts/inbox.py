@@ -267,9 +267,14 @@ def _prova():
 
 
 if __name__ == '__main__':
-    if '--prova' in sys.argv:
+    import argparse                                   # an unknown word was ignored and --help started listening for good
+    ap = argparse.ArgumentParser(prog='inbox.py', description="the room's alarm clock: one line per message that tags this session or that the user wrote")
+    ap.add_argument('--once', action='store_true', help='print what is waiting now and exit')
+    ap.add_argument('--until-tag', action='store_true', help='exit after the first line (run it in the background: its exit is the wake)')
+    ap.add_argument('--prova', action='store_true', help='self-test')
+    args = ap.parse_args()
+    if args.prova:
         _prova()
         sys.exit(0)
     sys.stdout.reconfigure(encoding='utf-8')
-    sys.exit(watch(os.environ.get('CLAUDE_CODE_SESSION_ID', ''), os.getcwd(), harness_pid(), once='--once' in sys.argv,
-                   until='--until-tag' in sys.argv))
+    sys.exit(watch(os.environ.get('CLAUDE_CODE_SESSION_ID', ''), os.getcwd(), harness_pid(), once=args.once, until=args.until_tag))
